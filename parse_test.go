@@ -1,6 +1,7 @@
 package evml
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -210,6 +211,14 @@ tf 02 evt Bad ->> 01 { "a": { }
 `)
 	if err == nil {
 		t.Fatal("expected parse error")
+	}
+	// Go 1.26: errors.AsType[T] replaces the two-step var+errors.As pattern.
+	pe, ok := errors.AsType[*ParseError](err)
+	if !ok {
+		t.Fatalf("expected *ParseError, got %T", err)
+	}
+	if pe.Line == 0 {
+		t.Fatalf("ParseError should carry a non-zero line number, got %d", pe.Line)
 	}
 }
 

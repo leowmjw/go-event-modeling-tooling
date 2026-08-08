@@ -29,7 +29,7 @@ needing to read every source file first.
 
 ## Toolchain
 
-- **Go 1.24** (declared in `go.mod` and `.mise.toml`).
+- **Go 1.26** (declared in `go.mod` and `.mise.toml`).
 - **mise** manages the Go toolchain and the `air` hot-reload binary.
 - No external frameworks — the standard library only.
 
@@ -64,6 +64,8 @@ needing to read every source file first.
 - Use the custom `ParseError{Line, Msg}` type for parser errors so callers can
   report line numbers.
 - Wrap with `fmt.Errorf("context: %w", err)` only when adding context.
+- Use **`errors.AsType[T]`** (Go 1.26) instead of the old two-step
+  `var pe *T; errors.As(err, &pe)` pattern when type-asserting errors.
 
 ### Tests
 - File: `*_test.go` next to the file under test, same package (`package evml`).
