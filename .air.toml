@@ -1,0 +1,14 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o tmp/evml ./cmd/evml"
+bin = "tmp/evml"
+include_ext = ["go"]
+exclude_dir = ["tmp", "testdata", "bin"]
+
+[log]
+time = true
+
+[misc]
+clean_on_exit = true

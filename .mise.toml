@@ -1,0 +1,15 @@
+[tools]
+go = "1.26"
+"go:github.com/air-verse/air" = "latest"
+
+[tasks.build]
+description = "Compile the evml CLI binary"
+run = "go build -o bin/evml ./cmd/evml"
+
+[tasks.test]
+description = "Run all unit tests"
+run = "go test ./..."
+
+[tasks.dev]
+description = "Run the evml CLI with air for automatic reload on source change"
+run = "air -c .air.toml"
