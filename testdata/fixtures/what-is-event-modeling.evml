@@ -1,0 +1,84 @@
+eventmodeling
+
+// Hotel Booking System - https://eventmodeling.org/posts/what-is-event-modeling/
+//
+// Colors rendered by the SVG renderer:
+//   ui  (wireframe screens) -> salmon   #f8d4bc / #d38e5f
+//   cmd (commands)          -> blue     #bcd6fe / #679ac3
+//   evt (events)            -> green    #d3f1a2 / #84af49
+//   rmo (read models)       -> blue     #bcd6fe / #679ac3
+//   pcr (processors)        -> salmon   #f8d4bc / #d38e5f
+
+tf 01 ui SearchRoomsScreen
+tf 02 cmd SearchRooms { roomType: "double", checkIn: "2024-06-01", checkOut: "2024-06-05" }
+tf 03 evt RoomsSearched { roomType: "double", available: 3 }
+tf 04 rmo RoomList [[RoomList04]]
+
+tf 05 ui BookRoomScreen
+tf 06 cmd BookRoom { roomId: "r-42", guestId: "g-7" }
+tf 07 evt RoomBooked [[RoomBooked07]]
+tf 08 rmo BookingConfirmation [[Confirmation08]]
+
+tf 09 ui CheckInDesk
+tf 10 cmd CheckIn { bookingId: "b-1" }
+tf 11 evt GuestCheckedIn { bookingId: "b-1", roomId: "r-42" }
+tf 12 rmo RoomStatus { status: "occupied" }
+
+tf 13 ui CheckOutDesk
+tf 14 cmd CheckOut { bookingId: "b-1" }
+tf 15 evt GuestCheckedOut { bookingId: "b-1" }
+tf 16 pcr BillingProcessor ->> 15
+tf 17 cmd TakePayment { bookingId: "b-1", amount: 400 }
+tf 18 evt PaymentTaken { bookingId: "b-1", amount: 400 }
+tf 19 rmo Invoice [[Invoice19]]
+
+data RoomList04 {
+  rooms: [
+    { id: "r-42", type: "double", price: 100 }
+    { id: "r-55", type: "double", price: 110 }
+  ]
+}
+
+data RoomBooked07 {
+  roomId: "r-42"
+  guestId: "g-7"
+  checkIn: "2024-06-01"
+  checkOut: "2024-06-05"
+}
+
+data Confirmation08 {
+  bookingId: "b-1"
+  roomId: "r-42"
+  checkIn: "2024-06-01"
+  checkOut: "2024-06-05"
+}
+
+data Invoice19 {
+  bookingId: "b-1"
+  nights: 4
+  amount: 400
+}
+
+gwt 07 "book available room"
+  given
+    evt RoomsSearched { roomType: "double", available: 3 }
+  when
+    cmd BookRoom { roomId: "r-42", guestId: "g-7" }
+  then
+    evt RoomBooked { roomId: "r-42", guestId: "g-7" }
+
+gwt 11 "check in guest"
+  given
+    evt RoomBooked { roomId: "r-42" }
+  when
+    cmd CheckIn { bookingId: "b-1" }
+  then
+    evt GuestCheckedIn { bookingId: "b-1", roomId: "r-42" }
+
+gwt 18 "payment on check out"
+  given
+    evt GuestCheckedOut { bookingId: "b-1" }
+  when
+    cmd TakePayment { amount: 400 }
+  then
+    evt PaymentTaken { bookingId: "b-1", amount: 400 }
