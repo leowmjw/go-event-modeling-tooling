@@ -1,0 +1,230 @@
+eventmodeling
+
+// Flight Arrival & Post-Flight Settlement
+//
+// Bounded contexts (left → right across time):
+//   Operations  →  Compensation  →  Finance  →  Marketing
+//
+// Ubiquitous language disambiguation:
+//   "On-Time Arrival" in Operations  = wheels-down timestamp
+//   "On-Time Arrival" in Compensation = gate-door-open timestamp
+//   "Customer" in Finance             = entity with a billable account
+//   "Customer" in Marketing           = anyone who visited the booking page
+//
+// Translation processors at every context boundary prevent context collapse.
+
+// ── Operations bounded context ───────────────────────────────────────────────
+tf 01 ui FlightDeck
+tf 02 rmo FlightStatus [[FlightStatus02]]
+tf 03 cmd RecordWheelsDown { flightId: "HLT-421", wheelsTouchTime: "2024-06-15T14:32:00Z", aircraftId: "N42HL" }
+tf 04 evt WheelsDownRecorded { flightId: "HLT-421", wheelsTouchTime: "2024-06-15T14:32:00Z", aircraftId: "N42HL", boundedContext: "Operations" }
+tf 05 cmd RecordGateArrival { flightId: "HLT-421", gateDoorOpenTime: "2024-06-15T14:47:00Z", gateId: "B12" }
+tf 06 evt GateOpened { flightId: "HLT-421", gateDoorOpenTime: "2024-06-15T14:47:00Z", gateId: "B12", boundedContext: "Operations" }
+tf 07 rmo ArrivalBoard [[ArrivalBoard07]]
+
+// ── Compensation bounded context ─────────────────────────────────────────────
+rf 08 evt Operations.GateOpened { flightId: "HLT-421", gateDoorOpenTime: "2024-06-15T14:47:00Z" }
+tf 09 pcr CompensationTranslator ->> 08
+tf 10 cmd EvaluateDelay { flightId: "HLT-421", scheduledArrival: "2024-06-15T14:30:00Z", actualArrivalTime: "2024-06-15T14:47:00Z", onTimeDefinition: "gate_door_open" }
+tf 11 evt DelayEvaluated { flightId: "HLT-421", delayMinutes: 17, isDelayed: true, onTimeThresholdMinutes: 15, boundedContext: "Compensation" }
+tf 12 cmd CalculateCompensation { flightId: "HLT-421", delayMinutes: 17, affectedPassengerIds: ["pax-1", "pax-2", "pax-3"] }
+tf 13 evt CompensationCalculated { flightId: "HLT-421", totalCompensationAmount: 510.00, perPassengerAmount: 170.00, currency: "USD", affectedPassengerIds: ["pax-1", "pax-2", "pax-3"] }
+tf 14 rmo DelayClaimSummary [[DelayClaimSummary14]]
+
+// ── Finance bounded context ──────────────────────────────────────────────────
+rf 15 evt Compensation.CompensationCalculated { flightId: "HLT-421", totalCompensationAmount: 510.00, affectedPassengerIds: ["pax-1", "pax-2", "pax-3"] }
+tf 16 pcr FinanceTranslator ->> 15
+tf 17 cmd ApproveDisbursement { flightId: "HLT-421", totalAmount: 510.00, billingAccountIds: ["acc-pax1", "acc-pax2", "acc-pax3"], customerDefinition: "billable_account" }
+tf 18 evt DisbursementApproved { flightId: "HLT-421", disbursementId: "disb-9901", totalAmount: 510.00, approvedAt: "2024-06-15T15:10:00Z", boundedContext: "Finance" }
+tf 19 cmd IssuePayout { disbursementId: "disb-9901", paymentRails: "ACH", scheduledDate: "2024-06-16" }
+tf 20 evt PayoutIssued { disbursementId: "disb-9901", paymentRails: "ACH", scheduledDate: "2024-06-16", totalAmount: 510.00 }
+tf 21 rmo FinanceSettlementReport [[FinanceSettlementReport21]]
+
+// ── Marketing bounded context ─────────────────────────────────────────────────
+rf 22 evt Finance.PayoutIssued { disbursementId: "disb-9901", flightId: "HLT-421", totalAmount: 510.00 }
+tf 23 pcr MarketingTranslator ->> 22
+tf 24 cmd TagDelayedTravelers { flightId: "HLT-421", travelerIds: ["visitor-a", "visitor-b", "visitor-c"], segmentTag: "delayed_flight_2024_06", customerDefinition: "booking_page_visitor" }
+tf 25 evt DelayedTravelerTagged { flightId: "HLT-421", segmentTag: "delayed_flight_2024_06", travelerCount: 3 }
+tf 26 cmd SendRecoveryOffer { segmentTag: "delayed_flight_2024_06", offerId: "offer-77", channel: "email" }
+tf 27 evt RecoveryOfferSent { segmentTag: "delayed_flight_2024_06", offerId: "offer-77", sentAt: "2024-06-15T16:00:00Z" }
+tf 28 rmo MarketingCampaignDashboard { activeCampaigns: 1, targetedTravelers: 3, offersSent: 3 }
+
+// ── No-delay path: Operations directly closes without crossing into Compensation
+rf 29 evt Operations.WheelsDownRecorded { flightId: "HLT-421", wheelsTouchTime: "2024-06-15T14:28:00Z" }
+tf 30 pcr OntimeVerifier ->> 29
+tf 31 cmd CloseFlightOnTime { flightId: "HLT-421", closedAt: "2024-06-15T14:28:00Z", reason: "on_time_wheels_down" }
+tf 32 evt FlightClosedOnTime { flightId: "HLT-421", closedAt: "2024-06-15T14:28:00Z" }
+tf 33 rmo FlightClosureRecord { flightId: "HLT-421", status: "on_time", closedAt: "2024-06-15T14:28:00Z" }
+
+data FlightStatus02 {
+  flightId: "HLT-421"
+  origin: "JFK"
+  destination: "LAX"
+  scheduledArrival: "2024-06-15T14:30:00Z"
+  currentStatus: "in_flight"
+  aircraftId: "N42HL"
+}
+
+data ArrivalBoard07 {
+  flightId: "HLT-421"
+  gateId: "B12"
+  gateDoorOpenTime: "2024-06-15T14:47:00Z"
+  displayStatus: "ARRIVED"
+}
+
+data DelayClaimSummary14 {
+  flightId: "HLT-421"
+  delayMinutes: 17
+  affectedPassengers: [
+    { passengerId: "pax-1", compensationAmount: 170.00 }
+    { passengerId: "pax-2", compensationAmount: 170.00 }
+    { passengerId: "pax-3", compensationAmount: 170.00 }
+  ]
+  totalCompensation: 510.00
+  currency: "USD"
+  status: "pending_disbursement"
+}
+
+data FinanceSettlementReport21 {
+  disbursementId: "disb-9901"
+  flightId: "HLT-421"
+  totalAmount: 510.00
+  paymentRails: "ACH"
+  scheduledDate: "2024-06-16"
+  status: "approved"
+  billingAccounts: [
+    { accountId: "acc-pax1", amount: 170.00 }
+    { accountId: "acc-pax2", amount: 170.00 }
+    { accountId: "acc-pax3", amount: 170.00 }
+  ]
+}
+
+// ── GWT scenarios ─────────────────────────────────────────────────────────────
+
+gwt 03 "record wheels-down for an in-flight aircraft"
+  given
+    evt FlightDeparted { flightId: "HLT-421", origin: "JFK" }
+  when
+    cmd RecordWheelsDown { flightId: "HLT-421", wheelsTouchTime: "2024-06-15T14:32:00Z", aircraftId: "N42HL" }
+  then
+    evt WheelsDownRecorded { flightId: "HLT-421", wheelsTouchTime: "2024-06-15T14:32:00Z" }
+
+gwt 03 "reject duplicate wheels-down recording"
+  given
+    evt WheelsDownRecorded { flightId: "HLT-421", wheelsTouchTime: "2024-06-15T14:32:00Z" }
+  when
+    cmd RecordWheelsDown { flightId: "HLT-421", wheelsTouchTime: "2024-06-15T14:33:00Z", aircraftId: "N42HL" }
+  then
+    evt WheelsDownRejected { flightId: "HLT-421", reason: "already_recorded" }
+
+gwt 05 "record gate arrival after wheels-down"
+  given
+    evt WheelsDownRecorded { flightId: "HLT-421", wheelsTouchTime: "2024-06-15T14:32:00Z" }
+  when
+    cmd RecordGateArrival { flightId: "HLT-421", gateDoorOpenTime: "2024-06-15T14:47:00Z", gateId: "B12" }
+  then
+    evt GateOpened { flightId: "HLT-421", gateDoorOpenTime: "2024-06-15T14:47:00Z", gateId: "B12" }
+
+gwt 05 "reject gate arrival without prior wheels-down"
+  given
+    evt FlightDeparted { flightId: "HLT-421", origin: "JFK" }
+  when
+    cmd RecordGateArrival { flightId: "HLT-421", gateDoorOpenTime: "2024-06-15T14:47:00Z", gateId: "B12" }
+  then
+    evt GateArrivalRejected { flightId: "HLT-421", reason: "wheels_down_not_recorded" }
+
+gwt 10 "evaluate as delayed when gate-door time exceeds threshold (Compensation context)"
+  given
+    evt Operations.GateOpened { flightId: "HLT-421", gateDoorOpenTime: "2024-06-15T14:47:00Z" }
+  when
+    cmd EvaluateDelay { flightId: "HLT-421", scheduledArrival: "2024-06-15T14:30:00Z", actualArrivalTime: "2024-06-15T14:47:00Z", onTimeDefinition: "gate_door_open" }
+  then
+    evt DelayEvaluated { flightId: "HLT-421", delayMinutes: 17, isDelayed: true }
+
+gwt 10 "evaluate as on-time when gate-door time is within threshold"
+  given
+    evt Operations.GateOpened { flightId: "HLT-421", gateDoorOpenTime: "2024-06-15T14:44:00Z" }
+  when
+    cmd EvaluateDelay { flightId: "HLT-421", scheduledArrival: "2024-06-15T14:30:00Z", actualArrivalTime: "2024-06-15T14:44:00Z", onTimeDefinition: "gate_door_open" }
+  then
+    evt DelayEvaluated { flightId: "HLT-421", delayMinutes: 14, isDelayed: false }
+
+gwt 12 "calculate compensation for delayed passengers"
+  given
+    evt DelayEvaluated { flightId: "HLT-421", delayMinutes: 17, isDelayed: true }
+  when
+    cmd CalculateCompensation { flightId: "HLT-421", delayMinutes: 17, affectedPassengerIds: ["pax-1", "pax-2", "pax-3"] }
+  then
+    evt CompensationCalculated { flightId: "HLT-421", totalCompensationAmount: 510.00, perPassengerAmount: 170.00 }
+
+gwt 12 "skip compensation when flight is on time"
+  given
+    evt DelayEvaluated { flightId: "HLT-421", delayMinutes: 14, isDelayed: false }
+  when
+    cmd CalculateCompensation { flightId: "HLT-421", delayMinutes: 14, affectedPassengerIds: [] }
+  then
+    evt CompensationSkipped { flightId: "HLT-421", reason: "on_time" }
+
+gwt 17 "approve disbursement for billable account holders (Finance context)"
+  given
+    evt Compensation.CompensationCalculated { flightId: "HLT-421", totalCompensationAmount: 510.00 }
+  when
+    cmd ApproveDisbursement { flightId: "HLT-421", totalAmount: 510.00, billingAccountIds: ["acc-pax1", "acc-pax2", "acc-pax3"], customerDefinition: "billable_account" }
+  then
+    evt DisbursementApproved { flightId: "HLT-421", disbursementId: "disb-9901", totalAmount: 510.00 }
+
+gwt 17 "reject disbursement when no billable account exists"
+  given
+    evt Compensation.CompensationCalculated { flightId: "HLT-421", totalCompensationAmount: 170.00 }
+  when
+    cmd ApproveDisbursement { flightId: "HLT-421", totalAmount: 170.00, billingAccountIds: [], customerDefinition: "billable_account" }
+  then
+    evt DisbursementRejected { flightId: "HLT-421", reason: "no_billable_account" }
+
+gwt 19 "issue payout via ACH after disbursement approval"
+  given
+    evt DisbursementApproved { disbursementId: "disb-9901", totalAmount: 510.00 }
+  when
+    cmd IssuePayout { disbursementId: "disb-9901", paymentRails: "ACH", scheduledDate: "2024-06-16" }
+  then
+    evt PayoutIssued { disbursementId: "disb-9901", totalAmount: 510.00, scheduledDate: "2024-06-16" }
+
+gwt 19 "reject payout when disbursement is not yet approved"
+  given
+    evt Compensation.CompensationCalculated { flightId: "HLT-421", totalCompensationAmount: 510.00 }
+  when
+    cmd IssuePayout { disbursementId: "disb-9901", paymentRails: "ACH", scheduledDate: "2024-06-16" }
+  then
+    evt PayoutRejected { disbursementId: "disb-9901", reason: "disbursement_not_approved" }
+
+gwt 24 "tag delayed travelers as booking-page visitors (Marketing context)"
+  given
+    evt Finance.PayoutIssued { disbursementId: "disb-9901", flightId: "HLT-421" }
+  when
+    cmd TagDelayedTravelers { flightId: "HLT-421", travelerIds: ["visitor-a", "visitor-b", "visitor-c"], segmentTag: "delayed_flight_2024_06", customerDefinition: "booking_page_visitor" }
+  then
+    evt DelayedTravelerTagged { flightId: "HLT-421", segmentTag: "delayed_flight_2024_06", travelerCount: 3 }
+
+gwt 24 "skip tagging when no visitors match the flight"
+  given
+    evt Finance.PayoutIssued { disbursementId: "disb-9901", flightId: "HLT-421" }
+  when
+    cmd TagDelayedTravelers { flightId: "HLT-421", travelerIds: [], segmentTag: "delayed_flight_2024_06", customerDefinition: "booking_page_visitor" }
+  then
+    evt TravelerTaggingSkipped { flightId: "HLT-421", reason: "no_matching_visitors" }
+
+gwt 31 "close flight on-time via wheels-down path"
+  given
+    evt Operations.WheelsDownRecorded { flightId: "HLT-421", wheelsTouchTime: "2024-06-15T14:28:00Z" }
+  when
+    cmd CloseFlightOnTime { flightId: "HLT-421", closedAt: "2024-06-15T14:28:00Z", reason: "on_time_wheels_down" }
+  then
+    evt FlightClosedOnTime { flightId: "HLT-421", closedAt: "2024-06-15T14:28:00Z" }
+
+gwt 31 "reject closure when wheels-down is missing"
+  given
+    evt FlightDeparted { flightId: "HLT-421", origin: "JFK" }
+  when
+    cmd CloseFlightOnTime { flightId: "HLT-421", closedAt: "2024-06-15T14:28:00Z", reason: "on_time_wheels_down" }
+  then
+    evt FlightClosureRejected { flightId: "HLT-421", reason: "wheels_down_not_recorded" }
