@@ -309,3 +309,207 @@ gwt <id> "scenario label"
 | Unbalanced braces in payload | Count `{` and `}` — they must match |
 | Reusing the same frame ID | Each `tf`/`rf` must have a unique numeric ID |
 | Putting a command after another command without an event | Insert an `evt` in between — commands react to events or UI actions |
+
+---
+
+## Event Modeling Best Practices & Cheatsheet
+
+> Synthesised from eventmodelers.ai, the official Event Modeling cheat sheet
+> (eventmodeling.org), and community sources.  Use this section as a reference
+> when deciding *what* to model and *how* to model it well.
+
+---
+
+### Principles
+
+#### 1. Complete Picture
+Model the *entire* flow left-to-right — from the first user intention all the
+way to the last read model.  Do not leave gaps.  If you cannot draw a
+continuous path from trigger to view, the system is not fully understood yet.
+
+#### 2. Information Completeness
+**A view can only be built from existing events.**  If a read model needs a
+field that no event carries, the event model is incomplete.  Ask: *"Is this
+data recorded somewhere on the event stream?"*  If the answer is no, add an
+event or enrich an existing one.
+
+#### 3. Ubiquitous Language
+Every name — commands, events, read models, screens — must use the business
+domain vocabulary that *all* stakeholders share.  Non-technical participants
+must be able to read the model and understand it without translation.
+
+- ✅ `OrderPlaced`, `GuestCheckedIn`, `PaymentRefunded`
+- ❌ `UpdateOccurred`, `DataChanged`, `RecordSaved`
+
+#### 4. Events Are Immutable Facts
+Events describe *what happened*, not what to do.  They are written once and
+never mutated.  The entire current state of the system can be rebuilt by
+replaying the event stream from the beginning.
+
+---
+
+### The Four Patterns
+
+| Pattern | Flow | Who initiates | Purpose |
+|---|---|---|---|
+| **Command** | UI → `cmd` → `evt` | Human user | Record a state change triggered by intent |
+| **View** | `evt`(s) → `rmo` | System projection | Build a read model from past events |
+| **Automation** | `evt` → `pcr` → `cmd` → `evt` | Automated processor | React to events without human intervention |
+| **Translation** | External `evt` → `rf` → `pcr` → `cmd` → `evt` | External system boundary | Adapt an outside event into the internal model |
+
+#### Command Pattern (State Change)
+```
+[Screen] → cmd VerbNoun → evt NounPastTensed
+```
+- Every state change starts with a human or system **trigger**.
+- A command expresses **intent**; it may be rejected (no event emitted).
+- An event is **always** the result of a successful command — it is the durable fact.
+
+#### View Pattern (State Query)
+```
+evt NounPastTensed → rmo NounList / NounDetail
+```
+- Read models are *projections* — they are derived entirely from events.
+- A read model never writes; it never triggers a command.
+- If a screen needs data, trace back to the event that carries it.
+
+#### Automation Pattern (Processor / Robot)
+```
+evt NounPastTensed → pcr NounProcessor → cmd VerbNoun → evt NounPastTensed
+```
+- The processor (`pcr`) replaces the human — it reads an event and issues a
+  command automatically.
+- Use `->>` to wire the processor to its source event(s) explicitly.
+- A processor may consume **multiple** source events (`->> 05 ->> 06`).
+
+#### Translation Pattern (External Boundary)
+```
+rf ExternalNamespace.EventName → pcr TranslatorName → cmd InternalVerbNoun → evt InternalNounPastTensed
+```
+- Use a **reset frame** (`rf`) to mark where an external event enters.
+- A translator processor maps the external schema to the internal ubiquitous
+  language — the rest of the model never sees the external format.
+- Use `Namespace.EventName` dot-notation to signal the external boundary.
+
+---
+
+### Swimlane Organisation
+
+```
+┌─────────────────────────────────────┐
+│  UI / Automation (ui, pcr)          │  ← salmon / orange
+├─────────────────────────────────────┤
+│  Command / Read Model (cmd, rmo)    │  ← blue
+├─────────────────────────────────────┤
+│  Events (evt)                       │  ← green
+└─────────────────────────────────────┘
+```
+
+Rules:
+- Time flows **left to right**.  Earlier steps are on the left.
+- A frame belongs to the swimlane of its entity type — the renderer places it
+  automatically.
+- Processors (`pcr`) sit in the **UI/Automation** lane because they act like
+  automated users.
+- Keep swimlanes narrow — if a lane is very tall, you have too many frame types
+  in one step; split the flow.
+
+---
+
+### Slices & Scenarios
+
+A **slice** is a vertical cut through the timeline covering one coherent user
+story, e.g. "Book a Room".  Slices:
+- Have a clear start (a UI screen or external trigger) and end (a read model
+  the user or system can observe).
+- Map directly to development tasks: one slice = one sprint story.
+- Can be modelled and implemented independently.
+
+A **scenario** (`gwt`) is the specification for one slice variant:
+
+| Section | Meaning | DSL keyword |
+|---|---|---|
+| **Given** | Past events that set up the starting state | `given` |
+| **When** | The command being issued (the action) | `when` |
+| **Then** | The event(s) that result | `then` |
+
+Write **at minimum two scenarios per command**:
+1. The **happy path** — the normal successful case.
+2. At least one **edge/rejection path** — what happens when the precondition
+   is not met (e.g. room already booked, insufficient funds, duplicate entry).
+
+---
+
+### Event Naming Rules
+
+| Rule | Example |
+|---|---|
+| Always **past tense** | `RoomBooked` not `BookRoom` |
+| Business language, not technical | `GuestCheckedIn` not `StatusUpdated` |
+| Noun + past-tense verb | `OrderPlaced`, `PaymentFailed`, `InvoiceSent` |
+| Specific, not generic | `InventoryReserved` not `RecordChanged` |
+| No abbreviations unless universal | `OrderId` not `OId` |
+
+---
+
+### Command Naming Rules
+
+| Rule | Example |
+|---|---|
+| **Imperative verb + noun** | `BookRoom`, `AddToCart`, `CheckIn` |
+| Expresses **intent**, not result | `SubmitOrder` not `OrderWasSubmitted` |
+| Named from the *user's* perspective | `RequestRefund` not `ProcessRefund` |
+
+---
+
+### Read Model Naming Rules
+
+| Rule | Example |
+|---|---|
+| **Noun** — what the user *sees* | `RoomList`, `BookingConfirmation`, `Invoice` |
+| Use `List`, `Summary`, `Detail`, `Dashboard` suffixes | `CartSummary`, `OrderDetail` |
+| Never a verb | `RoomList` not `ListRooms` |
+
+---
+
+### State Store vs State Transfer
+
+| Concept | State Store (CRUD) | State Transfer (Event Sourcing) |
+|---|---|---|
+| What is saved | Current snapshot only | Append-only log of all events |
+| Auditability | Lost on update | Full history preserved |
+| Reconstructibility | Not possible | Any past state can be replayed |
+| Event Modeling fit | ⚠ Partial (lose history) | ✅ Full fit |
+
+Event Modeling naturally leads to **state transfer** — the event stream *is*
+the source of truth.  Read models are ephemeral projections that can be rebuilt
+at any time.
+
+---
+
+### Information Completeness Checklist
+
+Before finalising the `.evml` file, verify:
+
+- [ ] Every read model (`rmo`) can be built solely from events already in the model.
+- [ ] Every command has at least one event that results from it.
+- [ ] Every event name is past tense and uses domain language.
+- [ ] Every processor has an explicit source event (`->>`) and produces a command.
+- [ ] Every external boundary is a reset frame (`rf`) with a namespaced event.
+- [ ] At least two `gwt` scenarios exist per command (happy + edge/rejection).
+- [ ] No field appears in a view without a corresponding event carrying it.
+- [ ] All names are understandable to a non-technical domain expert.
+
+---
+
+### Pattern Selection Guide
+
+When a user describes a behaviour, pick the pattern:
+
+| Description | Pattern |
+|---|---|
+| "User clicks / submits / fills a form" | **Command** — `ui` → `cmd` → `evt` |
+| "The screen shows / displays / lists" | **View** — `evt` → `rmo` |
+| "The system automatically sends / schedules / retries" | **Automation** — `evt` → `pcr` → `cmd` → `evt` |
+| "An email arrives / a webhook fires / an API calls us" | **Translation** — `rf` + `pcr` → internal `cmd` → `evt` |
+| "Users from another system" | **Translation** — use `Namespace.EventName` |
