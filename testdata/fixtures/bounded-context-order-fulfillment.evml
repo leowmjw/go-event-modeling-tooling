@@ -1,0 +1,120 @@
+eventmodeling
+
+// Correctly modeled business process with explicit bounded-context boundaries.
+// Main user flow stays inside Sales until a durable fact crosses into another
+// context through a reset frame.
+
+// ── Sales bounded context ────────────────────────────────────────────────────
+tf 01 ui CheckoutScreen
+tf 02 rmo CartSummary [[CartSummary02]]
+tf 03 cmd PlaceOrder { cartId: "c-100", customerId: "cust-7", total: 125.00 }
+tf 04 evt OrderPlaced { orderId: "ord-100", customerId: "cust-7", total: 125.00 }
+tf 05 rmo OrderStatus [[OrderStatus05]]
+
+// ── Billing bounded context ──────────────────────────────────────────────────
+rf 06 evt Sales.OrderPlaced { orderId: "ord-100", total: 125.00 }
+tf 07 pcr BillingTranslator ->> 06
+tf 08 cmd AuthorizePayment { orderId: "ord-100", amount: 125.00, paymentMethodId: "pm-9" }
+tf 09 evt PaymentAuthorized { orderId: "ord-100", authorizationId: "auth-1", amount: 125.00 }
+tf 10 rmo PaymentStatus { orderId: "ord-100", status: "authorized" }
+
+// ── Fulfillment bounded context ──────────────────────────────────────────────
+rf 11 evt Billing.PaymentAuthorized { orderId: "ord-100", amount: 125.00 }
+tf 12 pcr FulfillmentTranslator ->> 11
+tf 13 cmd AllocateShipment { orderId: "ord-100", warehouseId: "wh-1" }
+tf 14 evt ShipmentAllocated { orderId: "ord-100", shipmentId: "sh-55", warehouseId: "wh-1" }
+tf 15 rmo ShipmentQueue [[ShipmentQueue15]]
+
+// ── Billing failure translated back into Sales ───────────────────────────────
+rf 16 evt Billing.PaymentDeclined { orderId: "ord-100", reason: "insufficient_funds" }
+tf 17 pcr SalesRecoveryTranslator ->> 16
+tf 18 cmd CancelOrder { orderId: "ord-100", reason: "payment_declined" }
+tf 19 evt OrderCancelled { orderId: "ord-100", reason: "payment_declined" }
+tf 20 rmo CancelledOrderStatus { orderId: "ord-100", status: "cancelled" }
+
+data CartSummary02 {
+  cartId: "c-100"
+  customerId: "cust-7"
+  items: [
+    { sku: "sku-1", qty: 1, unitPrice: 75.00 }
+    { sku: "sku-2", qty: 1, unitPrice: 50.00 }
+  ]
+  total: 125.00
+}
+
+data OrderStatus05 {
+  orderId: "ord-100"
+  customerId: "cust-7"
+  status: "pending_payment"
+}
+
+data ShipmentQueue15 {
+  shipmentId: "sh-55"
+  orderId: "ord-100"
+  warehouseId: "wh-1"
+  status: "queued_for_picking"
+}
+
+gwt 03 "place order from a priced cart"
+  given
+    evt CartPriced { cartId: "c-100", total: 125.00 }
+  when
+    cmd PlaceOrder { cartId: "c-100", customerId: "cust-7", total: 125.00 }
+  then
+    evt OrderPlaced { orderId: "ord-100", customerId: "cust-7", total: 125.00 }
+
+gwt 03 "reject order when cart has no priced items"
+  given
+    evt CartPriced { cartId: "c-100", total: 0.00 }
+  when
+    cmd PlaceOrder { cartId: "c-100", customerId: "cust-7", total: 0.00 }
+  then
+    evt OrderPlacementRejected { cartId: "c-100", reason: "empty_cart" }
+
+gwt 08 "authorize payment for a newly placed order"
+  given
+    evt Sales.OrderPlaced { orderId: "ord-100", total: 125.00 }
+  when
+    cmd AuthorizePayment { orderId: "ord-100", amount: 125.00, paymentMethodId: "pm-9" }
+  then
+    evt PaymentAuthorized { orderId: "ord-100", authorizationId: "auth-1", amount: 125.00 }
+
+gwt 08 "decline payment when issuer rejects the charge"
+  given
+    evt Sales.OrderPlaced { orderId: "ord-100", total: 125.00 }
+  when
+    cmd AuthorizePayment { orderId: "ord-100", amount: 125.00, paymentMethodId: "pm-9" }
+  then
+    evt PaymentDeclined { orderId: "ord-100", reason: "issuer_declined" }
+
+gwt 13 "allocate shipment after payment is authorized"
+  given
+    evt Billing.PaymentAuthorized { orderId: "ord-100", amount: 125.00 }
+  when
+    cmd AllocateShipment { orderId: "ord-100", warehouseId: "wh-1" }
+  then
+    evt ShipmentAllocated { orderId: "ord-100", shipmentId: "sh-55", warehouseId: "wh-1" }
+
+gwt 13 "defer shipment when inventory is not available"
+  given
+    evt Billing.PaymentAuthorized { orderId: "ord-100", amount: 125.00 }
+  when
+    cmd AllocateShipment { orderId: "ord-100", warehouseId: "wh-1" }
+  then
+    evt ShipmentAllocationDeferred { orderId: "ord-100", reason: "inventory_unavailable" }
+
+gwt 18 "cancel order after payment declines"
+  given
+    evt Billing.PaymentDeclined { orderId: "ord-100", reason: "insufficient_funds" }
+  when
+    cmd CancelOrder { orderId: "ord-100", reason: "payment_declined" }
+  then
+    evt OrderCancelled { orderId: "ord-100", reason: "payment_declined" }
+
+gwt 18 "ignore cancellation when order is already cancelled"
+  given
+    evt OrderCancelled { orderId: "ord-100", reason: "payment_declined" }
+  when
+    cmd CancelOrder { orderId: "ord-100", reason: "payment_declined" }
+  then
+    evt OrderCancellationIgnored { orderId: "ord-100", reason: "already_cancelled" }
