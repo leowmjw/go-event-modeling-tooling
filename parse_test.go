@@ -228,7 +228,7 @@ tf 01 ui UI
 tf 02 cmd Make
 tf 03 evt Made
 tf 04 rmo Read ->> 03
-tf 05 pcr Proc ->> 04
+tf 05 pcr Proc ->> 03
 tf 06 ui Done ->> 04
 `)
 	if err != nil {

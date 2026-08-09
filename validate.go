@@ -27,7 +27,7 @@ func allowedSources(target EntityType) (map[EntityType]bool, string, string) {
 	case EntityReadModel:
 		return map[EntityType]bool{EntityEvent: true}, "read model", "event"
 	case EntityProcessor:
-		return map[EntityType]bool{EntityReadModel: true}, "processor", "read model"
+		return map[EntityType]bool{EntityEvent: true, EntityReadModel: true}, "processor", "event or read model"
 	case EntityUI:
 		return map[EntityType]bool{EntityReadModel: true}, "ui", "read model"
 	default:

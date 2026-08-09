@@ -13,3 +13,21 @@ run = "go test -v -race ./..."
 [tasks.dev]
 description = "Run the evml CLI with air for automatic reload on source change"
 run = "air -c .air.toml"
+
+[tasks.svg]
+description = "Re-render SVGs for fixtures that changed since their last render (out/); pass --all to force every fixture"
+depends = ["build"]
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p out
+force=0
+[ "${1:-}" = "--all" ] && force=1
+for f in testdata/fixtures/*.evml; do
+  name="$(basename "$f" .evml)"
+  svg="out/${name}.svg"
+  if [ "$force" = 1 ] || [ ! -f "$svg" ] || [ "$f" -nt "$svg" ]; then
+    ./bin/evml svg "$f" -d out
+  fi
+done
+'''

@@ -34,6 +34,12 @@ Then ask **one follow-up round** to discover:
 - Are there background jobs, bots, or integrations? → processors (`pcr`)
 - Are there any external systems that trigger behaviour? → reset frames (`rf`)
 
+> **Rule — "no question, no read model":** only create an `rmo` frame when you
+> can name the single question it answers (e.g. "what rooms are available?").
+> If you can't state the question, it isn't a read model — either drop it or
+> it's really a screen (`ui`) or a data payload on an existing frame. Never
+> create an `rmo` "just in case" or as a generic passthrough for an event.
+
 ---
 
 ## Step 2 — Map to entity types
@@ -374,18 +380,47 @@ evt NounPastTensed → rmo NounList / NounDetail
 - If a screen needs data, trace back to the event that carries it.
 
 #### Automation Pattern (Processor / Robot)
+
+Canonical shape (per eventmodelers.ai): the processor watches a **read
+model**, not the raw event —
+
+```
+evt NounPastTensed → rmo NounModel → pcr NounProcessor → cmd VerbNoun → evt NounPastTensed
+```
+
+This repo also supports a **shorthand** that skips the intermediate read
+model when there's nothing worth projecting — the processor sources
+straight off the event:
+
 ```
 evt NounPastTensed → pcr NounProcessor → cmd VerbNoun → evt NounPastTensed
 ```
-- The processor (`pcr`) replaces the human — it reads an event and issues a
-  command automatically.
-- Use `->>` to wire the processor to its source event(s) explicitly.
-- A processor may consume **multiple** source events (`->> 05 ->> 06`).
+
+- The processor (`pcr`) replaces the human — it watches an event or a read
+  model (e.g. an agent inspecting a tool-call result) and issues a command
+  automatically.
+- Use `->>` to wire the processor to its source frame(s) explicitly.
+- A processor may consume **multiple** sources (`->> 05 ->> 06`), mixing `evt`
+  and `rmo` frames as needed.
+- Prefer the canonical (via-`rmo`) shape when the processor's decision
+  depends on *derived/aggregated* state (e.g. "3 failed attempts"); use the
+  shorthand when it reacts to a single raw fact.
 
 #### Translation Pattern (External Boundary)
+
+Canonical shape — the translator also watches a read model built from the
+external event, not the raw external event itself:
+
+```
+rf ExternalNamespace.EventName → rmo NounModel → pcr TranslatorName → cmd InternalVerbNoun → evt InternalNounPastTensed
+```
+
+Shorthand (translator sources directly off the reset frame):
+
 ```
 rf ExternalNamespace.EventName → pcr TranslatorName → cmd InternalVerbNoun → evt InternalNounPastTensed
 ```
+
 - Use a **reset frame** (`rf`) to mark where an external event enters.
 - A translator processor maps the external schema to the internal ubiquitous
   language — the rest of the model never sees the external format.
@@ -440,6 +475,25 @@ Write **at minimum two scenarios per command**:
 
 ---
 
+### Anti-Patterns to Spot
+
+> From the eventmodelers.ai cheat sheet.  Check the model against these
+> before finalising — each one is a smell that the slice boundaries or
+> responsibilities are drawn wrong.
+
+| Anti-pattern | Shape | What it means | Fix |
+|---|---|---|---|
+| **Left Chair** | One `cmd` → many unrelated `evt` | The command is doing too much, or the events belong to different decisions | Split the command, or move unrelated events to their own command (see corner-case pattern §3, "one decision = one command + event pair") |
+| **Right Chair** | Many unrelated `evt` → one `rmo` | The read model is answering more than one question | Split into separate read models, one per question |
+| **Bed** | One `ui` → many `cmd` | The screen is doing the work of several screens | Split the screen, or consolidate the commands if they're really one intent |
+| **Shelf** | Some slices have many `gwt` scenarios, others have none | Uneven scenario coverage — usually means part of the model wasn't actually worked through | Revisit under-covered slices; ask "is there a rule we didn't cover?" three times |
+
+See the **"no question, no read model"** rule in Step 1 and the "One read
+model = one question" rule under Read Model Naming Rules — this
+anti-pattern is what happens when that discipline is skipped.
+
+---
+
 ### Event Naming Rules
 
 | Rule | Example |
@@ -469,6 +523,15 @@ Write **at minimum two scenarios per command**:
 | **Noun** — what the user *sees* | `RoomList`, `BookingConfirmation`, `Invoice` |
 | Use `List`, `Summary`, `Detail`, `Dashboard` suffixes | `CartSummary`, `OrderDetail` |
 | Never a verb | `RoomList` not `ListRooms` |
+| **Answers exactly one question** | `RoomList` answers "which rooms are available?" — it does not also answer "who booked what?" |
+
+**One read model = one question.** Before naming an `rmo` frame, write down
+the question it answers in plain language. If you need "and" to describe
+it ("shows the cart *and* the user's order history"), split it into two
+read models. This is the same discipline as the "Right Chair" anti-pattern
+below — a read model folding events that answer *different* questions is a
+sign the model needs to be split, not that the read model is doing its job
+well.
 
 ---
 
@@ -492,6 +555,7 @@ at any time.
 Before finalising the `.evml` file, verify:
 
 - [ ] Every read model (`rmo`) can be built solely from events already in the model.
+- [ ] Every read model (`rmo`) answers exactly one named question — no "no question, no read model" violations.
 - [ ] Every command has at least one event that results from it.
 - [ ] Every event name is past tense and uses domain language.
 - [ ] Every processor has an explicit source event (`->>`) and produces a command.

@@ -40,6 +40,7 @@ needing to read every source file first.
 | Build CLI | `mise run build` |
 | Run all tests | `mise run test` |
 | Dev (hot reload) | `mise run dev` |
+| Re-render changed fixture SVGs into `out/` | `mise run svg` (`-- --all` forces every fixture) |
 | Direct test run | `go test ./...` |
 | Direct build | `go build -o bin/evml ./cmd/evml` |
 
@@ -99,6 +100,33 @@ needing to read every source file first.
 3. Add a `case` in `frameColors` in `render.go`.
 4. Add a `case` in `SwimlaneBand` in `model.go`.
 5. Add at least one fixture and a targeted test.
+
+---
+
+## Validation semantics (learned 2026-08, cross-checked against eventmodelers.ai)
+
+- `ValidateConnections` in `validate.go` is the single source of truth for
+  which entity types may feed which — see `allowedSources`. It shipped with
+  a bug (processor only accepted `rmo` sources, rejecting the documented
+  `evt → pcr` shorthand); fixed to accept **both** `evt` and `rmo` as
+  processor sources, since both shapes are legitimate:
+  - Canonical (per the official cheatsheet): `evt → rmo → pcr → cmd → evt` —
+    the processor watches a read model.
+  - Shorthand (used throughout this repo's fixtures): `evt → pcr → cmd →
+    evt` — the processor watches the raw event directly.
+- **"No question, no read model"** — do not model `rmo` frames that aren't
+  answering a specific, nameable question, and do not use `rmo` as a
+  generic placeholder for "external data entering the system" (that's what
+  `rf ... evt ...` is for). See `SKILL.md` §"Anti-Patterns to Spot" and the
+  Read Model Naming Rules for the full rule and the fixture cleanup example
+  (`testdata/fixtures/agent-workflow-from-discord.evml`).
+- When touching `allowedSources` or the four-pattern descriptions, update
+  both `validate.go`'s error strings and the corresponding prose in
+  `EVENT_MODELING.md` / `SKILL.md` together — they're expected to agree.
+- Four notation features from the eventmodelers.ai cheat sheet have no DSL
+  equivalent yet: hotspots, actor lanes, chapters, slice status tags. Grammar
+  sketches and rationale live in `EVENT_MODELING.md` §12 — read that before
+  proposing new keywords for any of these.
 
 ---
 

@@ -1,19 +1,20 @@
 eventmodeling
 
-tf 01 rmo Pending_Questions { How many invoices were sent out yesterday? }
-tf 02 pcr Agent_A
-tf 03 cmd InvokeModel { question }
-tf 04 evt InvocationCompleted
-tf 05 rmo InvocationResult { callTool: findInvoices }
-rf 06 rmo Invoices
-tf 07 pcr Agent_A ->> 05 ->> 06
-tf 08 cmd InvokeModel { toolResult }
-tf 09 evt InvocationCompleted
-tf 10 rmo Answers [[Answers10]]
-rf 11 rmo InvocationResult
-tf 12 pcr AgentB
+tf 01 ui DiscordScreen
+tf 02 cmd AskQuestion { question: "How many invoices were sent out yesterday?" }
+tf 03 evt QuestionAsked { question: "How many invoices were sent out yesterday?" }
+tf 04 pcr Agent_A ->> 03
+tf 05 cmd InvokeModel { question }
+tf 06 evt InvocationCompleted
+tf 07 rmo InvocationResult { callTool: findInvoices }
+
+rf 08 evt External.InvoicesFound { count: 2, customers: ["X", "Y"] }
+tf 09 pcr Agent_A ->> 07 ->> 08
+tf 10 cmd InvokeModel { toolResult }
+tf 11 evt InvocationCompleted
+tf 12 rmo Answers [[Answers10]]
 
 data Answers10 {
-  2 invoices were sent out 
+  2 invoices were sent out
   yesterday to customers X and Y
 }
