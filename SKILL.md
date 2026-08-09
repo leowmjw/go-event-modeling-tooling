@@ -513,3 +513,203 @@ When a user describes a behaviour, pick the pattern:
 | "The system automatically sends / schedules / retries" | **Automation** — `evt` → `pcr` → `cmd` → `evt` |
 | "An email arrives / a webhook fires / an API calls us" | **Translation** — `rf` + `pcr` → internal `cmd` → `evt` |
 | "Users from another system" | **Translation** — use `Namespace.EventName` |
+
+---
+
+## Advanced corner-case patterns
+
+The patterns below were distilled from modelling the *Flight Arrival &
+Post-Flight Settlement* domain, where a single business process spans four
+bounded contexts (Operations → Compensation → Finance → Marketing).  Apply
+them whenever a flow crosses context boundaries or has non-trivial failure paths.
+
+---
+
+### 1. Per-context completeness — every branch must close in every context it touches
+
+**Rule:** When a workflow branch (e.g. "flight is on time") bypasses a later
+bounded context, that context still needs a terminal outcome recorded in its
+own state history.  An open case with no terminal event is a data-model gap.
+
+**Anti-pattern:** Operations emits `FlightClosedOnTime`; Compensation context
+is never notified — its state history has no closure record.
+
+**Fix:** Emit an `rf` boundary event from Operations into Compensation, then
+use a `*ClosureProcessor` to issue a `Close*Case` command that records the
+terminal `*CaseClosed` event.
+
+```evml
+rf 17 evt Operations.FlightClosedOnTime { flightId: "HLT-421" }
+tf 18 pcr CompensationClosureProcessor ->> 17
+tf 19 cmd CloseCompensationCase { flightId: "HLT-421", reason: "on_time_no_claim" }
+tf 20 evt CompensationCaseClosed { flightId: "HLT-421", reason: "on_time_no_claim" }
+```
+
+---
+
+### 2. Processor as decision guard — suppression belongs in `pcr`, not in a command
+
+**Rule:** When a rule *prevents* a command from being issued (e.g. skip delay
+evaluation because the flight is on time), the guard belongs in the **processor**
+that decides whether to emit the command.  A command that accepts empty args and
+self-rejects hides a decision in the wrong layer.
+
+**Anti-pattern:**
+```evml
+// Wrong — command self-rejects when list is empty
+tf 12 cmd CalculateCompensation { delayMinutes: 14, affectedPassengerIds: [] }
+tf 13 evt CompensationSkipped { reason: "on_time" }
+```
+
+**Fix — processor emits a suppression event; the command is never issued:**
+```evml
+tf 09 pcr CompensationProcessor ->> 08
+// When gate-door delta ≤ threshold the processor emits:
+//   evt DelayEvaluationSuppressed { reason: "within_on_time_threshold" }
+// and does NOT emit the EvaluateDelay command at all.
+```
+
+GWT for the guard lives on the *processor* frame ID, not on the command frame:
+```evml
+gwt 09 "CompensationProcessor suppresses evaluation for on-time arrivals"
+  given
+    evt Operations.GateOpened { gateDoorOpenTime: "...", scheduledArrival: "..." }
+  when
+    cmd EvaluateDelay { onTimeDefinition: "gate_door_open", delayMinutes: 14 }
+  then
+    evt DelayEvaluationSuppressed { reason: "within_on_time_threshold" }
+```
+
+---
+
+### 3. State transition atomicity — one decision = one command + event pair
+
+**Rule:** Each distinct decision step is a separate transition in State History
+(`Previous State → New State → Transition Time`).  Never merge two decisions
+into one command.
+
+**Anti-pattern:** `CalculateCompensation` implicitly checks eligibility and
+calculates an amount in one step — hiding the eligibility-determination transition.
+
+**Fix:** Introduce `VerifyPassengerEligibility → PassengerEligibilityVerified`
+*before* `CalculateCompensation`:
+
+```evml
+tf 12 cmd VerifyPassengerEligibility { flightId: "HLT-421", passengerIds: ["pax-1", "pax-2"] }
+tf 13 evt PassengerEligibilityVerified { eligibleIds: ["pax-1"], ineligibleIds: ["pax-2"] }
+tf 14 cmd CalculateCompensation { flightId: "HLT-421", eligiblePassengerIds: ["pax-1"] }
+tf 15 evt CompensationCalculated { totalCompensationAmount: 170.00 }
+```
+
+This makes the ineligibility decision visible, auditable, and independently
+testable via its own GWT scenarios.
+
+---
+
+### 4. Partial failure feedback — batches need partial-rejection `rf` loops
+
+**Rule:** When a context processes a *batch* and only some items are rejected,
+the rejected subset must be carried back across the context boundary via its own
+named `rf`.  All-or-nothing `rf` events miss the partial case.
+
+**Anti-pattern:** Finance emits either `DisbursementApproved` (all) or
+`DisbursementRejected` (all) — no event for the mixed case.
+
+**Fix:**
+```evml
+// Happy path — fully approved
+tf 25 evt DisbursementApproved { totalAmount: 510.00 }
+
+// Partial rejection fed back to Compensation
+rf 35 evt Finance.PartialDisbursementRejected {
+  rejectedPassengerIds: ["pax-3"], rejectedAmount: 170.00, reason: "no_billable_account"
+}
+tf 36 pcr CompensationRecoveryTranslator ->> 35
+tf 37 cmd EscalateUnresolvedClaim { passengerIds: ["pax-3"], amount: 170.00 }
+tf 38 evt ClaimEscalated { passengerIds: ["pax-3"], amount: 170.00 }
+```
+
+---
+
+### 5. Actor-response terminal states — `sent` is not a terminal state
+
+**Rule:** When the system sends something to a human actor (email, offer,
+notification), the *response* is a distinct state that must be recorded.
+`RecoveryOfferSent` is not a terminal state — `RecoveryOfferAccepted` and
+`RecoveryOfferDeclined` are.
+
+**Anti-pattern:** Model ends at `RecoveryOfferSent`.
+
+**Fix:** Add a `ui` response screen, a `RespondTo*` command, and separate
+outcome events for each response branch:
+
+```evml
+tf 47 ui RecoveryOfferResponseScreen
+tf 48 cmd RespondToRecoveryOffer { offerId: "offer-77", travelerId: "visitor-a", response: "accepted" }
+tf 49 evt RecoveryOfferAccepted { offerId: "offer-77", travelerId: "visitor-a" }
+tf 50 rmo MarketingConversionReport { acceptedCount: 1, declinedCount: 0 }
+```
+
+GWT must cover both branches:
+```evml
+gwt 48 "traveler accepts recovery offer"
+  given
+    evt RecoveryOfferSent { offerId: "offer-77" }
+  when
+    cmd RespondToRecoveryOffer { offerId: "offer-77", response: "accepted" }
+  then
+    evt RecoveryOfferAccepted { offerId: "offer-77" }
+
+gwt 48 "traveler declines recovery offer"
+  given
+    evt RecoveryOfferSent { offerId: "offer-77" }
+  when
+    cmd RespondToRecoveryOffer { offerId: "offer-77", response: "declined" }
+  then
+    evt RecoveryOfferDeclined { offerId: "offer-77" }
+```
+
+---
+
+### 6. Async external-integration failure — model the full reversal lifecycle
+
+**Rule:** Integrations with external payment rails (ACH, SWIFT, card networks)
+can fail *asynchronously* after `PayoutIssued`.  State History must capture
+every transition: `issued → failed → reversed → reissued`.
+
+**Anti-pattern:** Model ends at `PayoutIssued` — no path for ACH returns.
+
+**Fix:** Add a reset frame for the asynchronous failure event, then route
+through a recovery processor:
+
+```evml
+rf 29 evt Finance.PayoutFailed { disbursementId: "disb-9901", failureCode: "R03" }
+tf 30 pcr PayoutRecoveryProcessor ->> 29
+tf 31 cmd ReverseAndReissuePayout { disbursementId: "disb-9901", newPaymentRails: "WIRE" }
+tf 32 evt PayoutReversed { disbursementId: "disb-9901", failureCode: "R03" }
+tf 33 evt PayoutReissued { disbursementId: "disb-9901", newPaymentRails: "WIRE" }
+```
+
+GWT rejection scenario — guard against reversing an already-reversed payout:
+```evml
+gwt 31 "reject reissuance when already reversed"
+  given
+    evt PayoutReversed { disbursementId: "disb-9901" }
+  when
+    cmd ReverseAndReissuePayout { disbursementId: "disb-9901" }
+  then
+    evt PayoutReversalRejected { reason: "already_reversed" }
+```
+
+---
+
+### Updated Information Completeness Checklist (advanced)
+
+Add these checks after the standard checklist in Step 7:
+
+- [ ] **Per-context closure:** every bounded context a branch *passes through* has a terminal event — not just the main happy path.
+- [ ] **No command self-rejection:** suppression decisions live in the processor, not in a command with empty/invalid arguments.
+- [ ] **One transition per decision:** eligibility checks, validation steps, and calculations are separate command+event pairs.
+- [ ] **Partial failure `rf`:** if a context processes a batch, a named `rf` handles partial rejection back to the source context.
+- [ ] **Actor-response terminals:** every `*Sent` event has corresponding `*Accepted` / `*Declined` (or equivalent) outcome events and GWT scenarios.
+- [ ] **Async integration failures:** every external-rails payout/send frame has a failure `rf` path covering reversal and reissuance.

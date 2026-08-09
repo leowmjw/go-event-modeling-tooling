@@ -277,6 +277,22 @@ entity Hotel.Room
 
 All comment styles are ignored by the parser.
 
+> **Parser restriction:** comments are only valid at the *top level* — between
+> top-level declarations (`tf`, `rf`, `data`, `gwt`, etc.).  Do **not** place
+> a comment line between two `gwt` blocks or anywhere inside a `gwt` block body.
+> The parser will attempt to parse the comment as a frame declaration and emit
+> `unknown entity type "//"`.  Annotate `gwt` blocks with label strings instead:
+>
+> ```evml
+> gwt 12 "happy path — all passengers eligible"
+>   given ...
+>   then  ...
+>
+> gwt 12 "edge case — passenger already compensated"
+>   given ...
+>   then  ...
+> ```
+
 ---
 
 ## 9. Identifier rules
