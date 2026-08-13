@@ -135,3 +135,22 @@ needing to read every source file first.
 - Add a `//nolint` directive without a comment explaining why.
 - Commit binary output (`bin/`, `tmp/`) — they are gitignored.
 - Change the `.evml` DSL grammar without updating `EVENT_MODELING.md`.
+
+---
+
+## `cmd/evmlweb` — local web app (nested module, dependency exception)
+
+`cmd/evmlweb` is a standalone local web app (Go + [Datastar](https://data-star.dev) +
+the [Kronk](https://www.kronkai.com) SDK for local LLM inference) that lets non-technical
+domain experts build and iterate on `.evml` event models conversationally. It has its
+**own `go.mod`** (`github.com/leowmjw/go-event-modeling-tooling/cmd/evmlweb`, with a
+`replace` pointing at the repo root) specifically so it can depend on
+`github.com/ardanlabs/kronk` and `github.com/starfederation/datastar-go` without
+pulling either into the root module's dependency graph — `go get
+github.com/leowmjw/go-event-modeling-tooling` (the `evml` library) stays zero-dependency.
+The "no third-party packages" rule above applies to the root module only; `cmd/evmlweb`
+manages its own dependencies via its own `go.mod`/`go.sum`.
+
+Build/run it independently of the root toolchain: `cd cmd/evmlweb && go run .`. It reuses
+`evml.Parse` / `evml.ValidateConnections` / `evml.RenderSVG` unchanged and writes activated
+drafts straight into `testdata/fixtures/`, so it never needs to modify the core library.

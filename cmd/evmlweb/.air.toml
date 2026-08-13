@@ -1,0 +1,15 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o tmp/evmlweb ."
+entrypoint = "tmp/evmlweb"
+full_bin = "tmp/evmlweb -repo-root ../.. -addr localhost:8080"
+include_ext = ["go", "gohtml"]
+exclude_dir = ["tmp", "static", ".state"]
+
+[log]
+time = true
+
+[misc]
+clean_on_exit = true

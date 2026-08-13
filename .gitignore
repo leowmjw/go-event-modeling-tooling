@@ -40,3 +40,6 @@ go.work.sum
 # Ignore mise
 mise.local.toml
 
+cmd/evmlweb/.state/
+cmd/evmlweb/bin/
+cmd/evmlweb/tmp/

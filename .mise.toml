@@ -14,6 +14,11 @@ run = "go test -v -race ./..."
 description = "Run the evml CLI with air for automatic reload on source change"
 run = "air -c .air.toml"
 
+[tasks.webapp]
+description = "Start the evmlweb local event-modeling web app with hot reload (Datastar + Kronk-backed chat)"
+run = "air -c .air.toml"
+dir = "cmd/evmlweb"
+
 [tasks.svg]
 description = "Re-render SVGs for fixtures that changed since their last render (out/); pass --all to force every fixture"
 depends = ["build"]
