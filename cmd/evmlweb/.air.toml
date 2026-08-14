@@ -7,6 +7,11 @@ entrypoint = "tmp/evmlweb"
 full_bin = "tmp/evmlweb -repo-root ../.. -addr localhost:8080"
 include_ext = ["go", "gohtml"]
 exclude_dir = ["tmp", "static", ".state"]
+# Send SIGTERM (not SIGKILL) so main.go's graceful shutdown can release the
+# listening socket before air starts the rebuilt binary; wait long enough
+# for that shutdown to actually finish.
+send_interrupt = true
+kill_delay = "1s"
 
 [log]
 time = true

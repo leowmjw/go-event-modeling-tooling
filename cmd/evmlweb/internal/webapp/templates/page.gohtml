@@ -5,25 +5,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Event Modeling Studio</title>
   <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/debug.js"></script>
   <script type="module" src="/static/datastar.js"></script>
 </head>
 <body>
-  <header class="topbar" data-signals-model="'{{.ModelID}}'">
+  <header class="topbar" data-signals:model="'{{.ModelID}}'"{{if .ActiveFlow}} data-signals:flow="'{{.ActiveFlow}}'"{{end}}>
     <div class="brand">Event Modeling Studio</div>
 
     <label class="picker">
       <span>Current model</span>
-      <select data-on-change="@post('/model')" data-bind-model>
+      <select data-on:change="@post('/model')" data-bind:model>
         {{range .Models}}
         <option value="{{.ID}}" {{if eq .ID $.ModelID}}selected{{end}}>{{.ID}} ({{.SizeHuman}})</option>
         {{end}}
       </select>
     </label>
 
-    <form class="picker" data-on-submit__prevent="@post('/flow/select')">
+    <form class="picker" data-on:submit__prevent="@post('/flow/select', {payload: {model: $model, flow: $flow, newFlowName: $newFlowName}})">
       <label>
         <span>Flow</span>
-        <select data-bind-flow name="flow">
+        <select data-bind:flow>
           <option value="">Select a flow…</option>
           {{range .Fixtures}}
           <option value="{{.}}" {{if eq . $.ActiveFlow}}selected{{end}}>{{.}}</option>
@@ -31,7 +32,7 @@
           <option value="__new__">+ Generate new…</option>
         </select>
       </label>
-      <input data-show="$flow == '__new__'" data-bind-newflowname name="new_flow_name" placeholder="new-flow-name">
+      <input data-show="$flow == '__new__'" data-bind:new-flow-name placeholder="new-flow-name">
       <button type="submit">Open</button>
     </form>
   </header>

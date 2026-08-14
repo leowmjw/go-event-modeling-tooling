@@ -40,6 +40,9 @@ go.work.sum
 # Ignore mise
 mise.local.toml
 
+# Ignore WebApp dynamic parts 
 cmd/evmlweb/.state/
+cmd/evmlweb/cmd/
 cmd/evmlweb/bin/
 cmd/evmlweb/tmp/
+cmd/evmlweb/node_modules/

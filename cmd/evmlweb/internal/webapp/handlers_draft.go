@@ -24,11 +24,14 @@ func (a *App) handleNewVersion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	source := fs.Drafts[sourceID] // nil is fine — NewDraft falls back to the baseline
-	if _, err := a.sessions.NewDraft(fs, source, time.Now()); err != nil {
+	newDraft, err := a.sessions.NewDraft(fs, source, time.Now())
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	a.sessions.PersistSelection(s)
+	a.sessionLog(s).Info("action: new version created", "flow", flow, "source_draft", sourceID, "new_draft", newDraft.ID)
 	a.patchWorkspace(w, r, s)
 }
 
@@ -65,7 +68,7 @@ func (a *App) handleActivate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	a.log.Info("draft activated", "flow", flow, "draft_id", draftID, "path", dest)
+	a.sessionLog(s).Info("action: draft activated", "flow", flow, "draft_id", draftID, "path", dest)
 
 	fs.BaselineEvml = d.EvmlSource
 	fs.BaselineSVG = d.SVG

@@ -126,6 +126,63 @@ func (s *DraftStore) LoadFlow(flow string) ([]*DraftVersion, error) {
 	return drafts, nil
 }
 
+// sessionSnapshot is one browser session's last-known selection: which
+// model, which flow, and (per flow) which draft tab was active. It's keyed
+// by that session's own cookie token, so the *same* browser resumes
+// exactly where it left off after the dev server restarts (air rebuild) —
+// without a genuinely new/different browser session inheriting someone
+// else's in-progress state.
+type sessionSnapshot struct {
+	ModelID           string            `json:"model_id"`
+	ActiveFlow        string            `json:"active_flow"`
+	ActiveDraftByFlow map[string]string `json:"active_draft_by_flow"`
+}
+
+func (s *DraftStore) sessionsDir() string {
+	return filepath.Join(s.root, "_sessions")
+}
+
+func (s *DraftStore) sessionPath(token string) string {
+	return filepath.Join(s.sessionsDir(), token+".json")
+}
+
+// SaveSession persists token's selection snapshot, overwriting any
+// previous one for that same token.
+func (s *DraftStore) SaveSession(token string, snap sessionSnapshot) error {
+	if err := os.MkdirAll(s.sessionsDir(), 0o755); err != nil {
+		return fmt.Errorf("draftstore: creating sessions dir: %w", err)
+	}
+	b, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		return fmt.Errorf("draftstore: marshaling session snapshot: %w", err)
+	}
+	if err := os.WriteFile(s.sessionPath(token), b, 0o644); err != nil {
+		return fmt.Errorf("draftstore: writing session snapshot: %w", err)
+	}
+	return nil
+}
+
+// LoadSessionByToken reads back token's persisted selection snapshot.
+// found is false when nothing has ever been persisted for this exact
+// token — the caller should treat that as a genuinely fresh session, not
+// an error.
+func (s *DraftStore) LoadSessionByToken(token string) (snap sessionSnapshot, found bool, err error) {
+	b, err := os.ReadFile(s.sessionPath(token))
+	if os.IsNotExist(err) {
+		return sessionSnapshot{}, false, nil
+	}
+	if err != nil {
+		return sessionSnapshot{}, false, fmt.Errorf("draftstore: reading session snapshot: %w", err)
+	}
+	if err := json.Unmarshal(b, &snap); err != nil {
+		return sessionSnapshot{}, false, fmt.Errorf("draftstore: parsing session snapshot: %w", err)
+	}
+	if snap.ActiveDraftByFlow == nil {
+		snap.ActiveDraftByFlow = map[string]string{}
+	}
+	return snap, true, nil
+}
+
 func (s *DraftStore) load(flow, draftID string) (*DraftVersion, error) {
 	evml, err := os.ReadFile(s.evmlPath(flow, draftID))
 	if err != nil {
@@ -151,5 +208,19 @@ func (s *DraftStore) load(flow, draftID string) (*DraftVersion, error) {
 	}
 	d.CreatedAt, _ = parseTime(meta.CreatedAt)
 	d.UpdatedAt, _ = parseTime(meta.UpdatedAt)
+
+	// The rendered SVG is never persisted (it's fully derived from
+	// EvmlSource) — recompute it here so a freshly loaded draft (new
+	// session, or the process having restarted) has something to show
+	// without waiting for the next chat turn.
+	if d.EvmlSource != "" {
+		if svg, err := renderEvml(d.EvmlSource); err != nil {
+			if d.ParseError == "" {
+				d.ParseError = err.Error()
+			}
+		} else {
+			d.SVG = svg
+		}
+	}
 	return d, nil
 }

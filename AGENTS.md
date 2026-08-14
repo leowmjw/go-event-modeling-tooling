@@ -154,3 +154,72 @@ manages its own dependencies via its own `go.mod`/`go.sum`.
 Build/run it independently of the root toolchain: `cd cmd/evmlweb && go run .`. It reuses
 `evml.Parse` / `evml.ValidateConnections` / `evml.RenderSVG` unchanged and writes activated
 drafts straight into `testdata/fixtures/`, so it never needs to modify the core library.
+
+### Datastar (client + server)
+
+- **Server SDK:** `github.com/starfederation/datastar-go` (see `cmd/evmlweb/go.mod`).
+- **Client bundle:** `cmd/evmlweb/static/datastar.js` — currently **v1.0.2** (the latest
+  published JS release). The Go SDK version can be newer; the SSE patch protocol is
+  compatible. Do **not** assume the client version matches `datastar-go` tag-for-tag.
+
+#### Attribute syntax — colon, not hyphen (learned 2026-08)
+
+Datastar v1.0+ resolves plugins from the attribute **key** using a **colon** separator.
+Hyphenated spellings silently fail: the plugin is never registered, handlers never attach,
+and native HTML behaviour takes over (e.g. a `<form>` GET-submits and reloads the page).
+
+| Wrong (no-op) | Correct |
+|---|---|
+| `data-on-click` | `data-on:click` |
+| `data-on-submit__prevent` | `data-on:submit__prevent` |
+| `data-bind-model` | `data-bind:model` |
+| `data-signals-model` | `data-signals:model` |
+| `data-attr-style` | `data-attr:style` |
+
+`data-show` is unchanged (no key suffix). Modifiers still use double-underscore:
+`data-on:click__prevent`, `data-on:mouseup__window`, etc.
+
+**Symptom checklist** when actions "do nothing":
+1. Browser console: no `[evmlweb:debug] fetch ->` lines on click/submit.
+2. Network tab: no `POST` to `/model` or `/flow/select`; instead a full-page `GET /?`.
+3. `datastar-ready` fires but `$model` / `$flow` signals stay empty.
+
+Reference: [data-star.dev attributes](https://data-star.dev/reference/attributes).
+
+#### SSE patching — never morph inline SVG
+
+`PatchElements` with morph/`outer` mode drops inline `<svg>` inside large HTML fragments
+(Datastar `DOMParser` limitation). After flow/chat actions, patch in **two** steps:
+
+1. `PatchElements(workspaceFrag, WithSelectorID("workspace-inner"), WithModeReplace())` —
+   tabs, chat, empty `#svg-container` placeholder (`PatchSVG` flag in workspace template).
+2. `PatchElements(svgFrag, WithSelectorID("svg-container"), WithModeInner())` — SVG only.
+
+Full page load (Go template render) is unaffected; only the SSE patch path needs the split.
+
+#### Session persistence
+
+Per-browser state (model, active flow, active draft per flow) is keyed by the
+`evmlweb_session` cookie token and written to `<state-dir>/_sessions/<token>.json`.
+`PersistSelection` is called after model/flow/draft-tab changes — not after in-draft edits
+(draft content is saved separately by `DraftStore.Save`).
+
+`handleSelectFlow` must read **both** `model` and `flow` from signals (Open is the atomic
+commit). `resumeActiveFlow` must call `NewDraft` when `DraftOrder == 0`, same as Open.
+
+#### Debugging client ↔ server
+
+- **Browser:** append `?debug=1` to enable `static/debug.js` (logs fetch bodies and Datastar
+  events as `[evmlweb:debug]`).
+- **Server:** structured logs include `session=<token>` — grep the token from either side.
+  Key lines: `action: flow select requested`, `action: flow opened`, `action: workspace patched`.
+
+#### Tests
+
+```bash
+cd cmd/evmlweb && go test ./...
+# UI regression (evmlweb must be running on :8080 — start with `mise run webapp`):
+mise run test:ui-model-flow-selection
+```
+
+Browser debug logging: append `?debug=1` to the URL.

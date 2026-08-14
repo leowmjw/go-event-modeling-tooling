@@ -38,6 +38,10 @@ type WorkspacePage struct {
 	ActiveSVG     template.HTML
 	Transcript    []ChatMessageView
 	ParseError    string
+	// PatchSVG is true when rendering the workspace fragment for an SSE
+	// patch. The SVG is sent in a separate patch to #svg-container so
+	// Datastar never morphs a large HTML tree containing inline <svg>.
+	PatchSVG bool
 }
 
 func humanSize(b int64) string {

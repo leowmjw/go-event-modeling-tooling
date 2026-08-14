@@ -32,6 +32,9 @@ type ModelChoice struct {
 // maxModelBytes, sorted with defaultModelID first (if present), then by
 // ascending size.
 func ListModelChoices(m *models.Models) ([]ModelChoice, error) {
+	if m == nil {
+		return nil, nil
+	}
 	files, err := m.Files()
 	if err != nil {
 		return nil, fmt.Errorf("listing local models: %w", err)

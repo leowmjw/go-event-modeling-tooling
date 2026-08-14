@@ -5,13 +5,17 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
+	"syscall"
+	"time"
 
 	"github.com/ardanlabs/kronk/sdk/kronk"
 	"github.com/ardanlabs/kronk/sdk/tools/libs"
@@ -31,7 +35,7 @@ func run() error {
 	var (
 		addr     = flag.String("addr", "localhost:8080", "HTTP listen address")
 		repoRoot = flag.String("repo-root", ".", "root of the go-event-modeling-tooling checkout (contains testdata/fixtures, EVENT_MODELING.md, SKILL.md)")
-		stateDir = flag.String("state-dir", "", "directory to persist in-progress draft versions (default: <repo-root>/.evmlweb-state)")
+		stateDir = flag.String("state-dir", "", "directory to persist in-progress draft versions (default: <evmlweb-module>/.state)")
 		logJSON  = flag.Bool("log-json", false, "emit structured logs as JSON instead of text")
 	)
 	flag.Parse()
@@ -45,7 +49,10 @@ func run() error {
 		return fmt.Errorf("resolving repo root: %w", err)
 	}
 	if *stateDir == "" {
-		*stateDir = filepath.Join(absRepoRoot, "cmd", "evmlweb", ".state")
+		// Anchor to the evmlweb module dir (where main.go lives), not repo-root.
+		// repo-root defaults to "." when launched from cmd/evmlweb, so joining
+		// repo-root + "cmd/evmlweb/.state" would wrongly nest cmd/evmlweb twice.
+		*stateDir = filepath.Join(mustSourceDir(), ".state")
 	}
 
 	ctx := context.Background()
@@ -76,7 +83,31 @@ func run() error {
 		Addr:    *addr,
 		Handler: app.Routes(),
 	}
-	return srv.ListenAndServe()
+
+	// Shut down on SIGINT/SIGTERM instead of dying mid-request, so the
+	// listening socket is actually released before the process exits —
+	// otherwise a hot-reloader (air) that kills and immediately restarts
+	// this binary can race the OS into reporting the old port as still in
+	// use.
+	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- srv.ListenAndServe() }()
+
+	select {
+	case err := <-serveErr:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-sigCtx.Done():
+		stop()
+		log.Info("evmlweb shutting down")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
+	}
 }
 
 func logHandlerFor(json bool) slog.Handler {

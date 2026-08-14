@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/ardanlabs/kronk/sdk/tools/models"
 
@@ -82,11 +83,55 @@ func (a *App) Routes() http.Handler {
 	return withRequestLogging(a.log, mux)
 }
 
+// withRequestLogging logs every request's method, path, status, duration,
+// and (when present) the caller's session cookie token, so a session token
+// reported from the browser can be grepped straight out of the server log
+// to reconstruct exactly what that browser did and when.
 func withRequestLogging(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Info("request", "method", r.Method, "path", r.URL.Path)
-		next.ServeHTTP(w, r)
+		start := time.Now()
+		token := ""
+		if c, err := r.Cookie(sessionCookieName); err == nil {
+			token = c.Value
+		}
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		log.Info("request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rec.status,
+			"duration_ms", time.Since(start).Milliseconds(),
+			"session", token,
+		)
 	})
+}
+
+// statusRecorder captures the status code written to an http.ResponseWriter
+// so logging middleware can report it after the handler returns. It
+// forwards Flush so SSE responses (chat streaming) keep working through
+// this wrapper — datastar-go's SSE generator needs the underlying
+// http.Flusher to push each event as it's written, not just at the end.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// sessionLog returns a logger with s's session token attached, for
+// handlers to record per-session lifecycle events (model/flow/draft
+// changes, chat turns) in a form that's greppable by that token.
+func (a *App) sessionLog(s *Session) *slog.Logger {
+	return a.log.With("session", s.Token)
 }
 
 // fixturesDir returns cfg.RepoRoot/testdata/fixtures.

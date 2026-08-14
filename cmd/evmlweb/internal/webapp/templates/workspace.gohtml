@@ -6,37 +6,37 @@
   <nav class="draft-tabs">
     {{range .Drafts}}
     <button class="tab {{if eq .ID $.ActiveDraftID}}active{{end}}"
-            data-on-click="@get('/flow/{{$.ActiveFlow}}/draft/{{.ID}}')">
+            data-on:click="@get('/flow/{{$.ActiveFlow}}/draft/{{.ID}}')">
       {{.Label}}
     </button>
     {{end}}
-    <button class="tab tab-new" data-on-click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/new-version')">+ New version</button>
+    <button class="tab tab-new" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/new-version')">+ New version</button>
     {{if .ActiveDraftID}}
-    <button class="tab tab-activate" data-on-click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/activate')">Activate</button>
+    <button class="tab tab-activate" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/activate')">Activate</button>
     {{end}}
   </nav>
 
   <div class="workspace-grid">
     <section class="svg-pane"
-      data-signals-svg-scale="1" data-signals-svg-x="0" data-signals-svg-y="0" data-signals-panning="false"
-      data-signals-pan-start-x="0" data-signals-pan-start-y="0" data-signals-pan-orig-x="0" data-signals-pan-orig-y="0"
-      data-on-wheel__prevent="$svgScale = Math.min(4, Math.max(0.2, $svgScale - evt.deltaY / 1000))"
-      data-on-mousedown="$panning = true; $panStartX = evt.clientX; $panStartY = evt.clientY; $panOrigX = $svgX; $panOrigY = $svgY"
-      data-on-mouseup__window="$panning = false"
-      data-on-mousemove__window="if ($panning) { $svgX = $panOrigX + (evt.clientX - $panStartX); $svgY = $panOrigY + (evt.clientY - $panStartY) }">
+      data-signals:svg-scale="1" data-signals:svg-x="0" data-signals:svg-y="0" data-signals:panning="false"
+      data-signals:pan-start-x="0" data-signals:pan-start-y="0" data-signals:pan-orig-x="0" data-signals:pan-orig-y="0"
+      data-on:wheel__prevent="$svgScale = Math.min(4, Math.max(0.2, $svgScale - evt.deltaY / 1000))"
+      data-on:mousedown="$panning = true; $panStartX = evt.clientX; $panStartY = evt.clientY; $panOrigX = $svgX; $panOrigY = $svgY"
+      data-on:mouseup__window="$panning = false"
+      data-on:mousemove__window="if ($panning) { $svgX = $panOrigX + (evt.clientX - $panStartX); $svgY = $panOrigY + (evt.clientY - $panStartY) }">
       <div class="svg-toolbar">
-        <button data-on-click="$svgScale = 1; $svgX = 0; $svgY = 0">Reset view</button>
+        <button data-on:click="$svgScale = 1; $svgX = 0; $svgY = 0">Reset view</button>
         <span class="hint">scroll to zoom, drag to pan</span>
       </div>
-      <div id="svg-container" data-attr-style="`transform: translate(${$svgX}px, ${$svgY}px) scale(${$svgScale})`">
-        {{.ActiveSVG}}
+      <div id="svg-container" data-attr:style="`transform: translate(${$svgX}px, ${$svgY}px) scale(${$svgScale})`">
+        {{if not .PatchSVG}}{{.ActiveSVG}}{{end}}
       </div>
     </section>
 
     <section class="chat-pane">
       {{template "chatlog" .}}
-      <form class="chat-input" data-on-submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/chat')">
-        <textarea data-bind-message name="message" placeholder="Describe the process, or ask for a change…" rows="3"></textarea>
+      <form class="chat-input" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/chat')">
+        <textarea data-bind:message name="message" placeholder="Describe the process, or ask for a change…" rows="3"></textarea>
         <button type="submit">Send</button>
       </form>
     </section>
@@ -44,6 +44,8 @@
 {{end}}
 </div>
 {{end}}
+
+{{define "svg-content"}}{{.ActiveSVG}}{{end}}
 
 {{define "chatlog"}}
 <div id="chat-log" class="chat-log">
