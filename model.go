@@ -18,11 +18,87 @@ const (
 )
 
 type Model struct {
-	Frames       []*Frame
-	DataEntities []*DataEntity
-	NoteEntities []*NoteEntity
-	GWTs         []*GWT
-	Entities     []string
+	Frames         []*Frame
+	DataEntities   []*DataEntity
+	NoteEntities   []*NoteEntity
+	Hotspots       []*HotspotEntity
+	Chapters       []*Chapter
+	Slices         []*Slice
+	GWTs           []*GWT
+	Entities       []string
+}
+
+// HotspotStatus is the resolution state of a HotspotEntity.
+type HotspotStatus string
+
+const (
+	HotspotOpen     HotspotStatus = "open"
+	HotspotResolved HotspotStatus = "resolved"
+)
+
+// HotspotEntity attaches an open question / blocker to a frame. Distinct
+// from NoteEntity semantically: a hotspot marks an unresolved decision
+// the workshop owes an answer to, not a finished annotation.
+type HotspotEntity struct {
+	SourceID string
+	Source   *Frame
+	DataType string
+	Value    string
+	Status   HotspotStatus
+}
+
+// Chapter is a labelled, contiguous frame range that represents a bounded
+// context across the timeline. Frame ranges must be non-overlapping.
+type Chapter struct {
+	Label   string
+	StartID string
+	EndID   string
+}
+
+// SliceStatus is one of the workflow-build stages a slice can be in.
+// See EVENT_MODELING.md §16.
+type SliceStatus string
+
+const (
+	SliceCreated       SliceStatus = "Created"
+	SlicePlanned       SliceStatus = "Planned"
+	SliceAssigned      SliceStatus = "Assigned"
+	SliceInProgress    SliceStatus = "InProgress"
+	SliceReview        SliceStatus = "Review"
+	SliceDone          SliceStatus = "Done"
+	SliceBlocked       SliceStatus = "Blocked"
+	SliceInformational SliceStatus = "Informational"
+)
+
+// AllSliceStatuses returns every status the parser will accept.
+func AllSliceStatuses() []SliceStatus {
+	return []SliceStatus{
+		SliceCreated, SlicePlanned, SliceAssigned, SliceInProgress,
+		SliceReview, SliceDone, SliceBlocked, SliceInformational,
+	}
+}
+
+// IsValidSliceStatus reports whether s is one of the recognised
+// SliceStatus keywords. The check is case-sensitive; documentation and
+// fixtures both use the PascalCase spelling.
+func IsValidSliceStatus(s string) bool {
+	for _, k := range AllSliceStatuses() {
+		if string(k) == s {
+			return true
+		}
+	}
+	return false
+}
+
+// Slice is a named, framed range of the timeline with an explicit build
+// status. Used to turn "MVP / next / future" into something the diagram
+// renders and tooling can query, rather than living only in section
+// comments.
+type Slice struct {
+	Name    string
+	StartID string
+	EndID   string
+	Status  SliceStatus
 }
 
 type Frame struct {

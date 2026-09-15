@@ -269,3 +269,151 @@ rf 04 rmo ReadModel02 ->> 01 ->> 02
 		t.Fatalf("len(Sources) = %d, want 2", got)
 	}
 }
+
+func TestParseHotspotChapterSlice(t *testing.T) {
+	model, err := Parse(`eventmodeling
+tf 01 ui CheckoutScreen
+tf 02 cmd SubmitOrder { id: "o-1" }
+tf 03 evt OrderSubmitted ->> 02
+tf 04 rmo CancelledOrderStatus ->> 03
+tf 05 evt OrderFulfilled ->> 02
+
+hotspot 02 `+"`md`"+` {
+  What is the source-of-funds disclosure required here?
+}
+hotspot 03 status resolved {
+  Previously: was the cart empty allowed? Now always required.
+}
+
+chapter "Capture" 01-03
+chapter "Fulfilment" 04-05
+
+slice "Happy path" 01-03 status Done
+slice "Cancel path" 04-05 status InProgress
+slice "Fulfilment window" 03-05 status Planned
+`)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if got := len(model.Hotspots); got != 2 {
+		t.Fatalf("len(Hotspots) = %d, want 2", got)
+	}
+	if model.Hotspots[0].Status != HotspotOpen {
+		t.Errorf("first hotspot status = %q, want open", model.Hotspots[0].Status)
+	}
+	if model.Hotspots[1].Status != HotspotResolved {
+		t.Errorf("second hotspot status = %q, want resolved", model.Hotspots[1].Status)
+	}
+	if got := len(model.Chapters); got != 2 {
+		t.Fatalf("len(Chapters) = %d, want 2", got)
+	}
+	if model.Chapters[0].Label != "Capture" || model.Chapters[0].StartID != "01" || model.Chapters[0].EndID != "03" {
+		t.Errorf("first chapter = %+v", model.Chapters[0])
+	}
+	if got := len(model.Slices); got != 3 {
+		t.Fatalf("len(Slices) = %d, want 3", got)
+	}
+	if model.Slices[1].Status != SliceInProgress {
+		t.Errorf("second slice status = %q, want InProgress", model.Slices[1].Status)
+	}
+	if errs := ValidateConnections(model); len(errs) != 0 {
+		t.Errorf("ValidateConnections() returned %v, want none", errs)
+	}
+}
+
+func TestParseSliceBadStatus(t *testing.T) {
+	_, err := Parse(`eventmodeling
+tf 01 ui X
+slice "x" 01-01 status AlmostDone
+`)
+	if err == nil {
+		t.Fatalf("Parse() error = nil, want slice-status error")
+	}
+	if !strings.Contains(err.Error(), "AlmostDone") {
+		t.Errorf("error %q does not mention the bad status keyword", err.Error())
+	}
+}
+
+func TestParseChapterOverlap(t *testing.T) {
+	model, err := Parse(`eventmodeling
+tf 01 ui X
+tf 02 cmd Y
+chapter "A" 01-02
+chapter "B" 02-02
+`)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	errs := ValidateConnections(model)
+	if len(errs) == 0 {
+		t.Fatalf("ValidateConnections() returned no errors, want overlap")
+	}
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "overlap") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no overlap error in %v", errs)
+	}
+}
+
+func TestParseChapterEndBeforeStart(t *testing.T) {
+	model, err := Parse(`eventmodeling
+tf 01 ui X
+tf 02 cmd Y
+chapter "Reverse" 02-01
+`)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	errs := ValidateConnections(model)
+	if len(errs) == 0 {
+		t.Fatalf("ValidateConnections() returned no errors, want range-order error")
+	}
+	if !strings.Contains(errs[0].Error(), "must come at or after") {
+		t.Errorf("first error %q does not mention range ordering", errs[0].Error())
+	}
+}
+
+func TestParseHotspotUnknownFrame(t *testing.T) {
+	_, err := Parse(`eventmodeling
+tf 01 ui X
+hotspot 99 { what? }
+`)
+	if err == nil {
+		t.Fatalf("Parse() error = nil, want unknown-source error")
+	}
+	if !strings.Contains(err.Error(), "hotspot") {
+		t.Errorf("error %q does not mention hotspot", err.Error())
+	}
+}
+
+func TestSliceStatusRoundTrip(t *testing.T) {
+	for _, k := range AllSliceStatuses() {
+		if !IsValidSliceStatus(string(k)) {
+			t.Errorf("IsValidSliceStatus(%q) = false, want true", string(k))
+		}
+	}
+	if IsValidSliceStatus("Garbage") {
+		t.Errorf("IsValidSliceStatus(\"Garbage\") = true, want false")
+	}
+}
+
+func TestIsValidSliceStatusTable(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"Done", true}, {"InProgress", true}, {"Review", true},
+		{"Planned", true}, {"Created", true}, {"Assigned", true},
+		{"Blocked", true}, {"Informational", true},
+		{"done", false}, {"INPROGRESS", false}, {"", false},
+	}
+	for _, c := range cases {
+		if got := IsValidSliceStatus(c.in); got != c.want {
+			t.Errorf("IsValidSliceStatus(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}

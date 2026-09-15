@@ -6,8 +6,9 @@
   <nav class="draft-tabs">
     {{range .Drafts}}
     <button class="tab {{if eq .ID $.ActiveDraftID}}active{{end}}"
+            title="{{.SliceSummary}}"
             data-on:click="@get('/flow/{{$.ActiveFlow}}/draft/{{.ID}}')">
-      {{.Label}}
+      {{if .HasLabel}}<span class="tab-label">{{.Label}}</span> <span class="tab-sub">({{.ShortLabel}})</span>{{else}}{{.ShortLabel}}{{end}}
     </button>
     {{end}}
     <button class="tab tab-new" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/new-version')">+ New version</button>
@@ -17,6 +18,68 @@
   </nav>
 
   <div class="workspace-grid">
+    <aside class="left-nav" aria-label="Scenario navigation">
+      <section class="nav-section">
+        <h3>Scenarios</h3>
+        <ul class="scenario-list">
+          {{range .Drafts}}
+          <li class="scenario {{if eq .ID $.ActiveDraftID}}active{{end}}">
+            <button class="scenario-btn" data-on:click="@get('/flow/{{$.ActiveFlow}}/draft/{{.ID}}')">
+              <span class="scenario-name">{{if .HasLabel}}{{.Label}}{{else}}{{.ShortLabel}}{{end}}</span>
+              {{if .SliceSummary}}<span class="scenario-summary">{{.SliceSummary}}</span>{{end}}
+            </button>
+          </li>
+          {{end}}
+        </ul>
+        <button class="nav-action" data-on:click="@post('/flow/{{$.ActiveFlow}}/draft/{{$.ActiveDraftID}}/new-version')">+ New scenario</button>
+      </section>
+
+      <section class="nav-section">
+        <h3>Hotspots <span class="badge {{if gt .OpenHotspotN 0}}badge-warn{{end}}">{{.OpenHotspotN}} open</span></h3>
+        {{if .Hotspots}}
+        <ul class="hotspot-list">
+          {{range .Hotspots}}
+          <li class="hotspot-item {{if .Resolved}}resolved{{end}}">
+            <a class="hotspot-link" href="#frame-{{.FrameID}}">
+              <strong>#{{.FrameID}} {{.FrameName}}</strong>
+              <span class="hotspot-snippet">{{.Snippet}}</span>
+              {{if .Resolved}}<span class="badge badge-ok">resolved</span>{{end}}
+            </a>
+          </li>
+          {{end}}
+        </ul>
+        {{else}}
+        <p class="nav-empty">No hotspots yet — capture open questions as you work.</p>
+        {{end}}
+      </section>
+
+      <section class="nav-section">
+        <h3>Chapters</h3>
+        {{if .Chapters}}
+        <ul class="chapter-list">
+          {{range .Chapters}}
+          <li class="chapter-item"><strong>{{.Label}}</strong> <span class="chapter-range">{{.StartID}}–{{.EndID}}</span></li>
+          {{end}}
+        </ul>
+        {{else}}
+        <p class="nav-empty">No chapters declared.</p>
+        {{end}}
+      </section>
+
+      <section class="nav-section">
+        <h3>Slices</h3>
+        {{if .Slices}}
+        <ul class="slice-list">
+          {{range .Slices}}
+          <li class="slice-item slice-{{.Status}}"><span>{{.Name}}</span> <em>{{.Status}}</em></li>
+          {{end}}
+        </ul>
+        {{else}}
+        <p class="nav-empty">No slices declared.</p>
+        {{end}}
+      </section>
+    </aside>
+
     <section class="svg-pane"
       data-signals:svg-scale="1" data-signals:svg-x="0" data-signals:svg-y="0" data-signals:panning="false"
       data-signals:pan-start-x="0" data-signals:pan-start-y="0" data-signals:pan-orig-x="0" data-signals:pan-orig-y="0"
@@ -26,6 +89,8 @@
       data-on:mousemove__window="if ($panning) { $svgX = $panOrigX + (evt.clientX - $panStartX); $svgY = $panOrigY + (evt.clientY - $panStartY) }">
       <div class="svg-toolbar">
         <button data-on:click="$svgScale = 1; $svgX = 0; $svgY = 0">Reset view</button>
+        <button class="btn-secondary" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/rename')">Rename scenario</button>
+        <button class="btn-secondary" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/duplicate')">Fork scenario</button>
         <span class="hint">scroll to zoom, drag to pan</span>
       </div>
       <div id="svg-container" data-attr:style="`transform: translate(${$svgX}px, ${$svgY}px) scale(${$svgScale})`">
@@ -33,14 +98,78 @@
       </div>
     </section>
 
-    <section class="chat-pane">
-      {{template "chatlog" .}}
-      <form class="chat-input" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/chat')">
-        <textarea data-bind:message name="message" placeholder="Describe the process, or ask for a change…" rows="3"></textarea>
-        <button type="submit">Send</button>
-      </form>
-    </section>
+    <aside class="right-rail" aria-label="Frame details">
+      <section class="rail-section">
+        <h3>Selected frame</h3>
+        {{if .SelectedFrameID}}
+        <p>Frame <strong>#{{.SelectedFrameID}}</strong></p>
+        <form class="rail-form" data-on:submit__prevent="@post('/flow/{{$.ActiveFlow}}/draft/{{$.ActiveDraftID}}/frame/{{.SelectedFrameID}}')">
+          <label>Name <input data-bind:name></label>
+          <label>Type
+            <select data-bind:entityType>
+              <option value="ui">ui (screen)</option>
+              <option value="cmd">cmd (command)</option>
+              <option value="evt">evt (event)</option>
+              <option value="rmo">rmo (read model)</option>
+              <option value="pcr">pcr (processor)</option>
+            </select>
+          </label>
+          <input type="hidden" data-bind:frameId value="{{.SelectedFrameID}}">
+          <button type="submit">Apply</button>
+          <button type="button" class="btn-warn"
+                  data-on:click="@post('/flow/{{$.ActiveFlow}}/draft/{{$.ActiveDraftID}}/frame/{{.SelectedFrameID}}/delete')">
+            Delete frame
+          </button>
+        </form>
+        {{else}}
+        <p class="nav-empty">Click any frame in the diagram to select it.</p>
+        {{end}}
+      </section>
+
+      <section class="rail-section">
+        <h3>Add hotspot</h3>
+        <form class="rail-form" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/hotspot')">
+          <label>Frame ID <input data-bind:frameId placeholder="03"></label>
+          <label>Question
+            <textarea data-bind:body rows="3" placeholder="What happens when…?"></textarea>
+          </label>
+          <button type="submit">Capture hotspot</button>
+        </form>
+      </section>
+
+      <section class="rail-section">
+        <h3>Compare with another scenario</h3>
+        {{if .Drafts}}
+        <ul class="diff-list">
+          {{range .Drafts}}
+          {{if ne .ID $.ActiveDraftID}}
+          <li>
+            <button class="btn-secondary"
+                    data-on:click="@post('/flow/{{$.ActiveFlow}}/draft/{{$.ActiveDraftID}}/diff/{{.ID}}')">
+              vs {{if .HasLabel}}{{.Label}}{{else}}{{.ShortLabel}}{{end}}
+            </button>
+          </li>
+          {{end}}
+          {{end}}
+        </ul>
+        {{end}}
+        <div id="diff-panel" class="diff-panel"></div>
+      </section>
+    </aside>
   </div>
+
+  <section class="chat-drawer" aria-label="Chat with the model">
+    <details class="chat-details">
+      <summary class="chat-summary">Chat with the model <span class="chat-hint">click to expand</span></summary>
+      <div class="chat-body">
+        {{template "chatlog" .}}
+        <form class="chat-input" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/chat')">
+          <textarea data-bind:message name="message" placeholder="Describe the process, or ask for a change…" rows="3"></textarea>
+          <button type="submit">Send</button>
+        </form>
+      </div>
+    </details>
+  </section>
 {{end}}
 </div>
 {{end}}

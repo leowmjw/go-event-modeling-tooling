@@ -27,6 +27,7 @@ type draftMeta struct {
 	FlowName   string        `json:"flow_name"`
 	Date       string        `json:"date"`
 	Seq        int           `json:"seq"`
+	Label      string        `json:"label,omitempty"`
 	ParseError string        `json:"parse_error,omitempty"`
 	Transcript []ChatMessage `json:"transcript"`
 	CreatedAt  string        `json:"created_at"`
@@ -73,6 +74,7 @@ func (s *DraftStore) Save(d *DraftVersion) error {
 		FlowName:   d.FlowName,
 		Date:       d.Date,
 		Seq:        d.Seq,
+		Label:      d.Label,
 		ParseError: d.ParseError,
 		Transcript: d.Transcript,
 		CreatedAt:  d.CreatedAt.Format(timeLayout),
@@ -202,6 +204,7 @@ func (s *DraftStore) load(flow, draftID string) (*DraftVersion, error) {
 		FlowName:   meta.FlowName,
 		Date:       meta.Date,
 		Seq:        meta.Seq,
+		Label:      meta.Label,
 		EvmlSource: string(evml),
 		ParseError: meta.ParseError,
 		Transcript: meta.Transcript,

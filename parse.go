@@ -74,6 +74,27 @@ func (p *parser) parse() (*Model, error) {
 			}
 			model.NoteEntities = append(model.NoteEntities, note)
 			p.line += consumed
+		case hasKeyword(trimmed, "hotspot"):
+			hot, consumed, err := p.parseHotspot(trimmed)
+			if err != nil {
+				return nil, err
+			}
+			model.Hotspots = append(model.Hotspots, hot)
+			p.line += consumed
+		case hasKeyword(trimmed, "chapter"):
+			ch, consumed, err := p.parseChapter(trimmed)
+			if err != nil {
+				return nil, err
+			}
+			model.Chapters = append(model.Chapters, ch)
+			p.line += consumed
+		case hasKeyword(trimmed, "slice"):
+			sl, consumed, err := p.parseSlice(trimmed)
+			if err != nil {
+				return nil, err
+			}
+			model.Slices = append(model.Slices, sl)
+			p.line += consumed
 		case hasKeyword(trimmed, "gwt"):
 			gwt, consumed, err := p.parseGWT(trimmed)
 			if err != nil {
@@ -188,6 +209,154 @@ func (p *parser) parseNoteEntity(trimmed string) (*NoteEntity, int, error) {
 		return nil, 0, p.errorf("missing note payload")
 	}
 	return &NoteEntity{SourceID: sourceID, DataType: dataType, Value: data}, consumed, nil
+}
+
+// parseHotspot reads
+//
+//	hotspot <frameId> [`<dataType>`]? [status resolved]? { <body> }
+//
+// into a HotspotEntity. The optional `status resolved` keyword flips the
+// hotspot from open (default) to resolved; everything else mirrors
+// parseNoteEntity.
+func (p *parser) parseHotspot(trimmed string) (*HotspotEntity, int, error) {
+	rest := afterKeyword(trimmed)
+	sourceID, rest, ok := nextToken(rest)
+	if !ok {
+		return nil, 0, p.errorf("missing hotspot source frame identifier")
+	}
+	status := HotspotOpen
+	rest = strings.TrimSpace(rest)
+	// Optional `status <open|resolved>` keyword comes before any payload.
+	if rest != "" && !startsWithPayloadMarker(rest) {
+		kw, remainder, found := nextToken(rest)
+		if found && kw == "status" {
+			val, after, ok := nextToken(remainder)
+			if !ok {
+				return nil, 0, p.errorf("missing status value after 'status'")
+			}
+			switch val {
+			case "open":
+				status = HotspotOpen
+			case "resolved":
+				status = HotspotResolved
+			default:
+				return nil, 0, p.errorf("unknown hotspot status %q", val)
+			}
+			rest = after
+		} else {
+			// Not `status` — restore for the payload parser.
+			rest = strings.TrimSpace(rest)
+		}
+	}
+	dataType, data, consumed, err := p.parsePayload(rest, true)
+	if err != nil {
+		return nil, 0, err
+	}
+	if data == "" {
+		return nil, 0, p.errorf("missing hotspot payload")
+	}
+	return &HotspotEntity{SourceID: sourceID, DataType: dataType, Value: data, Status: status}, consumed, nil
+}
+
+// startsWithPayloadMarker reports whether s begins with a character that
+// could start a payload (` ` for `\`json\``, `{`, `"`, or `'`).
+func startsWithPayloadMarker(s string) bool {
+	if s == "" {
+		return false
+	}
+	switch s[0] {
+	case ' ', '\t':
+		return true
+	case '{', '"', '\'':
+		return true
+	}
+	return false
+}
+
+// parseChapter reads
+//
+//	chapter "<label>" <startId>-<endId>
+//
+// The label is a quoted string; the ID range is two 1-3-digit frame IDs
+// joined with a single dash (no spaces).
+func (p *parser) parseChapter(trimmed string) (*Chapter, int, error) {
+	rest := strings.TrimSpace(afterKeyword(trimmed))
+	label, rest, err := parseQuoted(rest)
+	if err != nil {
+		return nil, 0, p.errorf("chapter label must be a quoted string")
+	}
+	label = strings.Trim(label, `"'`)
+	rest = strings.TrimSpace(rest)
+	startID, endID, _, err := parseIDRange(rest)
+	if err != nil {
+		return nil, 0, p.errorf("%s", err)
+	}
+	return &Chapter{Label: label, StartID: startID, EndID: endID}, 1, nil
+}
+
+// parseSlice reads
+//
+//	slice "<name>" <startId>-<endId> status <StatusKeyword>
+func (p *parser) parseSlice(trimmed string) (*Slice, int, error) {
+	rest := strings.TrimSpace(afterKeyword(trimmed))
+	name, rest, err := parseQuoted(rest)
+	if err != nil {
+		return nil, 0, p.errorf("slice name must be a quoted string")
+	}
+	name = strings.Trim(name, `"'`)
+	rest = strings.TrimSpace(rest)
+	startID, endID, tail, err := parseIDRange(rest)
+	if err != nil {
+		return nil, 0, p.errorf("%s", err)
+	}
+	rest = strings.TrimSpace(tail)
+	kw, rest, found := nextToken(rest)
+	if !found || kw != "status" {
+		return nil, 0, p.errorf("slice requires 'status <keyword>'")
+	}
+	status, _, found := nextToken(rest)
+	if !found {
+		return nil, 0, p.errorf("missing status keyword")
+	}
+	if !IsValidSliceStatus(status) {
+		return nil, 0, p.errorf("unknown slice status %q", status)
+	}
+	return &Slice{Name: name, StartID: startID, EndID: endID, Status: SliceStatus(status)}, 1, nil
+}
+
+// parseIDRange reads "<n>-<m>" where n and m are 1-3 digit frame IDs.
+// Returns the two IDs plus the remainder of the input (so callers can
+// parse what comes after, e.g. `status <keyword>` for a slice).
+// Whitespace around the dash is tolerated.
+func parseIDRange(s string) (startID, endID, rest string, err error) {
+	s = strings.TrimSpace(s)
+	dash := strings.Index(s, "-")
+	if dash <= 0 || dash >= len(s)-1 {
+		return "", "", "", fmt.Errorf("expected frame-ID range like '01-07', got %q", s)
+	}
+	start := strings.TrimSpace(s[:dash])
+	endRaw := strings.TrimSpace(s[dash+1:])
+	endIx := 0
+	for endIx < len(endRaw) && endRaw[endIx] >= '0' && endRaw[endIx] <= '9' {
+		endIx++
+	}
+	end := endRaw[:endIx]
+	if !isFrameID(start) || !isFrameID(end) {
+		return "", "", "", fmt.Errorf("expected frame-ID range like '01-07', got %q", s)
+	}
+	return start, end, endRaw[endIx:], nil
+}
+
+func isFrameID(s string) bool {
+	if s == "" || len(s) > 3 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (p *parser) parseGWT(trimmed string) (*GWT, int, error) {
@@ -342,6 +511,29 @@ func resolveReferences(model *Model) error {
 		}
 		note.Source = source
 	}
+	for _, hot := range model.Hotspots {
+		source, ok := frames[hot.SourceID]
+		if !ok {
+			return fmt.Errorf("unknown hotspot source frame %s", hot.SourceID)
+		}
+		hot.Source = source
+	}
+	for _, ch := range model.Chapters {
+		if _, ok := frames[ch.StartID]; !ok {
+			return fmt.Errorf("unknown chapter start frame %s", ch.StartID)
+		}
+		if _, ok := frames[ch.EndID]; !ok {
+			return fmt.Errorf("unknown chapter end frame %s", ch.EndID)
+		}
+	}
+	for _, sl := range model.Slices {
+		if _, ok := frames[sl.StartID]; !ok {
+			return fmt.Errorf("unknown slice start frame %s", sl.StartID)
+		}
+		if _, ok := frames[sl.EndID]; !ok {
+			return fmt.Errorf("unknown slice end frame %s", sl.EndID)
+		}
+	}
 	for _, gwt := range model.GWTs {
 		source, ok := frames[gwt.SourceID]
 		if !ok {
@@ -371,6 +563,8 @@ func isTopLevel(trimmed string) bool {
 	return hasKeyword(trimmed, "tf") || hasKeyword(trimmed, "timeframe") ||
 		hasKeyword(trimmed, "rf") || hasKeyword(trimmed, "resetframe") ||
 		hasKeyword(trimmed, "data") || hasKeyword(trimmed, "note") ||
+		hasKeyword(trimmed, "hotspot") || hasKeyword(trimmed, "chapter") ||
+		hasKeyword(trimmed, "slice") ||
 		hasKeyword(trimmed, "gwt") || hasKeyword(trimmed, "entity")
 }
 

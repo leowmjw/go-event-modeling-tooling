@@ -79,6 +79,14 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("POST /flow/{flow}/draft/{id}/chat", a.handleChat)
 	mux.HandleFunc("POST /flow/{flow}/draft/{id}/new-version", a.handleNewVersion)
 	mux.HandleFunc("POST /flow/{flow}/draft/{id}/activate", a.handleActivate)
+	// Workshop-friendly UX extensions — see plan §3.5.
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/rename", a.handleRenameDraft)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/duplicate", a.handleDuplicateDraft)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/diff/{otherID}", a.handleDraftDiff)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/frame/{fid}", a.handleUpdateFrame)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/frame/{fid}/delete", a.handleDeleteFrame)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/hotspot", a.handleAddHotspot)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/hotspot/{fid}/resolve", a.handleResolveHotspot)
 
 	return withRequestLogging(a.log, mux)
 }

@@ -1,0 +1,113 @@
+eventmodeling
+
+// Unsecured Personal Loan Origination — Intake → Fraud → Credit → Underwriting → Decision → Booking
+//
+// Bounded contexts (left → right across time):
+//   Intake → Fraud → Credit → Underwriting → Decision → Booking
+//
+// Disambiguation:
+//   "Applicant" in Intake/Fraud = the person filling out the form
+//   "Borrower" in Credit onwards = the entity credit-bureau data identifies
+//   "DTI" (Debt-to-Income) is computed in Credit and re-checked in Underwriting
+//     when the hard pull lands. The underwriting read model DecisionReasoning
+//     captures the *final* DTI used.
+
+entity LoanApplication
+entity LoanContract
+
+chapter "Intake"          01-04
+chapter "Fraud"           05-08
+chapter "Credit"          09-13
+chapter "Underwriting"    14-17
+chapter "Decision"        18-19
+chapter "Booking"         20-23
+
+// ── Intake ──────────────────────────────────────────────────────────────────
+tf 01 ui LoanApplicationScreen
+tf 02 rmo ApplicationSummary [[ApplicationSummary02]]
+tf 03 cmd SubmitLoanApplication { requestedAmount, termMonths, purpose, employmentType }
+tf 04 evt LoanApplicationSubmitted { applicationId, requestedAmount, termMonths, submittedAt }
+
+// ── Fraud signals pull ─────────────────────────────────────────────────────
+tf 05 pcr FraudSignalsProcessor ->> 04
+tf 06 cmd PullFraudSignals { applicationId, ssnLast4, deviceFingerprint, ipCountry }
+tf 07 evt FraudSignalsPulled { applicationId, signals: [velocity, device, geo, behavior] }
+tf 08 rmo FraudSignalsSummary { applicationId, fraudRiskBand }
+
+// ── Credit (soft-pull pre-screen + hard-pull underwriting) ─────────────────
+tf 09 pcr CreditBureauProcessor ->> 07
+tf 10 cmd SoftPullCredit { applicationId, ssnLast4 }
+tf 11 evt SoftPullCompleted { applicationId, softScore, prequalified }
+tf 12 cmd HardPullCredit { applicationId, ssnLast4, consentToken }
+tf 13 evt HardPullCompleted { applicationId, hardScore, tradelines }
+
+// ── Underwriting (DTI, policy rules, manual review) ────────────────────────
+tf 14 pcr UnderwritingEngine ->> 13
+tf 15 cmd EvaluateDTI { applicationId, hardScore }
+tf 16 evt DTIAssessed { applicationId, dti, ltv, policyFailures }
+tf 17 rmo DecisionReasoning { applicationId, finalDTI, ruleSetVersion, overrideReason }
+
+// ── Decision ───────────────────────────────────────────────────────────────
+tf 18 cmd ApproveLoan { applicationId, approvedAmount, apr, termMonths }
+tf 18a cmd DeclineLoan { applicationId, reasonCode, adverseActionNoticeId }
+tf 19 evt LoanApproved { applicationId, approvedAmount, apr, termMonths, expiresAt }
+tf 19a evt LoanDeclined { applicationId, reasonCode }
+
+// ── Booking (contract, e-sign, servicing handoff) ──────────────────────────
+tf 20 pcr ContractGenerator ->> 19
+tf 21 cmd GenerateLoanContract { applicationId, approvedAmount, apr, termMonths }
+tf 22 evt LoanContractGenerated { contractId, applicationId, generatedAt }
+tf 23 rmo BookingConfirmation { applicationId, contractId, servicingAccountId, bookedAt }
+
+data ApplicationSummary02 {
+  applicationId: "app-2001"
+  requestedAmount: 15000
+  termMonths: 36
+  purpose: "debt_consolidation"
+  employmentType: "salaried"
+}
+
+gwt 03 "happy path: applicant is prequalified and approved"
+  given
+    ui LoanApplicationScreen
+  when
+    cmd SubmitLoanApplication { requestedAmount: 15000 }
+  then
+    evt LoanApplicationSubmitted
+    evt SoftPullCompleted { prequalified: true }
+    evt HardPullCompleted { hardScore: 720 }
+    evt DTIAssessed { dti: 0.31 }
+    evt LoanApproved { approvedAmount: 15000, apr: 0.1199 }
+
+gwt 18 "decline when DTI breaches policy ceiling"
+  given
+    evt HardPullCompleted { hardScore: 680 }
+    evt DTIAssessed { dti: 0.51 }
+  when
+    cmd EvaluateDTI
+  then
+    rmo DecisionReasoning { policyFailures: ["DTI_OVER_43"] }
+    cmd DeclineLoan { reasonCode: "dti_over_policy" }
+    evt LoanDeclined { reasonCode: "dti_over_policy" }
+
+slice "Soft-pull lead capture"         01-08 status Done
+slice "Hard pull + underwriting"      09-17 status InProgress
+slice "Manual-review queue UI"        18-19 status Planned
+slice "Co-applicant flow"              20-23 status Planned
+slice "Joint-account servicing handoff" 18-23 status Informational
+
+hotspot 16 {
+  At DTI > 43%, do we decline or offer reduced principal? Credit
+  policy differs from product team expectation. Affects EvaluateDTI
+  (frame 15) and DecisionReasoning defaults.
+}
+hotspot 19 {
+  Manual-review SLA: 4 hours or 24 hours? Operations currently 4h,
+  but backlog says 24h is realistic. Affects ops staffing and the
+  service-level objective surfaced on the underwriter dashboard.
+}
+hotspot 12 {
+  Hard pull consent capture today is implicit via the form. Should
+  it be an explicit checkbox per FCRA Section 604? Compliance flagged
+  in Q3 review but no ticket exists yet.
+}

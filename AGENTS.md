@@ -11,12 +11,13 @@ needing to read every source file first.
 ```
 .
 ├── cmd/evml/        CLI entry-point (main package)
+├── cmd/evmlweb/     Local web app — Datastar UI + Kronk LLM chat, has its own go.mod
 ├── testdata/
 │   └── fixtures/    *.evml sample files used by render_test.go
-├── model.go         Domain types (Model, Frame, DataEntity, …)
+├── model.go         Domain types (Model, Frame, DataEntity, HotspotEntity, Chapter, Slice, …)
 ├── parse.go         Hand-written recursive-descent parser
-├── render.go        SVG renderer + layout helpers
-├── validate.go      Post-parse validation helpers
+├── render.go        SVG renderer + layout helpers (chapters, slices, hotspots)
+├── validate.go      Post-parse validation helpers (connections + ranges)
 ├── cli.go           CLI wiring (Cobra / flag parsing)
 ├── cli_test.go
 ├── parse_test.go
@@ -101,6 +102,21 @@ needing to read every source file first.
 4. Add a `case` in `SwimlaneBand` in `model.go`.
 5. Add at least one fixture and a targeted test.
 
+### DSL annotation types (chapters, slices, hotspots)
+
+These are NOT `EntityType`s — they're siblings of `note` that attach
+metadata to the diagram or to frames. Don't conflate them:
+
+| Statement | Where it attaches | When to add it |
+|---|---|---|
+| `chapter "<label>" a-b` | A labelled frame range across the top | When you have multiple bounded contexts (e.g. Sales / Billing / Fulfillment) |
+| `slice "<name>" a-b status <StatusKeyword>` | A coloured bar below the swimlanes | When you need to mark what will ship in MVP / next / future on the diagram itself |
+| `hotspot <frameId> { … }` | A red sticky-note under the parent frame + red pin on the frame corner | When a workshop surfaces "what happens if…?" or "ops wants X, compliance wants Y" — i.e. anything that would otherwise live as a `//` comment and get forgotten |
+| `note <frameId> { … }` | A yellow sticky-note under the parent frame | For *finished* annotations on a frame (not open questions — those are hotspots) |
+
+Chapters must not overlap; slices intentionally may. See EVENT_MODELING.md
+§6, §9, §10 for grammar.
+
 ---
 
 ## Validation semantics (learned 2026-08, cross-checked against eventmodelers.ai)
@@ -123,10 +139,16 @@ needing to read every source file first.
 - When touching `allowedSources` or the four-pattern descriptions, update
   both `validate.go`'s error strings and the corresponding prose in
   `EVENT_MODELING.md` / `SKILL.md` together — they're expected to agree.
-- Four notation features from the eventmodelers.ai cheat sheet have no DSL
-  equivalent yet: hotspots, actor lanes, chapters, slice status tags. Grammar
-  sketches and rationale live in `EVENT_MODELING.md` §12 — read that before
-  proposing new keywords for any of these.
+- Hotspots (`hotspot`), chapters (`chapter`), and slices (`slice`) are
+  first-class DSL constructs as of the 2026-09 expansion — see
+  `EVENT_MODELING.md` §6, §9, §10 for grammar and §15 for the only remaining
+  "proposed" notation (actor lanes). When the workshop surfaces an open
+  question or a "what ships in MVP?" split, use these constructs rather than
+  burying the information in a `//` comment that the parser ignores.
+- `ValidateRanges` (in `validate.go`) is the second source of validation
+  truth: chapters must not overlap; chapter and slice end-frames must be
+  at or after their start-frames; slice status keywords must be one of the
+  closed PascalCase set in `AllSliceStatuses()`.
 
 ---
 

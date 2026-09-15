@@ -1,0 +1,138 @@
+eventmodeling
+
+// Retail Account Onboarding & KYC
+//
+// Bounded contexts (left → right across time):
+//   Capture → IdentityVerification → RiskScoring → Decision → AccountActivation
+//
+// Ubiquitous language disambiguation:
+//   "Customer" in Capture          = the applicant, before any account exists
+//   "Customer" in Decision         = the same applicant, after identity is verified
+//   "Sanctions hit"                = name appears on OFAC / EU / UN consolidated list
+//   "Risk score"                   = 0-100 internal composite (fraud + credit + AML)
+//
+// Stage columns on the right hand side of the diagram are produced from
+// the `slice … status …` declarations at the bottom; they answer "what
+// will ship in Q4, what is in progress, what is parked".
+
+entity RetailCustomer
+entity Account
+
+chapter "Capture"                01-04
+chapter "IdentityVerification"   05-10
+chapter "RiskScoring"            11-13
+chapter "Decision"               14-17
+chapter "AccountActivation"      18-21
+
+// ── Capture ─────────────────────────────────────────────────────────────────
+tf 01 ui StartApplicationScreen
+tf 02 rmo ApplicationProgress [[ApplicationProgress02]]
+tf 03 cmd SubmitApplication { ssnLast4, email, dob, productCode, sourceOfFunds }
+tf 04 evt ApplicationSubmitted { applicationId, customerId, productCode, submittedAt }
+
+// ── Identity Verification ──────────────────────────────────────────────────
+tf 05 pcr KYCProcessor ->> 04
+tf 06 cmd VerifyIdentity { applicationId, ssnLast4, dob, fullName }
+tf 07 evt IdentityVerified { applicationId, verifiedAt }
+tf 07a evt IdentityVerificationFailed { applicationId, reason }
+tf 08 cmd ScreenSanctionsList { fullName, dob, country, applicationId }
+tf 09 evt SanctionsCheckCompleted { applicationId, hitList, screenedAt }
+tf 10 rmo IdentityCheckResult { applicationId, identityStatus, sanctionsStatus }
+
+// ── Risk Scoring ───────────────────────────────────────────────────────────
+tf 11 pcr RiskProcessor ->> 07 ->> 09
+tf 12 cmd ScoreApplication { applicationId, customerId }
+tf 13 evt RiskScoreCalculated { applicationId, riskScore, drivers }
+
+// ── Decision ───────────────────────────────────────────────────────────────
+tf 14 rmo Decision { applicationId, decision, decidedAt, reason }
+tf 15 cmd ApproveApplication { applicationId, approvedProductCode }
+tf 16 cmd RejectApplication { applicationId, reasonCode }
+tf 17 evt ApplicationApproved { applicationId }
+tf 17a evt ApplicationRejected { applicationId, reasonCode }
+
+// ── Account Activation ─────────────────────────────────────────────────────
+tf 18 pcr AccountActivator ->> 17
+tf 19 cmd OpenAccount { applicationId, customerId, productCode }
+tf 20 evt AccountOpened { accountId, customerId, productCode, openedAt }
+tf 21 rmo AccountCatalogue [[AccountCatalogue21]]
+
+data ApplicationProgress02 {
+  applicationId: "app-1001"
+  customerId: "cust-7"
+  productCode: "CHQ-STD"
+  step: "capture"
+  submittedAt: "2024-06-15T10:02:00Z"
+}
+
+data AccountCatalogue21 {
+  accountId: "acc-1001"
+  customerId: "cust-7"
+  productCode: "CHQ-STD"
+  status: "open"
+  openedAt: "2024-06-15T11:18:00Z"
+}
+
+// ── Scenarios (status / staging of each slice of the diagram) ──────────────
+slice "Happy-path instant approval" 01-21 status Done
+slice "Manual review queue"        12-19 status InProgress
+slice "PEP / sanctions escalation" 08-19 status Planned
+
+// ── Open questions for the workshop ────────────────────────────────────────
+hotspot 03 {
+  What is the source-of-funds disclosure required for amounts > $10k?
+  Compliance needs to confirm whether SubmitApplication carries the
+  field today or whether it has to be re-prompted in the KYC step.
+}
+hotspot 14 {
+  When riskScore is in (60, 79], do we go to manual review or auto-decline?
+  Operations wants auto-decline to reduce queue depth; Compliance wants
+  review to avoid unfair declines. This affects the routing rule in
+  RiskProcessor (frame 11).
+}
+hotspot 08 {
+  Sanctions list version: daily OFAC refresh or real-time list feed?
+  Real-time costs $14k/month in vendor fees; daily refresh misses
+  intra-day additions. Default today is daily — needs explicit
+  Compliance sign-off before production.
+}
+
+// ── Acceptance scenarios (Given-When-Then) ────────────────────────────────
+gwt 03 "happy path: clean applicant is approved instantly"
+  given
+    ui StartApplicationScreen
+  when
+    cmd SubmitApplication { ssnLast4: "1234", dob: "1990-01-01", productCode: "CHQ-STD" }
+  then
+    evt ApplicationSubmitted
+    evt IdentityVerified
+    evt SanctionsCheckCompleted { hitList: [] }
+    evt RiskScoreCalculated { riskScore: 12 }
+    evt ApplicationApproved
+
+gwt 16 "reject when sanctions match is a positive hit"
+  given
+    evt ApplicationSubmitted { applicationId: "app-1001" }
+  when
+    cmd ScreenSanctionsList { fullName: "Bad Actor", applicationId: "app-1001" }
+  then
+    evt SanctionsCheckCompleted { hitList: ["OFAC-SDN-9912"] }
+    cmd RejectApplication { reasonCode: "sanctions_match" }
+    evt ApplicationRejected
+
+gwt 12 "manual review when risk is borderline"
+  given
+    evt RiskScoreCalculated { riskScore: 71 }
+  when
+    cmd ScoreApplication
+  then
+    rmo Decision { decision: "manual_review" }
+    rmo Decision { decidedAt: "2024-06-15T11:00:00Z" }
+
+gwt 19 "open account only after explicit approval event"
+  given
+    evt ApplicationApproved { applicationId: "app-1001" }
+  when
+    cmd OpenAccount { applicationId: "app-1001" }
+  then
+    evt AccountOpened { accountId: "acc-1001" }

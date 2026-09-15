@@ -1,0 +1,125 @@
+eventmodeling
+
+// Real-Time Fraud & AML — Enrichment → Scoring → Disposition → CaseManagement → Filing
+//
+// Bounded contexts (left → right across time):
+//   Enrichment → Scoring → Disposition → CaseManagement → Filing
+//
+// Disambiguation:
+//   "Alert" in Disposition is the auto-generated machine decision
+//   "Case"  in CaseManagement is the human-tracked investigation unit
+//   "Transaction" in Enrichment is the raw event from the payments processor
+//
+// Reset frames mark external arrivals (txn ingestion from the payments
+// processor, SAR filing back to FinCEN BSA E-Filing).
+
+entity Alert
+entity Case
+
+chapter "Enrichment"     01-09
+chapter "Scoring"        10-14
+chapter "Disposition"    15-19
+chapter "CaseManagement" 20-24
+chapter "Filing"         25-30
+
+// ── Enrichment ──────────────────────────────────────────────────────────────
+rf 01 evt External.TransactionPosted { txnId, accountId, amount, currency, merchantCategory, postedAt }
+tf 02 pcr EnrichmentProcessor ->> 01
+tf 03 cmd PullDeviceFingerprint { accountId, sessionId }
+tf 04 evt DeviceFingerprintPulled { accountId, fingerprintHash, trustedDevice }
+tf 05 cmd PullGeoVelocity { accountId, txnId, ipCountry, cardCountry }
+tf 06 evt GeoVelocityComputed { accountId, distanceKm, hoursSinceLastTxn, velocityFlag }
+tf 07 cmd PullSanctionsList { fullName, dob, country }
+tf 08 evt SanctionsListPulled { fullName, hitList }
+tf 09 rmo EnrichmentBundle [[EnrichmentBundle09]]
+
+// ── Scoring ─────────────────────────────────────────────────────────────────
+tf 10 pcr FraudScoringProcessor ->> 09
+tf 11 cmd ScoreTransaction { txnId, enrichmentBundleId }
+tf 12 evt FraudScoreComputed { txnId, score, topDrivers, computedAt }
+tf 13 cmd ApplyAMLThresholds { txnId, amount, cumulativeDailyAmount }
+tf 14 evt AMLThresholdEvaluated { txnId, exceedsCTR, exceedsSAR }
+
+// ── Disposition (auto-block / alert) ───────────────────────────────────────
+tf 15 pcr DispositionProcessor ->> 12 ->> 14
+tf 16 cmd AutoBlockTransaction { txnId, score }
+tf 17 evt TransactionBlocked { txnId, blockedAt, score }
+tf 18 cmd CreateAlert { txnId, score, drivers }
+tf 19 evt AlertCreated { alertId, txnId, score, createdAt }
+
+// ── CaseManagement (analyst review, SAR decision) ──────────────────────────
+tf 20 pcr CaseRoutingProcessor ->> 19
+tf 21 cmd OpenCase { alertId, analystId, severity }
+tf 22 evt CaseOpened { caseId, alertId, openedAt }
+tf 23 cmd CloseCaseAsFalsePositive { caseId, reasonCode }
+tf 23a cmd EscalateCaseToSAR { caseId, narrativeId }
+tf 24 evt CaseClosed { caseId, reasonCode }
+tf 24a evt CaseEscalatedToSAR { caseId, narrativeId }
+
+// ── Filing (SAR submission to regulator) ────────────────────────────────────
+tf 25 pcr SARFilingProcessor ->> 24
+tf 26 cmd PrepareSAR { caseId, narrativeId, suspiciousActivityType }
+rf 27 evt External.SARSubmitted { sarId, caseId, filedAt, acknowledgementCode }
+tf 28 evt SARFiled { sarId, caseId, filedAt, regulator: "FinCEN" }
+tf 29 cmd NotifyCustomerOfRestriction { caseId, accountId, restrictionReason }
+tf 30 evt AccountRestricted { accountId, restrictionReason }
+tf 30a evt CustomerNotified { caseId, customerId, channel }
+
+data EnrichmentBundle09 {
+  txnId: "txn-9901"
+  accountId: "acc-1001"
+  deviceTrusted: true
+  geoVelocityFlag: false
+  sanctionsHitList: []
+}
+
+slice "Enrichment pipeline"        01-09 status Done
+slice "Real-time scoring"          10-14 status InProgress
+slice "Case management UI"         15-24 status Planned
+slice "SAR filing integration"     25-30 status Informational
+
+hotspot 16 {
+  When model score is in (0.6, 0.8], auto-block or alert? Risk wants
+  alert (less customer friction); Ops wants block (less manual review).
+  The DispositionProcessor (frame 15) needs an explicit policy rule.
+}
+hotspot 26 {
+  SAR filing — automate via FinCEN BSA E-Filing API or keep manual?
+  Compliance officer needs to sign off. Today this is a manual upload
+  once a week by the BSA officer.
+}
+hotspot 11 {
+  Fraud model is currently XGBoost v3.2, retrained monthly. Drift
+  detection flagged 0.04 AUC drop in March. Should we move to weekly
+  retraining or accept the drift? This affects ScoreTransaction SLA.
+}
+
+gwt 11 "high-score transaction is auto-blocked"
+  given
+    evt EnrichmentBundle { txnId: "txn-9901" }
+  when
+    cmd ScoreTransaction
+  then
+    evt FraudScoreComputed { score: 0.94 }
+    cmd AutoBlockTransaction
+    evt TransactionBlocked
+
+gwt 18 "medium-score transaction opens a case for analyst review"
+  given
+    evt FraudScoreComputed { score: 0.72 }
+  when
+    cmd CreateAlert
+  then
+    evt AlertCreated { alertId: "alert-44" }
+    cmd OpenCase { analystId: "bsa-001", severity: "high" }
+    evt CaseOpened
+
+gwt 23 "escalate confirmed money mule to SAR filing"
+  given
+    evt CaseOpened { caseId: "case-91" }
+  when
+    cmd EscalateCaseToSAR { narrativeId: "narr-91" }
+  then
+    cmd PrepareSAR { caseId: "case-91" }
+    evt External.SARSubmitted
+    evt SARFiled { regulator: "FinCEN" }

@@ -35,7 +35,16 @@ func RenderSVG(model *Model, opts RenderOptions) (string, error) {
 	boxes := make([]boxLayout, 0, len(model.Frames))
 	swimlanes := orderedSwimlanes(model)
 	swimlaneByLabel := map[string]*swimlaneLayout{}
-	y := 20.0
+	// Chapters are drawn as a labelled band at the top of the diagram, so
+	// reserve vertical space for them *before* laying out swimlanes. The
+	// band only ever occupies one row (chapterPalette cycles, but we
+	// intentionally stack nothing here — overlapping chapters would be a
+	// validation error).
+	chapterBandHeight := 36.0
+	if len(model.Chapters) == 0 {
+		chapterBandHeight = 0
+	}
+	y := 20.0 + chapterBandHeight
 	for _, label := range swimlanes {
 		swimlaneByLabel[label] = &swimlaneLayout{label: label, y: y, height: 120}
 		y += 140
@@ -64,16 +73,42 @@ func RenderSVG(model *Model, opts RenderOptions) (string, error) {
 	reflowSwimlanes(swimlaneByLabel, boxes)
 	var b strings.Builder
 	laneBottom := swimlaneBottom(swimlaneByLabel)
-	noteStartY := laneBottom + 20
+	sliceStartY := laneBottom + 20
+	sliceHeight := sliceStackHeight(model.Slices)
+	noteStartY := sliceStartY + sliceHeight
+	if sliceHeight > 0 {
+		noteStartY += 12
+	}
 	noteHeight := noteStackHeight(model.NoteEntities)
-	gwtStartY := noteStartY + noteHeight
-	if noteHeight > 0 && len(model.GWTs) > 0 {
+	hotspotStartY := noteStartY + noteHeight
+	if noteHeight > 0 && len(model.Hotspots) > 0 {
+		hotspotStartY += 12
+	}
+	hotspotHeight := 0.0
+	for _, h := range model.Hotspots {
+		hotspotHeight += 26 + float64(len(dataRows(h.Value)))*16 + 12
+	}
+	gwtStartY := hotspotStartY + hotspotHeight
+	if (noteHeight > 0 || hotspotHeight > 0) && len(model.GWTs) > 0 {
 		gwtStartY += 20
 	}
 	totalHeight := diagramHeight(laneBottom, noteHeight, gwtStackHeight(model.GWTs), len(model.GWTs) > 0)
+	totalHeight += sliceHeight + hotspotHeight
+	if chapterBandHeight > 0 {
+		totalHeight += 16
+	}
 	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" width="%0.f" height="%0.f" viewBox="0 0 %0.f %0.f">`, math.Ceil(totalWidth), math.Ceil(totalHeight), math.Ceil(totalWidth), math.Ceil(totalHeight))
 	b.WriteString(`<defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#444"/></marker></defs>`)
-	b.WriteString(`<style>text{font-family:sans-serif;fill:#222;font-size:12px}.box-title{font-weight:bold}.note text,.gwt text{font-size:11px}.code{font-family:monospace}.lane-label{font-weight:bold;font-size:13px}</style>`)
+	b.WriteString(`<style>text{font-family:sans-serif;fill:#222;font-size:12px}.box-title{font-weight:bold}.note text,.gwt text{font-size:11px}.code{font-family:monospace}.lane-label{font-weight:bold;font-size:13px}.chapter-label{font-weight:bold;font-size:12px}.chapter-range{font-size:10px;fill:#666}.slice-label{font-size:11px}.slice-status{font-size:10px;fill:#444}</style>`)
+	if chapterBandHeight > 0 {
+		// We need the box layout to know each frame's X to draw a chapter
+		// band, but we only have boxes after reflow — compute them now.
+		boxByID := map[string]boxLayout{}
+		for _, box := range boxes {
+			boxByID[box.frame.ID] = box
+		}
+		renderChapters(&b, model, boxByID)
+	}
 	for _, label := range swimlanes {
 		lane := swimlaneByLabel[label]
 		fmt.Fprintf(&b, `<g class="swimlane"><rect x="10" y="%0.f" width="%0.f" height="%0.f" rx="6" fill="#fafafa" stroke="#e0e0e0"/><text class="lane-label" x="24" y="%0.f">%s</text></g>`, lane.y, totalWidth-20, lane.height, lane.y+24, esc(label))
@@ -94,10 +129,28 @@ func RenderSVG(model *Model, opts RenderOptions) (string, error) {
 	for _, box := range boxes {
 		renderBox(&b, box)
 	}
+	if sliceHeight > 0 {
+		renderSlices(&b, model, boxByID, sliceStartY)
+	}
 	renderNotes(&b, model.NoteEntities, boxByID, noteStartY)
+	if len(model.Hotspots) > 0 {
+		renderHotspots(&b, model.Hotspots, boxByID, hotspotStartY)
+	}
+	renderHotspotPins(&b, model, boxByID)
 	renderGWT(&b, model.GWTs, boxByID, gwtStartY)
 	b.WriteString(`</svg>`)
 	return b.String(), nil
+}
+
+// sliceStackHeight returns the total vertical space renderSlices will
+// consume for the given slice list (zero when none).
+func sliceStackHeight(slices []*Slice) float64 {
+	if len(slices) == 0 {
+		return 0
+	}
+	const barHeight = 22.0
+	const gap = 4.0
+	return float64(len(slices))*(barHeight+gap) + gap
 }
 
 type inferredEdge struct {
@@ -350,6 +403,178 @@ func frameColors(entityType EntityType) (fill, stroke string) {
 	default:
 		return "#eeeeee", "#999999"
 	}
+}
+
+// sliceStatusColor returns the fill / stroke pair used to render a slice
+// status bar. Unknown statuses fall back to a neutral grey so we never
+// crash on a freshly-introduced status keyword — validation enforces the
+// closed set at parse time, but defence-in-depth is cheap here.
+func sliceStatusColor(status SliceStatus) (fill, stroke string) {
+	switch status {
+	case SliceDone:
+		return "#c8e6c9", "#4caf50"
+	case SliceInProgress:
+		return "#bbdefb", "#2196f3"
+	case SliceReview:
+		return "#e1bee7", "#8e24aa"
+	case SlicePlanned, SliceCreated, SliceAssigned:
+		return "#eceff1", "#90a4ae"
+	case SliceBlocked:
+		return "#ffcdd2", "#e53935"
+	case SliceInformational:
+		return "#fff59d", "#f9a825"
+	default:
+		return "#eeeeee", "#999999"
+	}
+}
+
+// chapterPalette returns a deterministic soft fill/stroke for a chapter,
+// indexed by its position in model.Chapters. Three pastel pairs cycle so
+// adjacent chapters are visually distinct.
+func chapterPalette(ix int) (fill, stroke string) {
+	pairs := [][2]string{
+		{"#fde7e9", "#e57373"},
+		{"#e0f2f1", "#4db6ac"},
+		{"#e3f2fd", "#64b5f6"},
+		{"#f3e5f5", "#ba68c8"},
+		{"#fff8e1", "#ffb74d"},
+		{"#e8f5e9", "#81c784"},
+	}
+	p := pairs[ix%len(pairs)]
+	return p[0], p[1]
+}
+
+// renderChapters draws one labelled band per chapter across the top of
+// the diagram, spanning the chapter's start-to-end frame X-centres.
+// It returns the band's height so callers can adjust totalHeight.
+func renderChapters(b *strings.Builder, model *Model, boxes map[string]boxLayout) float64 {
+	if len(model.Chapters) == 0 {
+		return 0
+	}
+	const bandHeight = 28.0
+	for ix, ch := range model.Chapters {
+		startBox, ok1 := boxes[ch.StartID]
+		endBox, ok2 := boxes[ch.EndID]
+		if !ok1 || !ok2 {
+			continue
+		}
+		startX := startBox.x + startBox.width/2
+		endX := endBox.x + endBox.width/2
+		if endX < startX {
+			startX, endX = endX, startX
+		}
+		width := endX - startX
+		if width < 40 {
+			width = 40
+		}
+		fill, stroke := chapterPalette(ix)
+		y := 4.0 + float64(ix)*0 // stack only if needed — keep flat for clarity
+		fmt.Fprintf(b, `<g class="chapter"><rect x="%0.f" y="%0.f" width="%0.f" height="%0.f" rx="4" fill="%s" stroke="%s" stroke-width="1"/>`, startX, y, width, bandHeight, fill, stroke)
+		fmt.Fprintf(b, `<text class="chapter-label" x="%0.f" y="%0.f">%s</text>`, startX+10, y+18, esc(ch.Label))
+		fmt.Fprintf(b, `<text class="chapter-range" x="%0.f" y="%0.f">%s–%s</text>`, startX+width-50, y+18, esc(ch.StartID), esc(ch.EndID))
+		b.WriteString(`</g>`)
+	}
+	return bandHeight + 4
+}
+
+// renderSlices draws one coloured status bar per slice below the swimlanes
+// (above the notes row). It returns the total height consumed.
+func renderSlices(b *strings.Builder, model *Model, boxes map[string]boxLayout, startY float64) float64 {
+	if len(model.Slices) == 0 {
+		return 0
+	}
+	const barHeight = 22.0
+	const gap = 4.0
+	y := startY
+	for ix, sl := range model.Slices {
+		startBox, ok1 := boxes[sl.StartID]
+		endBox, ok2 := boxes[sl.EndID]
+		if !ok1 || !ok2 {
+			continue
+		}
+		startX := startBox.x
+		endX := endBox.x + endBox.width
+		if endX < startX {
+			startX, endX = endX, startX
+		}
+		width := endX - startX
+		if width < 60 {
+			width = 60
+		}
+		fill, stroke := sliceStatusColor(sl.Status)
+		fmt.Fprintf(b, `<g class="slice"><rect x="%0.f" y="%0.f" width="%0.f" height="%0.f" rx="3" fill="%s" stroke="%s"/>`, startX, y, width, barHeight, fill, stroke)
+		fmt.Fprintf(b, `<text class="slice-label" x="%0.f" y="%0.f">%s</text>`, startX+8, y+15, esc(sl.Name))
+		fmt.Fprintf(b, `<text class="slice-status" x="%0.f" y="%0.f">%s</text>`, startX+width-90, y+15, esc(string(sl.Status)))
+		b.WriteString(`</g>`)
+		y += barHeight + gap
+		_ = ix
+	}
+	return y - startY
+}
+
+// renderHotspotPins overlays a small red circle on every frame that has
+// at least one open hotspot, and a grey circle for frames whose hotspots
+// are all resolved. This is drawn last so it sits on top of the boxes.
+func renderHotspotPins(b *strings.Builder, model *Model, boxes map[string]boxLayout) {
+	open := map[string]bool{}
+	resolved := map[string]bool{}
+	for _, h := range model.Hotspots {
+		if h.Status == HotspotOpen {
+			open[h.SourceID] = true
+		} else {
+			resolved[h.SourceID] = true
+		}
+	}
+	for id := range open {
+		box, ok := boxes[id]
+		if !ok {
+			continue
+		}
+		fmt.Fprintf(b, `<circle class="hotspot-pin" cx="%0.f" cy="%0.f" r="6" fill="#e53935" stroke="#fff" stroke-width="1.5"/>`, box.x+box.width-8, box.y+8)
+	}
+	for id := range resolved {
+		if open[id] {
+			continue
+		}
+		box, ok := boxes[id]
+		if !ok {
+			continue
+		}
+		fmt.Fprintf(b, `<circle class="hotspot-pin hotspot-resolved" cx="%0.f" cy="%0.f" r="6" fill="#bdbdbd" stroke="#fff" stroke-width="1.5"/>`, box.x+box.width-8, box.y+8)
+	}
+}
+
+// renderHotspots draws the hotspot sticky-note stack below the swimlanes,
+// one per hotspot, mirroring renderNotes but red.
+func renderHotspots(b *strings.Builder, hotspots []*HotspotEntity, boxes map[string]boxLayout, startY float64) float64 {
+	if len(hotspots) == 0 {
+		return 0
+	}
+	y := startY
+	for _, h := range hotspots {
+		box, ok := boxes[h.SourceID]
+		if !ok {
+			continue
+		}
+		rows := dataRows(h.Value)
+		height := 26.0 + float64(len(rows))*16
+		fill := "#fde8e8"
+		if h.Status == HotspotResolved {
+			fill = "#eeeeee"
+		}
+		fmt.Fprintf(b, `<g class="hotspot"><rect x="%0.f" y="%0.f" width="220" height="%0.f" rx="4" fill="%s" stroke="#e57373"/>`, box.x, y, height, fill)
+		label := "Hotspot for " + h.Source.Identifier
+		if h.Status == HotspotResolved {
+			label = "Resolved — " + h.Source.Identifier
+		}
+		fmt.Fprintf(b, `<text x="%0.f" y="%0.f">%s</text>`, box.x+10, y+18, esc(label))
+		for i, row := range rows {
+			fmt.Fprintf(b, `<text class="code" x="%0.f" y="%0.f">%s</text>`, box.x+10, y+36+float64(i)*16, esc(row))
+		}
+		b.WriteString(`</g>`)
+		y += height + 12
+	}
+	return y - startY
 }
 
 func defaultMeasureTextWidth(text string, monospace bool) float64 {

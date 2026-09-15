@@ -1,0 +1,136 @@
+eventmodeling
+
+// Card Payment Lifecycle — Authorize → Capture → Clearing → Settlement → Post-Settlement
+//
+// Bounded contexts (left → right across time):
+//   Auth → Capture → Clearing → Settlement → PostSettlement
+//
+// "Auth" here is the issuer authorisation step; "Capture" is when funds
+// are reserved on the issuer side. The settlement file ingestion and the
+// chargeback rails come from external networks (reset frames).
+
+entity CardPayment
+entity MerchantSettlement
+
+chapter "Auth"          01-08
+chapter "Capture"       09-11
+chapter "Clearing"      12-14
+chapter "Settlement"    15-17
+chapter "PostSettlement" 18-23
+
+// ── Auth ────────────────────────────────────────────────────────────────────
+tf 01 ui CheckoutScreen
+tf 02 rmo CartTotal [[CartTotal02]]
+tf 03 cmd AuthorizeCardPayment { amount, currency, cardToken, merchantId, threeDSChallengeId }
+tf 04 evt CardAuthorizationRequested { paymentId, amount, merchantId, requestedAt }
+rf 05 evt External.NetworkResponse { paymentId, authCode, responseCode, issuerId }
+tf 06 pcr AuthTranslator ->> 05
+tf 07 evt CardAuthorized { paymentId, authCode, expiresAt }
+tf 07a evt CardDeclined { paymentId, responseCode, reason }
+
+// ── Capture ─────────────────────────────────────────────────────────────────
+tf 08 rmo AuthorizationLedger [[AuthorizationLedger08]]
+tf 09 pcr CaptureScheduler ->> 07
+tf 10 cmd CapturePayment { paymentId, captureAmount }
+tf 11 evt PaymentCaptured { paymentId, capturedAmount, capturedAt }
+
+// ── Clearing (external settlement file arrival) ────────────────────────────
+rf 12 evt External.SettlementFileBatch { batchId, valueDate, recordCount, totalValue }
+tf 13 pcr ClearingProcessor ->> 11 ->> 12
+tf 14 evt ClearingCompleted { batchId, clearedCount, totalValue, clearedAt }
+
+// ── Settlement (internal disbursement to the merchant) ─────────────────────
+tf 15 rmo MerchantSettlementPosition [[MerchantSettlementPosition15]]
+tf 16 cmd DisburseToMerchant { merchantId, amount, currency, valueDate }
+tf 17 evt MerchantPaid { merchantId, disbursementId, amount, paidAt }
+
+// ── PostSettlement (refund + chargeback rails) ─────────────────────────────
+tf 18 cmd RefundPayment { paymentId, refundAmount, originalAuthCode, reason }
+tf 19 evt RefundIssued { paymentId, refundId, refundAmount, refundedAt }
+rf 20 evt External.ChargebackFiled { chargebackId, paymentId, reasonCode, amount }
+tf 21 pcr ChargebackProcessor ->> 20
+tf 22 cmd AcceptChargeback { chargebackId, writeOffAmount }
+tf 22a cmd DisputeChargeback { chargebackId, reasonCode, evidenceBundleId }
+tf 23 evt ChargebackAccepted { chargebackId, writeOffAmount }
+tf 23a evt ChargebackDisputed { chargebackId, status: "in_arbitration" }
+
+data CartTotal02 {
+  cartId: "c-100"
+  total: 125.00
+  currency: "USD"
+}
+
+data AuthorizationLedger08 {
+  paymentId: "pay-9901"
+  authCode: "auth-1"
+  authorizedAmount: 125.00
+  expiresAt: "2024-06-22T14:30:00Z"
+}
+
+data MerchantSettlementPosition15 {
+  merchantId: "mer-42"
+  pendingAmount: 125.00
+  valueDate: "2024-06-16"
+  currency: "USD"
+}
+
+// ── Build stages (slice status) ────────────────────────────────────────────
+slice "Auth + capture"          01-11 status Done
+slice "Clearing file ingest"    12-14 status InProgress
+slice "Merchant disbursement"   15-17 status Planned
+slice "Refund flow"             18-19 status Planned
+slice "Chargeback intake"       20-23 status Informational
+
+// ── Open questions (hotspots) ──────────────────────────────────────────────
+hotspot 10 {
+  When do we capture — at auth+24h, or at fulfilment? Operations
+  wants immediate to free interchange capacity; Finance wants T+1
+  to align with their nightly GL posting. Defaults to T+1 today.
+}
+hotspot 22 {
+  Reason-code VISA 4837 (no cardholder authorization) — auto-accept
+  or always dispute? Compliance needs a written decision; Operations
+  wants auto-accept to keep dispute queue small.
+}
+hotspot 14 {
+  Settlement file arrives daily at 06:00 UTC. If the file is late we
+  block all downstream disbursements. Should we fall back to a vendor
+  CSV pull when the batch is missing by 07:00? Not modelled today.
+}
+
+// ── Acceptance scenarios (Given-When-Then) ────────────────────────────────
+gwt 03 "happy path: card authorized, captured, settled"
+  given
+    ui CheckoutScreen
+  when
+    cmd AuthorizeCardPayment { amount: 125.00, cardToken: "tok_visa_1" }
+  then
+    evt CardAuthorizationRequested
+    evt CardAuthorized { authCode: "auth-1" }
+    evt PaymentCaptured { capturedAmount: 125.00 }
+    evt ClearingCompleted { totalValue: 125.00 }
+    evt MerchantPaid { amount: 125.00 }
+
+gwt 03 "decline on insufficient funds"
+  given
+    cmd AuthorizeCardPayment { amount: 9999.00 }
+  when
+    evt External.NetworkResponse { responseCode: "51" }
+  then
+    evt CardDeclined { responseCode: "51", reason: "insufficient_funds" }
+
+gwt 18 "refund a captured payment"
+  given
+    evt PaymentCaptured { paymentId: "pay-9901" }
+  when
+    cmd RefundPayment { refundAmount: 25.00, reason: "customer_return" }
+  then
+    evt RefundIssued { refundAmount: 25.00 }
+
+gwt 22 "accept a chargeback with write-off"
+  given
+    evt External.ChargebackFiled { reasonCode: "4837", amount: 125.00 }
+  when
+    cmd AcceptChargeback { writeOffAmount: 125.00 }
+  then
+    evt ChargebackAccepted { writeOffAmount: 125.00 }

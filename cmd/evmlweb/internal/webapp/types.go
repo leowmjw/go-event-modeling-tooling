@@ -29,6 +29,7 @@ type DraftVersion struct {
 	FlowName   string
 	Date       string // YYYY-MM-DD, the date this draft was created
 	Seq        int
+	Label      string // friendly name; defaults to "v<n>" when empty
 	EvmlSource string
 	SVG        string
 	ParseError string // non-empty when EvmlSource fails to parse/validate

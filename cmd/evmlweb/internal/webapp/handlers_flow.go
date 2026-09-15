@@ -2,11 +2,15 @@ package webapp
 
 import (
 	"bytes"
+	"fmt"
 	"html/template"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/starfederation/datastar-go/datastar"
+
+	evml "github.com/leowmjw/go-event-modeling-tooling"
 )
 
 // buildPage assembles the full WorkspacePage view model from s's current
@@ -47,19 +51,70 @@ func (a *App) buildPage(s *Session) (WorkspacePage, error) {
 
 	for _, id := range fs.DraftOrder {
 		d := fs.Drafts[id]
-		page.Drafts = append(page.Drafts, DraftTab{ID: d.ID, Label: draftLabel(d)})
+		page.Drafts = append(page.Drafts, DraftTab{
+			ID:           d.ID,
+			Label:        draftLabel(d),
+			ShortLabel:   fmt.Sprintf("v%d", d.Seq),
+			HasLabel:     d.Label != "",
+			SliceSummary: sliceSummary(d.EvmlSource),
+		})
 	}
 	page.ActiveDraftID = fs.ActiveDraftID
+	page.HasDrafts = len(fs.DraftOrder) > 0
 
 	if d, ok := fs.Drafts[fs.ActiveDraftID]; ok {
 		page.ActiveSVG = template.HTML(activeSVG(fs, d))
 		page.Transcript = toChatViews(d.Transcript)
 		page.ParseError = d.ParseError
+		populateDSLView(&page, d.EvmlSource)
 	} else {
 		page.ActiveSVG = template.HTML(fs.BaselineSVG)
+		populateDSLView(&page, fs.BaselineEvml)
 	}
 
 	return page, nil
+}
+
+// populateDSLView parses evmlSrc and fills page.Chapters / page.Slices /
+// page.Hotspots. Silently no-ops when the source doesn't parse — the
+// chat pane already shows the parse error in that case.
+func populateDSLView(page *WorkspacePage, evmlSrc string) {
+	m, err := evml.Parse(evmlSrc)
+	if err != nil {
+		return
+	}
+	page.Chapters = page.Chapters[:0]
+	for _, ch := range m.Chapters {
+		page.Chapters = append(page.Chapters, ChapterView{Label: ch.Label, StartID: ch.StartID, EndID: ch.EndID})
+	}
+	page.Slices = page.Slices[:0]
+	for _, sl := range m.Slices {
+		page.Slices = append(page.Slices, SliceView{Name: sl.Name, StartID: sl.StartID, EndID: sl.EndID, Status: string(sl.Status)})
+	}
+	page.Hotspots = page.Hotspots[:0]
+	for _, h := range m.Hotspots {
+		page.Hotspots = append(page.Hotspots, HotspotSummaryView{
+			FrameID:   h.SourceID,
+			FrameName: h.Source.Identifier,
+			Snippet:   hotspotSnippet(h.Value),
+			Resolved:  h.Status == evml.HotspotResolved,
+		})
+		if h.Status != evml.HotspotResolved {
+			page.OpenHotspotN++
+		}
+	}
+}
+
+func hotspotSnippet(body string) string {
+	body = strings.TrimSpace(body)
+	body = strings.TrimPrefix(body, "{")
+	body = strings.TrimSuffix(body, "}")
+	body = strings.TrimSpace(body)
+	body = strings.SplitN(body, "\n", 2)[0]
+	if len(body) > 80 {
+		body = body[:80] + "…"
+	}
+	return body
 }
 
 // activeSVG returns the best available rendered diagram for a draft,

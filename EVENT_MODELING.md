@@ -13,13 +13,16 @@
 3. [Frame declarations (`tf` / `rf`)](#3-frame-declarations-tf--rf)
 4. [Data blocks (`data`)](#4-data-blocks-data)
 5. [Notes (`note`)](#5-notes-note)
-6. [Given-When-Then scenarios (`gwt`)](#6-given-when-then-scenarios-gwt)
-7. [Entity declarations (`entity`)](#7-entity-declarations-entity)
-8. [Comments](#8-comments)
-9. [Identifier rules](#9-identifier-rules)
-10. [Payload rules](#10-payload-rules)
-11. [Full formal grammar (BNF-style)](#11-full-formal-grammar-bnf-style)
-12. [Proposed future extensions (not yet implemented)](#12-proposed-future-extensions-not-yet-implemented)
+6. [Hotspots (`hotspot`)](#6-hotspots-hotspot)
+7. [Given-When-Then scenarios (`gwt`)](#7-given-when-then-scenarios-gwt)
+8. [Entity declarations (`entity`)](#8-entity-declarations-entity)
+9. [Chapters (`chapter`)](#9-chapters-chapter)
+10. [Slices (`slice`)](#10-slices-slice)
+11. [Comments](#11-comments)
+12. [Identifier rules](#12-identifier-rules)
+13. [Payload rules](#13-payload-rules)
+14. [Full formal grammar (BNF-style)](#14-full-formal-grammar-bnf-style)
+15. [Proposed future extensions (not yet implemented)](#15-proposed-future-extensions-not-yet-implemented)
 
 ---
 
@@ -183,7 +186,41 @@ note 05 {
 
 ---
 
-## 6. Given-When-Then scenarios (`gwt`)
+## 6. Hotspots (`hotspot`)
+
+```
+hotspot <frameId> [`<dataType>`]? [status <open|resolved>]? {
+  <free-form question or blocker text>
+}
+```
+
+- A hotspot is a sibling of `note`, but semantically distinct: it marks an
+  **unresolved** question the workshop owes an answer to, not a finished
+  annotation. Rendered with a **red pin** in the top-right corner of the
+  parent frame, and a red sticky-note-style block below the swimlane.
+- Use `hotspot` whenever a discussion surfaces "what happens when…?"
+  or "operations wants X, compliance wants Y" — anything that would
+  otherwise live as a `//` comment and get forgotten.
+- Optional `status resolved` keyword marks the hotspot as answered. The
+  pin turns grey and the sticky becomes dimmed.
+- Validation: every hotspot's `frameId` must reference a declared frame.
+
+### Example
+
+```evml
+hotspot 12 {
+  At DTI > 43%, do we decline or offer reduced principal? Credit policy
+  differs from product team expectation.
+}
+
+hotspot 08 status resolved {
+  Sanctions list version: previously daily OFAC; now real-time.
+}
+```
+
+---
+
+## 7. Given-When-Then scenarios (`gwt`)
 
 ```
 gwt <frameId> ["label"]?
@@ -249,7 +286,7 @@ gwt 03 "nested payload"
 
 ---
 
-## 7. Entity declarations (`entity`)
+## 8. Entity declarations (`entity`)
 
 ```
 entity <Name>
@@ -267,7 +304,82 @@ entity Hotel.Room
 
 ---
 
-## 8. Comments
+## 9. Chapters (`chapter`)
+
+```
+chapter "<Name>" <startFrameId>-<endFrameId>
+```
+
+- A chapter is a labelled, contiguous frame range that represents a
+  **bounded context** across the timeline (e.g. "Operations",
+  "Compensation", "Finance"). Rendered as a coloured band across the top
+  of the diagram, with the frame-ID range printed on the right edge.
+- Validation: chapter `startFrameId` and `endFrameId` must both exist;
+  the end must be at or after the start; chapters must not overlap one
+  another (slices, in contrast, may freely overlap — they model
+  build-stage decomposition).
+- Use `chapter` to replace the `// ── Operations bounded context ──`
+  banner convention that previously lived only in source comments and
+  rendered as nothing.
+
+### Example
+
+```evml
+chapter "Operations"    01-07
+chapter "Compensation"  08-21
+chapter "Finance"       22-39
+chapter "Marketing"     40-55
+```
+
+---
+
+## 10. Slices (`slice`)
+
+```
+slice "<Name>" <startFrameId>-<endFrameId> status <StatusKeyword>
+```
+
+`<StatusKeyword>` ∈ `Created | Planned | Assigned | InProgress | Review
+| Done | Blocked | Informational`.
+
+- A slice is a named, framed range of the timeline with an explicit build
+  status — the answer to "what will ship in MVP, what is next, what is
+  speculative?". Rendered as a coloured bar below the swimlanes with
+  the status keyword as a small badge.
+- Status keywords are case-sensitive and PascalCase; unknown keywords
+  fail to parse.
+- Slices **may** overlap. The same frame can belong to "Auth + capture"
+  (Done) and to "Refund flow" (Planned) at the same time — the read
+  model is "build stage per feature, not a partition".
+- A chapter groups multiple named slices naturally; a slice is finer
+  than a chapter.
+
+### Example
+
+```evml
+slice "Happy-path instant approval"  01-20 status Done
+slice "Manual review queue"          12-19 status InProgress
+slice "PEP / sanctions escalation"   09-19 status Planned
+slice "Re-KYC at 12 months"          22-30 status Informational
+```
+
+```
+entity <Name>
+```
+
+- Declares a named domain entity (e.g. an aggregate root).
+- Used for documentation / tooling; not rendered in the SVG by default.
+
+### Example
+
+```evml
+entity Cart
+entity Hotel.Room
+```
+
+---
+
+## 11. Comments
 
 ```evml
 // single-line comment (C-style)
@@ -296,7 +408,7 @@ All comment styles are ignored by the parser.
 
 ---
 
-## 9. Identifier rules
+## 12. Identifier rules
 
 | Role | Pattern | Examples |
 |---|---|---|
@@ -308,7 +420,7 @@ Frame IDs must be **unique** across all `tf`/`rf` declarations in a file.
 
 ---
 
-## 10. Payload rules
+## 13. Payload rules
 
 A payload is data attached to a frame, GWT statement, data block, or note.
 
@@ -344,7 +456,7 @@ Supported types: `json`, `jsobj`, `figma`, `salt`, `uri`, `md`, `html`, `text`.
 
 ---
 
-## 11. Full formal grammar (BNF-style)
+## 14. Full formal grammar (BNF-style)
 
 ```
 EventModel  ::= 'eventmodeling' Statement*
@@ -353,6 +465,9 @@ Statement   ::= TimeFrame
              |  ResetFrame
              |  DataEntity
              |  NoteEntity
+             |  HotspotEntity
+             |  Chapter
+             |  Slice
              |  GWT
              |  EntityDecl
 
@@ -369,6 +484,16 @@ DataRef     ::= '[[' EID ']]'
 DataEntity  ::= 'data' EID TypeHint? DataBlock
 
 NoteEntity  ::= 'note' FrameId TypeHint? DataBlock
+
+HotspotEntity::= 'hotspot' FrameId TypeHint? ('status' ('open'|'resolved'))? DataBlock
+
+Chapter     ::= 'chapter' QuotedString FrameId '-' FrameId
+
+Slice       ::= 'slice' QuotedString FrameId '-' FrameId
+                'status' SliceStatus
+
+SliceStatus ::= 'Created'|'Planned'|'Assigned'|'InProgress'
+             |  'Review'|'Done'|'Blocked'|'Informational'
 
 GWT         ::= 'gwt' FrameId QuotedString?
                 'given' GWTStatement+
@@ -398,34 +523,14 @@ EID         ::= [_a-zA-Z][_\w]*
 
 ---
 
-## 12. Proposed future extensions (not yet implemented)
+## 15. Proposed future extensions (not yet implemented)
 
-Four notation features exist on the eventmodelers.ai cheat sheet that this
-DSL has no equivalent for today: **hotspots**, **actor lanes**, **chapters**,
-and **slice status tags**. None of these are implemented — this section is a
-grammar sketch to work from when they are. Do not treat any syntax below as
-valid `.evml` until the parser, `model.go`, and `render.go` are updated to
-match, and this section is promoted out of "proposed."
+One notation feature remains on the eventmodelers.ai cheat sheet that this
+DSL has no equivalent for today: **actor lanes**. None of the others
+(hotspots, chapters, slice status) are unimplemented any more — they live
+in §6, §9, §10 above.
 
-### 12.1 Hotspots — `hotspot`
-
-```
-hotspot <frameId> {
-  <free-form question or blocker text>
-}
-```
-
-- Sibling of `note`, but semantically distinct: a hotspot marks an
-  **unresolved** question or blocker, not a finished annotation. Rendered as
-  a red sticky (🔴) rather than `note`'s yellow.
-- A new `EntityStatus`-style flag, not an `EntityType` — it attaches to a
-  frame the same way `note` does, so no changes to `allowedSources` are
-  needed.
-- Enables a `evml lint --hotspots` (or `--strict`) mode that exits non-zero
-  if any hotspot remains, so "all open questions resolved" becomes a CI gate
-  instead of a convention nobody checks.
-
-### 12.2 Actor lanes — `actor` + `@ActorName`
+### 15.1 Actor lanes — `actor` + `@ActorName`
 
 ```
 actor <Name>
@@ -441,81 +546,3 @@ tf <id> ui <QualifiedName> @<ActorName> [payload]?
 - Rendering adds a **secondary vertical banding** across the UI swimlane,
   colour-coded per actor — independent of the existing entity-type
   swimlanes, which stay horizontal.
-
-### 12.3 Chapters — `chapter`
-
-```
-chapter <Name> {
-  <frameId>-<frameId>
-}
-```
-
-or, more simply, a range attached directly to a declaration:
-
-```
-chapter "Operations" 01-07
-chapter "Compensation" 08-21
-```
-
-- Purely a rendering/navigation concern: a **wide labelled arrow or bracket**
-  spanning the given frame-ID range, drawn above the swimlanes. No effect on
-  parsing semantics of the frames themselves.
-- Frame ranges must be non-overlapping and reference declared `tf`/`rf` IDs;
-  validated the same way `->>` source IDs are today (existence check only,
-  in `ValidateConnections` or a sibling `ValidateChapters`).
-- Turns the `//` section-comment convention already used in fixtures like
-  `flight-arrival-post-flight-settlement.evml` (bounded-context banners) into
-  something that actually renders, instead of living only in source comments.
-
-### 12.4 Slice status tags — `status`
-
-```
-slice <Name> [<startFrameId>-<endFrameId>] status <StatusKeyword>
-```
-
-Where `StatusKeyword` ∈ `Created | Planned | Assigned | InProgress | Review
-| Done | Blocked | Informational`.
-
-- A `slice` is the vertical cut already described conceptually in `SKILL.md`
-  §"Slices & Scenarios" — this gives it an explicit DSL declaration instead
-  of being an implicit grouping.
-- Status renders as a small badge on the slice's frame range; `Blocked`
-  could additionally render a red border to align visually with hotspots.
-- Natural pairing with **chapters**: a chapter groups multiple named slices,
-  each with its own status, giving a build-progress view without leaving
-  the model.
-
-### What these unlock — 3 scenarios not modelable today
-
-**Scenario 1 — Hotspots: making unresolved rules impossible to lose.**
-Today, an open question like *"what happens if two guests book the same
-room simultaneously?"* can only be captured as a `//` comment — which the
-parser ignores, which never renders, and which nothing can enforce. With
-`hotspot 06 { concurrent booking on the same room: last write wins, or
-reject? }` attached to `tf 06 cmd BookRoom`, the question is visible in the
-SVG and queryable by tooling. A CI gate (`evml lint --hotspots`) can then
-block a merge until every hotspot is either resolved (converted to a `note`
-or removed) or explicitly accepted — turning "we forgot to decide this"
-from a silent failure mode into a build failure.
-
-**Scenario 2 — Actor lanes: seeing who does what without reading labels.**
-`what-is-event-modeling.evml` mixes guest self-service (`SearchRoomsScreen`,
-`BookRoomScreen`) with staff-operated screens (`CheckInDesk`,
-`CheckOutDesk`) in the same UI swimlane — today you can only tell them apart
-by reading each frame's name. Tagging `tf 09 ui CheckInDesk @FrontDeskStaff`
-vs. `tf 01 ui SearchRoomsScreen @Guest` and rendering a colour-coded actor
-band makes the guest/staff split immediately visible, which matters for
-staffing and training conversations, and surfaces the "Bed" anti-pattern
-per-actor (e.g. "FrontDeskStaff fires four unrelated commands from one
-screen").
-
-**Scenario 3 — Chapters + slice status: a build tracker that lives in the
-diagram.** `flight-arrival-post-flight-settlement.evml` is 55 frames across
-four bounded contexts (Operations → Compensation → Finance → Marketing);
-today that boundary structure exists only as a `//` comment header nobody
-can query. Wrapping each context in a `chapter` with named `slice`s inside —
-`slice "Evaluate delay" 09-11 status Done`, `slice "Escalate unresolved
-claim" 36-39 status InProgress` — turns the model into a live progress view:
-which slices are shipped, which are in review, which are blocked. This
-closes the gap between "the diagram" and "the sprint board" instead of
-requiring both to be maintained separately and kept in sync by hand.
