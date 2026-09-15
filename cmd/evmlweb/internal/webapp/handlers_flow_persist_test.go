@@ -60,6 +60,7 @@ func TestPageTemplateUsesDatastarColonSyntax(t *testing.T) {
 	b, err := app.renderTemplateToBytes("page", WorkspacePage{
 		ModelID:    "test-model",
 		ActiveFlow: "simple-block",
+		HasModels:  true,
 		Models:     []ModelChoiceView{{ID: "test-model", SizeHuman: "1GiB"}},
 		Fixtures:   []string{"simple-block"},
 	})

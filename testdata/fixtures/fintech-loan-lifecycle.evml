@@ -1,0 +1,638 @@
+eventmodeling
+
+// Unsecured personal loan: origination -> servicing -> collections -> closure.
+//
+// Bounded contexts (left to right across time):
+//   Application -> KYC & Fraud -> Credit Decision -> Contracting & Disbursement
+//   -> Servicing -> Collections -> Closure
+//
+// How this model evolved across four sessions with Credit Risk, Operations,
+// Collections and Compliance:
+//   Session 1 (as-is): application -> KYC -> bureau pull -> offer -> e-sign ->
+//     ACH disbursement -> monthly direct debit. One "Underwrite" command did
+//     everything; the room split it into eligibility -> affordability -> offer
+//     so each decision has its own state transition and rejection path.
+//   Session 2: Operations reported ACH payouts that fail days later (R03 no
+//     account). The reverse-and-reissue loop was added (SKILL.md corner case 6),
+//     and e-signing moved to the vendor webhook (ESign.EnvelopeCompleted).
+//   Session 3: Collections described the missed-payment reality: direct debit
+//     returns (R01), a 10-day grace period, promise-to-pay calls, and the
+//     180-DPD charge-off rule. A hardship restructure plan is being piloted
+//     (staging) - whether it resets days-past-due is still disputed.
+//   Session 4: Product sketched two future slices: a loan top-up after six
+//     on-time instalments, and open-banking income verification replacing
+//     uploaded payslips.
+//
+// Read models that carry a clock or a threshold (RepaymentSchedule,
+// ArrearsPosition) are watched by guard processors (GracePeriodMonitor,
+// LoanClosureMonitor) - the canonical evt -> rmo -> pcr -> cmd shape.
+
+actor Applicant
+actor Borrower
+actor Underwriter
+actor CollectionsAgent
+
+chapter "Application" 01-05
+chapter "KYC & Fraud" 06-10
+chapter "Credit Decision" 11-22
+chapter "Contracting & Disbursement" 23-35
+chapter "Servicing" 36-47
+chapter "Collections" 48-55
+chapter "Closure" 56-60
+
+slice "Submit application with income and consents" 01-03 status Done
+slice "Open-banking income verification (replaces payslips)" 04-05 status Planned stage future
+slice "KYC and fraud outcome" 06-10 status Done
+slice "Automated underwriting: eligibility and affordability" 11-17 status Done
+slice "Manual review desk for referred cases" 18-20 status Done
+slice "Generate offer" 21-22 status Done
+slice "Accept offer and e-sign" 23-27 status Done
+slice "Disburse via ACH" 28-30 status Done
+slice "Async payout failure: reverse and reissue" 31-35 status Review
+slice "Collect scheduled instalments by direct debit" 36-39 status Done
+slice "Loan top-up after 6 on-time instalments" 40-42 status Planned stage future
+slice "Direct-debit return, grace period and arrears" 43-47 status Done
+slice "Promise to pay" 48-50 status Done
+slice "Hardship plan and restructure" 51-55 status InProgress stage staging
+slice "Paid off or charged off at 180 DPD" 56-60 status Assigned
+
+tf 01 ui LoanApplicationScreen @Applicant
+tf 02 cmd SubmitLoanApplication { applicationId: "APP-2026-01883", applicantId: "cust-58213", requestedAmount: 15000.00, currency: "USD", termMonths: 36, purpose: "debt_consolidation", declaredMonthlyIncome: 6200.00, employer: "Northwind Logistics", payslipsAttached: 3, consents: ["credit_bureau_pull", "e_sign", "ach_debit", "privacy_notice"] }
+tf 03 evt LoanApplicationSubmitted { applicationId: "APP-2026-01883", applicantId: "cust-58213", requestedAmount: 15000.00, currency: "USD", termMonths: 36, declaredMonthlyIncome: 6200.00, payslipsAttached: 3, consents: ["credit_bureau_pull", "e_sign", "ach_debit", "privacy_notice"], submittedAt: "2026-03-09T10:12:00Z" }
+rf 04 evt OpenBanking.TransactionsShared { applicationId: "APP-2026-01883", provider: "Plaid", accountsLinked: 2, monthsOfHistory: 12, sharedAt: "2026-03-09T10:20:00Z" }
+tf 05 rmo VerifiedIncomeProfile ->> 04 { applicationId: "APP-2026-01883", verifiedMonthlyIncome: 6050.00, currency: "USD", incomeStability: "regular_biweekly", recurringDebits: 1420.00, source: "open_banking" }
+
+rf 06 evt KycVendor.KycVerified { applicationId: "APP-2026-01883", vendorRef: "kyc-9d21f", checks: ["identity_document", "selfie_liveness", "pep_sanctions", "device_reputation"], riskScore: 18, verifiedAt: "2026-03-09T10:15:00Z" }
+rf 07 evt KycVendor.KycFailed { applicationId: "APP-2026-01991", vendorRef: "kyc-0a7c3", failedChecks: ["identity_document"], reason: "document_mismatch", failedAt: "2026-03-09T10:16:00Z" }
+tf 08 pcr KycOutcomeTranslator ->> 06 ->> 07
+tf 09 cmd RecordKycOutcome { applicationId: "APP-2026-01883", vendorRef: "kyc-9d21f", outcome: "verified", riskScore: 18, riskTier: "low" }
+tf 10 evt KycApproved { applicationId: "APP-2026-01883", vendorRef: "kyc-9d21f", riskScore: 18, riskTier: "low", approvedAt: "2026-03-09T10:15:30Z" }
+
+rf 11 evt CreditBureau.ReportReceived { applicationId: "APP-2026-01883", bureau: "Experian", reportId: "EXP-2026-77A3", ficoScore: 712, openTradelines: 6, monthlyDebtService: 1420.00, delinquencies24m: 0, inquiries6m: 1, receivedAt: "2026-03-09T10:17:00Z" }
+tf 12 rmo UnderwritingFile ->> 03 ->> 10 ->> 11 [[UnderwritingFile12]]
+tf 13 pcr UnderwritingEngine ->> 12
+tf 14 cmd VerifyEligibility { applicationId: "APP-2026-01883", applicantAge: 34, stateOfResidence: "TX", ficoScore: 712, minimumFico: 640, kycRiskTier: "low", existingLoansWithUs: 0 }
+tf 15 evt EligibilityVerified { applicationId: "APP-2026-01883", eligible: true, checks: ["age_over_18", "licensed_state", "fico_above_minimum", "kyc_low_risk", "no_open_loan"], verifiedAt: "2026-03-09T10:17:05Z" }
+tf 16 cmd AssessAffordability ->> 13 { applicationId: "APP-2026-01883", verifiedMonthlyIncome: 6050.00, existingMonthlyDebtService: 1420.00, proposedInstalment: 519.44, currency: "USD", maxDtiAfter: 0.45 }
+tf 17 evt AffordabilityAssessed { applicationId: "APP-2026-01883", dtiBefore: 0.23, dtiAfter: 0.32, disposableIncome: 4110.56, maxAffordableInstalment: 1302.50, decision: "approved", currency: "USD", assessedAt: "2026-03-09T10:17:06Z" }
+tf 18 ui ManualReviewDesk @Underwriter ->> 12
+tf 19 cmd ApproveReferredApplication { applicationId: "APP-2026-01883", underwriterId: "uw-117", referralReason: "dti_between_0_45_and_0_50", approvedAmount: 12000.00, currency: "USD", conditions: ["reduce_amount", "verify_employer_by_phone"] }
+tf 20 evt ReferredApplicationApproved { applicationId: "APP-2026-01883", underwriterId: "uw-117", approvedAmount: 12000.00, currency: "USD", conditions: ["reduce_amount", "verify_employer_by_phone"], approvedAt: "2026-03-09T14:40:00Z" }
+tf 21 cmd GenerateOffer ->> 13 { applicationId: "APP-2026-01883", principal: 15000.00, currency: "USD", termMonths: 36, apr: 14.90, originationFee: 300.00, pricingGrid: "PL-2026Q1-B" }
+tf 22 evt OfferGenerated { applicationId: "APP-2026-01883", offerId: "OFR-2026-01883-1", principal: 15000.00, currency: "USD", termMonths: 36, apr: 14.90, monthlyInstalment: 519.44, originationFee: 300.00, totalRepayable: 18699.84, expiresAt: "2026-03-23T23:59:59Z", generatedAt: "2026-03-09T10:17:08Z" }
+
+tf 23 rmo LoanOffer ->> 22 [[LoanOffer23]]
+tf 24 ui OfferReviewScreen @Applicant
+tf 25 cmd AcceptOffer { applicationId: "APP-2026-01883", offerId: "OFR-2026-01883-1", disbursementAccount: "acct-9921-****4417", repaymentDayOfMonth: 13, acceptedTerms: ["tila_disclosure", "loan_agreement_v7", "ach_authorisation"] }
+tf 26 evt OfferAccepted { applicationId: "APP-2026-01883", offerId: "OFR-2026-01883-1", loanId: "LN-2026-00921", principal: 15000.00, currency: "USD", termMonths: 36, apr: 14.90, monthlyInstalment: 519.44, repaymentDayOfMonth: 13, acceptedAt: "2026-03-12T19:03:00Z" }
+rf 27 evt ESign.EnvelopeCompleted { loanId: "LN-2026-00921", provider: "DocuSign", envelopeId: "ds-4c1e8b", documents: ["loan_agreement_v7", "ach_authorisation"], signerIp: "203.0.113.42", completedAt: "2026-03-12T19:08:00Z" }
+tf 28 pcr DisbursementScheduler ->> 27
+tf 29 cmd DisburseLoan { loanId: "LN-2026-00921", principal: 15000.00, originationFee: 300.00, netAmount: 14700.00, currency: "USD", rails: "ACH", destinationAccount: "acct-9921-****4417", scheduledDate: "2026-03-13" }
+tf 30 evt LoanDisbursed { loanId: "LN-2026-00921", disbursementId: "disb-2026-04471", netAmount: 14700.00, principal: 15000.00, currency: "USD", rails: "ACH", traceNumber: "091000019876543", disbursedAt: "2026-03-13T09:00:00Z", firstDueDate: "2026-04-13" }
+rf 31 evt PaymentRails.PayoutFailed { disbursementId: "disb-2026-04471", loanId: "LN-2026-00921", returnCode: "R03", returnReason: "no_account_unable_to_locate", amount: 14700.00, currency: "USD", returnedAt: "2026-03-16T06:30:00Z" }
+tf 32 pcr PayoutRecoveryProcessor ->> 31
+tf 33 cmd ReverseAndReissueDisbursement { disbursementId: "disb-2026-04471", loanId: "LN-2026-00921", returnCode: "R03", newRails: "RTP", newDestinationAccount: "acct-9921-****8830", amount: 14700.00, currency: "USD" }
+tf 34 evt DisbursementReversed { disbursementId: "disb-2026-04471", loanId: "LN-2026-00921", returnCode: "R03", amount: 14700.00, currency: "USD", reversedAt: "2026-03-16T07:00:00Z", interestAccrualPaused: true }
+tf 35 evt DisbursementReissued { disbursementId: "disb-2026-04471-R1", loanId: "LN-2026-00921", rails: "RTP", destinationAccount: "acct-9921-****8830", amount: 14700.00, currency: "USD", reissuedAt: "2026-03-16T07:00:05Z", firstDueDate: "2026-04-16" }
+
+tf 36 rmo RepaymentSchedule ->> 26 ->> 30 [[RepaymentSchedule36]]
+tf 37 pcr DirectDebitCollector ->> 36
+tf 38 cmd CollectInstalment { loanId: "LN-2026-00921", instalmentNo: 1, dueDate: "2026-04-13", amount: 519.44, currency: "USD", rails: "ACH", mandateRef: "ach-mandate-LN-2026-00921" }
+tf 39 evt InstalmentCollected { loanId: "LN-2026-00921", instalmentNo: 1, dueDate: "2026-04-13", amount: 519.44, principalPortion: 333.19, interestPortion: 186.25, currency: "USD", collectedAt: "2026-04-13T08:00:00Z", remainingPrincipal: 14666.81 }
+tf 40 pcr TopUpEligibilityMonitor ->> 36 ->> 39
+tf 41 cmd OfferLoanTopUp { loanId: "LN-2026-00921", onTimeInstalments: 6, additionalPrincipal: 5000.00, currency: "USD", newTermMonths: 36, apr: 13.90 }
+tf 42 evt LoanTopUpOffered { loanId: "LN-2026-00921", topUpOfferId: "TOP-2026-00921-1", additionalPrincipal: 5000.00, currency: "USD", newMonthlyInstalment: 668.10, expiresAt: "2026-10-13T23:59:59Z", offeredAt: "2026-09-14T08:05:00Z" }
+rf 43 evt PaymentRails.DirectDebitReturned { loanId: "LN-2026-00921", instalmentNo: 3, dueDate: "2026-06-13", amount: 519.44, currency: "USD", returnCode: "R01", returnReason: "insufficient_funds", returnedAt: "2026-06-15T06:30:00Z" }
+tf 44 rmo ArrearsPosition ->> 39 ->> 43 [[ArrearsPosition44]]
+tf 45 pcr GracePeriodMonitor ->> 44
+tf 46 cmd PlaceLoanInArrears { loanId: "LN-2026-00921", missedInstalmentNo: 3, dueDate: "2026-06-13", returnCode: "R01", daysPastDue: 11, gracePeriodDays: 10, overdueAmount: 519.44, lateFee: 25.00, currency: "USD" }
+tf 47 evt LoanPlacedInArrears { loanId: "LN-2026-00921", missedInstalmentNo: 3, daysPastDue: 11, overdueAmount: 519.44, lateFee: 25.00, totalDue: 544.44, currency: "USD", arrearsStage: "early", placedAt: "2026-06-24T02:00:00Z" }
+
+tf 48 ui CollectionsWorkbench @CollectionsAgent ->> 44
+tf 49 cmd RecordPromiseToPay { loanId: "LN-2026-00921", agentId: "col-042", promisedAmount: 544.44, currency: "USD", promisedDate: "2026-07-03", contactChannel: "outbound_call", contactedAt: "2026-06-26T15:10:00Z" }
+tf 50 evt PromiseToPayRecorded { loanId: "LN-2026-00921", promiseId: "p2p-2026-3311", promisedAmount: 544.44, currency: "USD", promisedDate: "2026-07-03", agentId: "col-042", recordedAt: "2026-06-26T15:12:00Z" }
+tf 51 cmd AgreeHardshipPlan ->> 48 { loanId: "LN-2026-00921", agentId: "col-042", hardshipReason: "reduced_hours", reducedInstalment: 350.00, currency: "USD", reducedMonths: 6, arrearsToCapitalise: 544.44, borrowerConsentRef: "call-rec-2026-0710-0931" }
+tf 52 evt HardshipPlanAgreed { loanId: "LN-2026-00921", planId: "HP-2026-00921-1", hardshipReason: "reduced_hours", reducedInstalment: 350.00, currency: "USD", reducedMonths: 6, arrearsToCapitalise: 544.44, agreedAt: "2026-07-10T09:35:00Z" }
+tf 53 pcr LoanRestructurer ->> 52
+tf 54 cmd RestructureLoan { loanId: "LN-2026-00921", planId: "HP-2026-00921-1", remainingPrincipal: 14544.19, capitalisedArrears: 544.44, currency: "USD", newTermMonths: 42, reducedInstalment: 350.00, reducedMonths: 6, standardInstalment: 498.20, effectiveFrom: "2026-08-13" }
+tf 55 evt LoanRestructured { loanId: "LN-2026-00921", planId: "HP-2026-00921-1", newPrincipal: 15088.63, currency: "USD", newTermMonths: 42, scheduleVersion: 2, daysPastDueAtRestructure: 27, daysPastDueAfter: 0, effectiveFrom: "2026-08-13", restructuredAt: "2026-07-10T09:36:00Z" }
+
+tf 56 pcr LoanClosureMonitor ->> 36 ->> 44
+tf 57 cmd CloseLoanAsPaidOff { loanId: "LN-2026-00921", finalInstalmentNo: 36, remainingPrincipal: 0.00, currency: "USD", paidOffOn: "2029-03-13" }
+tf 58 evt LoanPaidOff { loanId: "LN-2026-00921", totalPaid: 18699.84, totalInterest: 3399.84, currency: "USD", instalmentsPaid: 36, paidOffAt: "2029-03-13T08:00:00Z", bureauReporting: "closed_paid_as_agreed" }
+tf 59 cmd ChargeOffLoan ->> 56 { loanId: "LN-2026-00921", daysPastDue: 180, outstandingPrincipal: 13412.77, accruedInterest: 812.40, feesOutstanding: 125.00, currency: "USD", chargeOffDate: "2026-12-10" }
+tf 60 evt LoanChargedOff { loanId: "LN-2026-00921", daysPastDue: 180, chargedOffAmount: 14350.17, currency: "USD", chargedOffAt: "2026-12-10T02:00:00Z", bureauReporting: "charged_off", nextStep: "debt_sale_or_agency_placement" }
+
+data UnderwritingFile12 {
+  applicationId: "APP-2026-01883"
+  applicantId: "cust-58213"
+  requestedAmount: 15000.00
+  currency: "USD"
+  termMonths: 36
+  declaredMonthlyIncome: 6200.00
+  payslipsAttached: 3
+  kyc: { outcome: "verified", riskTier: "low", riskScore: 18 }
+  bureau: { ficoScore: 712, monthlyDebtService: 1420.00, delinquencies24m: 0, inquiries6m: 1 }
+  status: "awaiting_decision"
+}
+
+data LoanOffer23 {
+  offerId: "OFR-2026-01883-1"
+  principal: 15000.00
+  currency: "USD"
+  termMonths: 36
+  apr: 14.90
+  monthlyInstalment: 519.44
+  originationFee: 300.00
+  netDisbursement: 14700.00
+  totalRepayable: 18699.84
+  expiresAt: "2026-03-23T23:59:59Z"
+  status: "offered"
+}
+
+data RepaymentSchedule36 {
+  loanId: "LN-2026-00921"
+  scheduleVersion: 1
+  monthlyInstalment: 519.44
+  currency: "USD"
+  instalments: [
+    { no: 1, dueDate: "2026-04-13", amount: 519.44, status: "due" }
+    { no: 2, dueDate: "2026-05-13", amount: 519.44, status: "scheduled" }
+    { no: 3, dueDate: "2026-06-13", amount: 519.44, status: "scheduled" }
+  ]
+  lastDueDate: "2029-03-13"
+  remainingPrincipal: 15000.00
+}
+
+data ArrearsPosition44 {
+  loanId: "LN-2026-00921"
+  asOf: "2026-06-24"
+  oldestUnpaidInstalmentNo: 3
+  oldestUnpaidDueDate: "2026-06-13"
+  daysPastDue: 11
+  overdueAmount: 519.44
+  lateFees: 25.00
+  currency: "USD"
+  lastReturnCode: "R01"
+  consecutiveReturns: 1
+  gracePeriodDays: 10
+  arrearsStage: "early"
+}
+
+hotspot 54 {
+  Does a hardship restructure reset days-past-due to 0 (the Collections view) or
+  carry the 27 DPD forward (Credit Risk and bureau-reporting view)? The
+  LoanRestructured payload currently assumes a reset.
+}
+
+hotspot 59 {
+  Does a live hardship plan pause the 180-DPD charge-off clock, or does the
+  clock keep running from the original missed instalment?
+}
+
+hotspot 16 {
+  Referral band: Credit Risk uses DTI 0.45-0.50 for manual review today, but
+  the new pricing grid assumes a hard decline above 0.45. Which one wins?
+}
+
+hotspot 41 {
+  Top-up eligibility says "6 on-time instalments" - consecutive from
+  disbursement, or any 6 in the last 12 months? Product and Risk disagree.
+}
+
+note 14 {
+  Session 1 decision: the single Underwrite command was split into
+  VerifyEligibility -> AssessAffordability -> GenerateOffer so that each
+  decision is its own state transition with its own rejection event.
+}
+
+note 27 {
+  Session 2 decision: e-signature completion is a vendor webhook, not an
+  internal command. The applicant signs inside DocuSign; we only learn the
+  outcome. Disbursement is scheduled off the webhook.
+}
+
+note 46 {
+  Session 3 decision: Collections confirmed the grace period is 10 calendar
+  days after the due date, and a USD 25 late fee applies once, when the loan
+  is placed in arrears - not on every returned debit.
+}
+
+note 59 {
+  Regulatory: unsecured consumer loans are charged off at 180 days past due
+  (FFIEC Uniform Retail Credit Classification policy). The loan is not
+  forgiven - it moves to recovery (debt sale or agency placement).
+}
+
+gwt 02 "applicant submits a complete application with all consents"
+  given
+    evt CustomerRegistered { applicantId: "cust-58213", email: "j.doe@example.com" }
+  when
+    cmd SubmitLoanApplication { applicationId: "APP-2026-01883", requestedAmount: 15000.00, currency: "USD", termMonths: 36, declaredMonthlyIncome: 6200.00, payslipsAttached: 3, consents: ["credit_bureau_pull", "e_sign", "ach_debit", "privacy_notice"] }
+  then
+    evt LoanApplicationSubmitted { applicationId: "APP-2026-01883", requestedAmount: 15000.00, currency: "USD", termMonths: 36 }
+
+gwt 02 "reject application without credit-bureau consent"
+  given
+    evt CustomerRegistered { applicantId: "cust-58213" }
+  when
+    cmd SubmitLoanApplication { applicationId: "APP-2026-01884", requestedAmount: 15000.00, currency: "USD", termMonths: 36, consents: ["e_sign", "ach_debit"] }
+  then
+    evt LoanApplicationRejected { applicationId: "APP-2026-01884", reason: "missing_consent", missingConsents: ["credit_bureau_pull"] }
+
+gwt 02 "reject application above the product maximum"
+  given
+    evt CustomerRegistered { applicantId: "cust-58213" }
+  when
+    cmd SubmitLoanApplication { applicationId: "APP-2026-01885", requestedAmount: 60000.00, currency: "USD", termMonths: 36, consents: ["credit_bureau_pull", "e_sign", "ach_debit", "privacy_notice"] }
+  then
+    evt LoanApplicationRejected { applicationId: "APP-2026-01885", reason: "amount_above_product_maximum", productMaximum: 50000.00 }
+
+gwt 09 "record a verified KYC outcome"
+  given
+    evt LoanApplicationSubmitted { applicationId: "APP-2026-01883" }
+    evt KycVendor.KycVerified { applicationId: "APP-2026-01883", vendorRef: "kyc-9d21f", riskScore: 18 }
+  when
+    cmd RecordKycOutcome { applicationId: "APP-2026-01883", vendorRef: "kyc-9d21f", outcome: "verified", riskScore: 18, riskTier: "low" }
+  then
+    evt KycApproved { applicationId: "APP-2026-01883", riskTier: "low" }
+
+gwt 09 "record a failed KYC outcome"
+  given
+    evt LoanApplicationSubmitted { applicationId: "APP-2026-01991" }
+    evt KycVendor.KycFailed { applicationId: "APP-2026-01991", vendorRef: "kyc-0a7c3", reason: "document_mismatch" }
+  when
+    cmd RecordKycOutcome { applicationId: "APP-2026-01991", vendorRef: "kyc-0a7c3", outcome: "failed", reason: "document_mismatch" }
+  then
+    evt KycFailed { applicationId: "APP-2026-01991", reason: "document_mismatch", retryAllowed: true, retriesRemaining: 1 }
+
+gwt 09 "reject a KYC outcome for an unknown application"
+  given
+    evt KycVendor.KycVerified { applicationId: "APP-0000-00000", vendorRef: "kyc-zzz" }
+  when
+    cmd RecordKycOutcome { applicationId: "APP-0000-00000", vendorRef: "kyc-zzz", outcome: "verified" }
+  then
+    evt KycOutcomeRejected { applicationId: "APP-0000-00000", reason: "application_not_found", vendorRef: "kyc-zzz" }
+
+gwt 14 "applicant passes all eligibility checks"
+  given
+    evt KycApproved { applicationId: "APP-2026-01883", riskTier: "low" }
+    evt CreditBureau.ReportReceived { applicationId: "APP-2026-01883", ficoScore: 712 }
+  when
+    cmd VerifyEligibility { applicationId: "APP-2026-01883", applicantAge: 34, stateOfResidence: "TX", ficoScore: 712, minimumFico: 640, kycRiskTier: "low", existingLoansWithUs: 0 }
+  then
+    evt EligibilityVerified { applicationId: "APP-2026-01883", eligible: true }
+
+gwt 14 "decline when FICO is below the product minimum"
+  given
+    evt KycApproved { applicationId: "APP-2026-01886", riskTier: "low" }
+    evt CreditBureau.ReportReceived { applicationId: "APP-2026-01886", ficoScore: 598 }
+  when
+    cmd VerifyEligibility { applicationId: "APP-2026-01886", applicantAge: 41, stateOfResidence: "TX", ficoScore: 598, minimumFico: 640, kycRiskTier: "low" }
+  then
+    evt ApplicationDeclined { applicationId: "APP-2026-01886", reason: "fico_below_minimum", ficoScore: 598, minimumFico: 640, adverseActionNoticeRequired: true }
+
+gwt 14 "decline when KYC failed"
+  given
+    evt KycFailed { applicationId: "APP-2026-01991", reason: "document_mismatch" }
+  when
+    cmd VerifyEligibility { applicationId: "APP-2026-01991", applicantAge: 29, stateOfResidence: "TX", kycRiskTier: "failed" }
+  then
+    evt ApplicationDeclined { applicationId: "APP-2026-01991", reason: "kyc_failed", adverseActionNoticeRequired: true }
+
+gwt 16 "approve affordability when DTI after the loan stays under 0.45"
+  given
+    evt EligibilityVerified { applicationId: "APP-2026-01883", eligible: true }
+  when
+    cmd AssessAffordability { applicationId: "APP-2026-01883", verifiedMonthlyIncome: 6050.00, existingMonthlyDebtService: 1420.00, proposedInstalment: 519.44, maxDtiAfter: 0.45 }
+  then
+    evt AffordabilityAssessed { applicationId: "APP-2026-01883", dtiAfter: 0.32, decision: "approved" }
+
+gwt 16 "refer to manual review when DTI after the loan is between 0.45 and 0.50"
+  given
+    evt EligibilityVerified { applicationId: "APP-2026-01887", eligible: true }
+  when
+    cmd AssessAffordability { applicationId: "APP-2026-01887", verifiedMonthlyIncome: 3900.00, existingMonthlyDebtService: 1310.00, proposedInstalment: 519.44, maxDtiAfter: 0.45 }
+  then
+    evt AffordabilityReferred { applicationId: "APP-2026-01887", dtiAfter: 0.47, reason: "dti_between_0_45_and_0_50", referredTo: "ManualReviewDesk" }
+
+gwt 16 "decline when DTI after the loan exceeds 0.50"
+  given
+    evt EligibilityVerified { applicationId: "APP-2026-01888", eligible: true }
+  when
+    cmd AssessAffordability { applicationId: "APP-2026-01888", verifiedMonthlyIncome: 3100.00, existingMonthlyDebtService: 1250.00, proposedInstalment: 519.44, maxDtiAfter: 0.45 }
+  then
+    evt ApplicationDeclined { applicationId: "APP-2026-01888", reason: "dti_above_0_50", dtiAfter: 0.57, adverseActionNoticeRequired: true }
+
+gwt 13 "underwriting engine does not assess affordability for an ineligible applicant"
+  given
+    evt ApplicationDeclined { applicationId: "APP-2026-01886", reason: "fico_below_minimum" }
+  then
+    evt AffordabilityAssessmentSkipped { applicationId: "APP-2026-01886", reason: "application_declined_at_eligibility" }
+
+gwt 19 "underwriter approves a referred case with a reduced amount"
+  given
+    evt AffordabilityReferred { applicationId: "APP-2026-01887", dtiAfter: 0.47, reason: "dti_between_0_45_and_0_50" }
+  when
+    cmd ApproveReferredApplication { applicationId: "APP-2026-01887", underwriterId: "uw-117", approvedAmount: 12000.00, currency: "USD", conditions: ["reduce_amount", "verify_employer_by_phone"] }
+  then
+    evt ReferredApplicationApproved { applicationId: "APP-2026-01887", underwriterId: "uw-117", approvedAmount: 12000.00, currency: "USD" }
+
+gwt 19 "underwriter declines a referred case"
+  given
+    evt AffordabilityReferred { applicationId: "APP-2026-01887", dtiAfter: 0.49 }
+  when
+    cmd ApproveReferredApplication { applicationId: "APP-2026-01887", underwriterId: "uw-117", decision: "decline", declineReason: "employer_not_verifiable" }
+  then
+    evt ReferredApplicationDeclined { applicationId: "APP-2026-01887", underwriterId: "uw-117", reason: "employer_not_verifiable", adverseActionNoticeRequired: true }
+
+gwt 19 "reject underwriter decision on a case that was not referred (maker-checker)"
+  given
+    evt AffordabilityAssessed { applicationId: "APP-2026-01883", dtiAfter: 0.32, decision: "approved" }
+  when
+    cmd ApproveReferredApplication { applicationId: "APP-2026-01883", underwriterId: "uw-117", approvedAmount: 15000.00, currency: "USD" }
+  then
+    evt ReferredApplicationDecisionRejected { applicationId: "APP-2026-01883", reason: "application_not_referred" }
+
+gwt 21 "generate an offer for an approved application"
+  given
+    evt AffordabilityAssessed { applicationId: "APP-2026-01883", dtiAfter: 0.32, decision: "approved" }
+  when
+    cmd GenerateOffer { applicationId: "APP-2026-01883", principal: 15000.00, currency: "USD", termMonths: 36, apr: 14.90, originationFee: 300.00 }
+  then
+    evt OfferGenerated { applicationId: "APP-2026-01883", offerId: "OFR-2026-01883-1", principal: 15000.00, monthlyInstalment: 519.44, totalRepayable: 18699.84, expiresAt: "2026-03-23T23:59:59Z" }
+
+gwt 21 "generate an offer at the underwriter's reduced amount"
+  given
+    evt ReferredApplicationApproved { applicationId: "APP-2026-01887", approvedAmount: 12000.00, currency: "USD" }
+  when
+    cmd GenerateOffer { applicationId: "APP-2026-01887", principal: 12000.00, currency: "USD", termMonths: 36, apr: 15.90, originationFee: 240.00 }
+  then
+    evt OfferGenerated { applicationId: "APP-2026-01887", offerId: "OFR-2026-01887-1", principal: 12000.00, monthlyInstalment: 421.42 }
+
+gwt 21 "reject offer generation when affordability was not approved"
+  given
+    evt AffordabilityReferred { applicationId: "APP-2026-01887", dtiAfter: 0.47 }
+  when
+    cmd GenerateOffer { applicationId: "APP-2026-01887", principal: 15000.00, currency: "USD", termMonths: 36, apr: 14.90 }
+  then
+    evt OfferGenerationRejected { applicationId: "APP-2026-01887", reason: "affordability_not_approved", status: "referred" }
+
+gwt 25 "applicant accepts an open offer"
+  given
+    evt OfferGenerated { applicationId: "APP-2026-01883", offerId: "OFR-2026-01883-1", expiresAt: "2026-03-23T23:59:59Z" }
+  when
+    cmd AcceptOffer { applicationId: "APP-2026-01883", offerId: "OFR-2026-01883-1", repaymentDayOfMonth: 13, acceptedTerms: ["tila_disclosure", "loan_agreement_v7", "ach_authorisation"] }
+  then
+    evt OfferAccepted { applicationId: "APP-2026-01883", offerId: "OFR-2026-01883-1", loanId: "LN-2026-00921", principal: 15000.00, currency: "USD" }
+
+gwt 25 "reject acceptance of an expired offer"
+  given
+    evt OfferGenerated { applicationId: "APP-2026-01883", offerId: "OFR-2026-01883-1", expiresAt: "2026-03-23T23:59:59Z" }
+  when
+    cmd AcceptOffer { applicationId: "APP-2026-01883", offerId: "OFR-2026-01883-1", acceptedAt: "2026-03-25T08:00:00Z" }
+  then
+    evt OfferAcceptanceRejected { applicationId: "APP-2026-01883", offerId: "OFR-2026-01883-1", reason: "offer_expired", expiredAt: "2026-03-23T23:59:59Z" }
+
+gwt 25 "reject acceptance without the ACH authorisation term"
+  given
+    evt OfferGenerated { applicationId: "APP-2026-01883", offerId: "OFR-2026-01883-1" }
+  when
+    cmd AcceptOffer { applicationId: "APP-2026-01883", offerId: "OFR-2026-01883-1", acceptedTerms: ["tila_disclosure", "loan_agreement_v7"] }
+  then
+    evt OfferAcceptanceRejected { applicationId: "APP-2026-01883", offerId: "OFR-2026-01883-1", reason: "missing_required_term", missingTerms: ["ach_authorisation"] }
+
+gwt 29 "disburse net of origination fee after the agreement is e-signed"
+  given
+    evt OfferAccepted { loanId: "LN-2026-00921", principal: 15000.00, currency: "USD" }
+    evt ESign.EnvelopeCompleted { loanId: "LN-2026-00921", envelopeId: "ds-4c1e8b" }
+  when
+    cmd DisburseLoan { loanId: "LN-2026-00921", principal: 15000.00, originationFee: 300.00, netAmount: 14700.00, currency: "USD", rails: "ACH" }
+  then
+    evt LoanDisbursed { loanId: "LN-2026-00921", disbursementId: "disb-2026-04471", netAmount: 14700.00, currency: "USD", firstDueDate: "2026-04-13" }
+
+gwt 29 "reject disbursement when the agreement is not yet signed"
+  given
+    evt OfferAccepted { loanId: "LN-2026-00921", principal: 15000.00, currency: "USD" }
+  when
+    cmd DisburseLoan { loanId: "LN-2026-00921", netAmount: 14700.00, currency: "USD", rails: "ACH" }
+  then
+    evt DisbursementRejected { loanId: "LN-2026-00921", reason: "agreement_not_signed" }
+
+gwt 29 "reject a second disbursement for the same loan"
+  given
+    evt LoanDisbursed { loanId: "LN-2026-00921", disbursementId: "disb-2026-04471", netAmount: 14700.00 }
+  when
+    cmd DisburseLoan { loanId: "LN-2026-00921", netAmount: 14700.00, currency: "USD", rails: "ACH" }
+  then
+    evt DisbursementRejected { loanId: "LN-2026-00921", reason: "already_disbursed", existingDisbursementId: "disb-2026-04471" }
+
+gwt 33 "reverse and reissue over RTP after an ACH R03 return"
+  given
+    evt LoanDisbursed { loanId: "LN-2026-00921", disbursementId: "disb-2026-04471", rails: "ACH", netAmount: 14700.00 }
+    evt PaymentRails.PayoutFailed { disbursementId: "disb-2026-04471", returnCode: "R03" }
+  when
+    cmd ReverseAndReissueDisbursement { disbursementId: "disb-2026-04471", loanId: "LN-2026-00921", returnCode: "R03", newRails: "RTP", newDestinationAccount: "acct-9921-****8830", amount: 14700.00, currency: "USD" }
+  then
+    evt DisbursementReversed { disbursementId: "disb-2026-04471", returnCode: "R03", amount: 14700.00, interestAccrualPaused: true }
+    evt DisbursementReissued { disbursementId: "disb-2026-04471-R1", rails: "RTP", amount: 14700.00, firstDueDate: "2026-04-16" }
+
+gwt 33 "reject reissue when the disbursement is already reversed"
+  given
+    evt DisbursementReversed { disbursementId: "disb-2026-04471", returnCode: "R03" }
+  when
+    cmd ReverseAndReissueDisbursement { disbursementId: "disb-2026-04471", loanId: "LN-2026-00921", returnCode: "R03", newRails: "RTP", amount: 14700.00, currency: "USD" }
+  then
+    evt DisbursementReversalRejected { disbursementId: "disb-2026-04471", reason: "already_reversed" }
+
+gwt 33 "hold for manual review when no verified alternative account exists"
+  given
+    evt LoanDisbursed { loanId: "LN-2026-00921", disbursementId: "disb-2026-04471", rails: "ACH" }
+    evt PaymentRails.PayoutFailed { disbursementId: "disb-2026-04471", returnCode: "R03" }
+  when
+    cmd ReverseAndReissueDisbursement { disbursementId: "disb-2026-04471", loanId: "LN-2026-00921", returnCode: "R03", newDestinationAccount: "" }
+  then
+    evt DisbursementReversed { disbursementId: "disb-2026-04471", returnCode: "R03", amount: 14700.00 }
+    evt DisbursementHeldForReview { disbursementId: "disb-2026-04471", reason: "no_verified_alternative_account", queue: "payments_ops" }
+
+gwt 38 "collect the first instalment on its due date"
+  given
+    evt LoanDisbursed { loanId: "LN-2026-00921", firstDueDate: "2026-04-13" }
+    rmo RepaymentSchedule { loanId: "LN-2026-00921", instalments: [ { no: 1, dueDate: "2026-04-13", amount: 519.44, status: "due" } ] }
+  when
+    cmd CollectInstalment { loanId: "LN-2026-00921", instalmentNo: 1, dueDate: "2026-04-13", amount: 519.44, currency: "USD", rails: "ACH" }
+  then
+    evt InstalmentCollected { loanId: "LN-2026-00921", instalmentNo: 1, amount: 519.44, principalPortion: 333.19, interestPortion: 186.25, remainingPrincipal: 14666.81 }
+
+gwt 38 "reject collection of an instalment that is already paid"
+  given
+    evt InstalmentCollected { loanId: "LN-2026-00921", instalmentNo: 1, amount: 519.44 }
+  when
+    cmd CollectInstalment { loanId: "LN-2026-00921", instalmentNo: 1, dueDate: "2026-04-13", amount: 519.44, currency: "USD", rails: "ACH" }
+  then
+    evt InstalmentCollectionRejected { loanId: "LN-2026-00921", instalmentNo: 1, reason: "already_collected" }
+
+gwt 38 "reject collection while the ACH mandate is revoked"
+  given
+    evt AchMandateRevoked { loanId: "LN-2026-00921", mandateRef: "ach-mandate-LN-2026-00921", revokedAt: "2026-05-01T00:00:00Z" }
+  when
+    cmd CollectInstalment { loanId: "LN-2026-00921", instalmentNo: 2, dueDate: "2026-05-13", amount: 519.44, currency: "USD", rails: "ACH" }
+  then
+    evt InstalmentCollectionRejected { loanId: "LN-2026-00921", instalmentNo: 2, reason: "mandate_revoked", fallback: "request_manual_payment" }
+
+gwt 46 "place the loan in arrears once the grace period has passed after an R01 return"
+  given
+    evt InstalmentCollected { loanId: "LN-2026-00921", instalmentNo: 2, dueDate: "2026-05-13" }
+    evt PaymentRails.DirectDebitReturned { loanId: "LN-2026-00921", instalmentNo: 3, dueDate: "2026-06-13", returnCode: "R01" }
+    rmo ArrearsPosition { loanId: "LN-2026-00921", daysPastDue: 11, gracePeriodDays: 10, oldestUnpaidInstalmentNo: 3 }
+  when
+    cmd PlaceLoanInArrears { loanId: "LN-2026-00921", missedInstalmentNo: 3, returnCode: "R01", daysPastDue: 11, gracePeriodDays: 10, overdueAmount: 519.44, lateFee: 25.00, currency: "USD" }
+  then
+    evt LoanPlacedInArrears { loanId: "LN-2026-00921", missedInstalmentNo: 3, daysPastDue: 11, totalDue: 544.44, arrearsStage: "early" }
+
+gwt 46 "reject arrears placement when the loan is already in arrears"
+  given
+    evt LoanPlacedInArrears { loanId: "LN-2026-00921", missedInstalmentNo: 3, daysPastDue: 11 }
+  when
+    cmd PlaceLoanInArrears { loanId: "LN-2026-00921", missedInstalmentNo: 3, daysPastDue: 12, overdueAmount: 519.44, currency: "USD" }
+  then
+    evt ArrearsPlacementRejected { loanId: "LN-2026-00921", reason: "already_in_arrears", currentStage: "early" }
+
+gwt 46 "reject arrears placement when the instalment was paid manually inside the grace period"
+  given
+    evt PaymentRails.DirectDebitReturned { loanId: "LN-2026-00921", instalmentNo: 3, returnCode: "R01" }
+    evt InstalmentCollected { loanId: "LN-2026-00921", instalmentNo: 3, rails: "card", collectedAt: "2026-06-20T12:00:00Z" }
+  when
+    cmd PlaceLoanInArrears { loanId: "LN-2026-00921", missedInstalmentNo: 3, daysPastDue: 11, overdueAmount: 519.44, currency: "USD" }
+  then
+    evt ArrearsPlacementRejected { loanId: "LN-2026-00921", reason: "instalment_already_paid", instalmentNo: 3 }
+
+gwt 45 "grace period monitor waits while days past due are within the 10-day grace period"
+  given
+    evt PaymentRails.DirectDebitReturned { loanId: "LN-2026-00921", instalmentNo: 3, dueDate: "2026-06-13", returnCode: "R01" }
+    rmo ArrearsPosition { loanId: "LN-2026-00921", daysPastDue: 4, gracePeriodDays: 10 }
+  then
+    evt ArrearsPlacementDeferred { loanId: "LN-2026-00921", daysPastDue: 4, gracePeriodDays: 10, retryDebitOn: "2026-06-18", nextCheckOn: "2026-06-24" }
+
+gwt 49 "agent records a promise to pay the full overdue amount"
+  given
+    evt LoanPlacedInArrears { loanId: "LN-2026-00921", totalDue: 544.44, currency: "USD" }
+  when
+    cmd RecordPromiseToPay { loanId: "LN-2026-00921", agentId: "col-042", promisedAmount: 544.44, currency: "USD", promisedDate: "2026-07-03", contactChannel: "outbound_call" }
+  then
+    evt PromiseToPayRecorded { loanId: "LN-2026-00921", promiseId: "p2p-2026-3311", promisedAmount: 544.44, promisedDate: "2026-07-03" }
+
+gwt 49 "reject a promise dated more than 30 days out"
+  given
+    evt LoanPlacedInArrears { loanId: "LN-2026-00921", totalDue: 544.44, currency: "USD", placedAt: "2026-06-24T02:00:00Z" }
+  when
+    cmd RecordPromiseToPay { loanId: "LN-2026-00921", agentId: "col-042", promisedAmount: 544.44, currency: "USD", promisedDate: "2026-08-15" }
+  then
+    evt PromiseToPayRejected { loanId: "LN-2026-00921", reason: "promise_date_beyond_30_days", maxPromiseDate: "2026-07-24" }
+
+gwt 49 "reject a promise on a loan that is not in arrears"
+  given
+    evt InstalmentCollected { loanId: "LN-2026-00921", instalmentNo: 2 }
+  when
+    cmd RecordPromiseToPay { loanId: "LN-2026-00921", agentId: "col-042", promisedAmount: 519.44, currency: "USD", promisedDate: "2026-07-03" }
+  then
+    evt PromiseToPayRejected { loanId: "LN-2026-00921", reason: "loan_not_in_arrears" }
+
+gwt 51 "staging - agent records an agreed hardship plan with capitalised arrears"
+  given
+    evt LoanPlacedInArrears { loanId: "LN-2026-00921", totalDue: 544.44, daysPastDue: 27 }
+    evt PromiseToPayBroken { loanId: "LN-2026-00921", promiseId: "p2p-2026-3311", promisedDate: "2026-07-03" }
+  when
+    cmd AgreeHardshipPlan { loanId: "LN-2026-00921", agentId: "col-042", hardshipReason: "reduced_hours", reducedInstalment: 350.00, currency: "USD", reducedMonths: 6, arrearsToCapitalise: 544.44, borrowerConsentRef: "call-rec-2026-0710-0931" }
+  then
+    evt HardshipPlanAgreed { loanId: "LN-2026-00921", planId: "HP-2026-00921-1", reducedInstalment: 350.00, reducedMonths: 6, arrearsToCapitalise: 544.44 }
+
+gwt 51 "staging - reject a hardship plan without a recorded borrower consent"
+  given
+    evt LoanPlacedInArrears { loanId: "LN-2026-00921", totalDue: 544.44 }
+  when
+    cmd AgreeHardshipPlan { loanId: "LN-2026-00921", agentId: "col-042", hardshipReason: "reduced_hours", reducedInstalment: 350.00, currency: "USD", reducedMonths: 6, borrowerConsentRef: "" }
+  then
+    evt HardshipPlanRejected { loanId: "LN-2026-00921", reason: "borrower_consent_required" }
+
+gwt 51 "staging - reject a second hardship plan within 12 months"
+  given
+    evt LoanRestructured { loanId: "LN-2026-00921", planId: "HP-2026-00921-1", restructuredAt: "2026-07-10T09:36:00Z" }
+  when
+    cmd AgreeHardshipPlan { loanId: "LN-2026-00921", agentId: "col-042", hardshipReason: "medical", reducedInstalment: 300.00, currency: "USD", reducedMonths: 6, borrowerConsentRef: "call-rec-2026-1102-1120" }
+  then
+    evt HardshipPlanRejected { loanId: "LN-2026-00921", reason: "plan_limit_one_per_12_months", existingPlanId: "HP-2026-00921-1" }
+
+gwt 54 "staging - restructure the loan with a new 42-month schedule"
+  given
+    evt HardshipPlanAgreed { loanId: "LN-2026-00921", planId: "HP-2026-00921-1", reducedInstalment: 350.00, reducedMonths: 6, arrearsToCapitalise: 544.44 }
+  when
+    cmd RestructureLoan { loanId: "LN-2026-00921", planId: "HP-2026-00921-1", remainingPrincipal: 14544.19, capitalisedArrears: 544.44, currency: "USD", newTermMonths: 42, reducedInstalment: 350.00, reducedMonths: 6, standardInstalment: 498.20 }
+  then
+    evt LoanRestructured { loanId: "LN-2026-00921", planId: "HP-2026-00921-1", newPrincipal: 15088.63, newTermMonths: 42, scheduleVersion: 2, daysPastDueAfter: 0 }
+
+gwt 54 "staging - reject restructure when the loan is already charged off"
+  given
+    evt LoanChargedOff { loanId: "LN-2026-00921", daysPastDue: 180 }
+    evt HardshipPlanAgreed { loanId: "LN-2026-00921", planId: "HP-2026-00921-2" }
+  when
+    cmd RestructureLoan { loanId: "LN-2026-00921", planId: "HP-2026-00921-2", newTermMonths: 42, currency: "USD" }
+  then
+    evt LoanRestructureRejected { loanId: "LN-2026-00921", reason: "loan_charged_off" }
+
+gwt 54 "staging - reject restructure that extends the term beyond the 60-month product cap"
+  given
+    evt HardshipPlanAgreed { loanId: "LN-2026-00921", planId: "HP-2026-00921-1" }
+  when
+    cmd RestructureLoan { loanId: "LN-2026-00921", planId: "HP-2026-00921-1", newTermMonths: 66, currency: "USD" }
+  then
+    evt LoanRestructureRejected { loanId: "LN-2026-00921", reason: "term_exceeds_product_cap", maxTermMonths: 60 }
+
+gwt 57 "close the loan when the final instalment brings principal to zero"
+  given
+    evt InstalmentCollected { loanId: "LN-2026-00921", instalmentNo: 36, remainingPrincipal: 0.00 }
+    rmo RepaymentSchedule { loanId: "LN-2026-00921", remainingPrincipal: 0.00, instalmentsRemaining: 0 }
+  when
+    cmd CloseLoanAsPaidOff { loanId: "LN-2026-00921", finalInstalmentNo: 36, remainingPrincipal: 0.00, currency: "USD", paidOffOn: "2029-03-13" }
+  then
+    evt LoanPaidOff { loanId: "LN-2026-00921", totalPaid: 18699.84, instalmentsPaid: 36, bureauReporting: "closed_paid_as_agreed" }
+
+gwt 57 "reject pay-off closure while principal is outstanding"
+  given
+    evt InstalmentCollected { loanId: "LN-2026-00921", instalmentNo: 35, remainingPrincipal: 513.10 }
+  when
+    cmd CloseLoanAsPaidOff { loanId: "LN-2026-00921", finalInstalmentNo: 35, remainingPrincipal: 513.10, currency: "USD" }
+  then
+    evt LoanClosureRejected { loanId: "LN-2026-00921", reason: "principal_outstanding", remainingPrincipal: 513.10 }
+
+gwt 59 "charge off the loan at 180 days past due"
+  given
+    evt LoanPlacedInArrears { loanId: "LN-2026-00921", missedInstalmentNo: 3, dueDate: "2026-06-13" }
+    rmo ArrearsPosition { loanId: "LN-2026-00921", daysPastDue: 180, oldestUnpaidDueDate: "2026-06-13", arrearsStage: "late" }
+  when
+    cmd ChargeOffLoan { loanId: "LN-2026-00921", daysPastDue: 180, outstandingPrincipal: 13412.77, accruedInterest: 812.40, feesOutstanding: 125.00, currency: "USD", chargeOffDate: "2026-12-10" }
+  then
+    evt LoanChargedOff { loanId: "LN-2026-00921", daysPastDue: 180, chargedOffAmount: 14350.17, bureauReporting: "charged_off" }
+
+gwt 59 "reject charge-off before 180 days past due"
+  given
+    rmo ArrearsPosition { loanId: "LN-2026-00921", daysPastDue: 121, arrearsStage: "late" }
+  when
+    cmd ChargeOffLoan { loanId: "LN-2026-00921", daysPastDue: 121, outstandingPrincipal: 13412.77, currency: "USD" }
+  then
+    evt ChargeOffRejected { loanId: "LN-2026-00921", reason: "below_180_dpd", daysPastDue: 121 }
+
+gwt 59 "reject charge-off of a loan that is already charged off"
+  given
+    evt LoanChargedOff { loanId: "LN-2026-00921", daysPastDue: 180, chargedOffAt: "2026-12-10T02:00:00Z" }
+  when
+    cmd ChargeOffLoan { loanId: "LN-2026-00921", daysPastDue: 181, outstandingPrincipal: 13412.77, currency: "USD" }
+  then
+    evt ChargeOffRejected { loanId: "LN-2026-00921", reason: "already_charged_off" }
+
+gwt 56 "closure monitor takes no action while the loan is performing"
+  given
+    rmo RepaymentSchedule { loanId: "LN-2026-00921", remainingPrincipal: 14666.81, instalmentsRemaining: 35 }
+    rmo ArrearsPosition { loanId: "LN-2026-00921", daysPastDue: 0 }
+  then
+    evt LoanClosureCheckDeferred { loanId: "LN-2026-00921", reason: "performing", nextCheckOn: "2026-05-14" }

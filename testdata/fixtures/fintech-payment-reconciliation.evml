@@ -1,0 +1,634 @@
+eventmodeling
+
+// End-of-day payment settlement reconciliation.
+//
+// Every evening the scheme sends a settlement file listing what actually
+// cleared for our participant BIC. Finance compares it line by line with the
+// day's internal ledger postings. Items that agree are "matched"; everything
+// else is a "break" that a Reconciliation Analyst must classify, park in
+// suspense, chase, and ultimately resolve or - with Finance Controller
+// approval under maker-checker - write off. The day cannot be closed while
+// breaks are unaccounted for. Target: 95%+ auto-match.
+//
+// Sample data deliberately reuses payment pay-7f3a9c / SCT-INST-9A81C2 from
+// fintech-instant-payment-v2.evml: the "late ACCP after timeout" hotspot in
+// that model shows up here as a MISSING_INTERNAL break (brk-0002).
+//
+// Stages: everything current except
+//   * tolerance-based auto-clear of differences under EUR 0.50  → staging
+//   * ML-suggested break classification                          → future
+
+actor ReconciliationAnalyst
+actor FinanceController
+
+chapter "Ingest settlement file" 01-04
+chapter "Ingest ledger postings" 05-08
+chapter "Auto-matching" 09-17
+chapter "Break investigation" 18-29
+chapter "Aging and escalation" 30-33
+chapter "Write-off (maker-checker)" 34-42
+chapter "Finance close-out" 43-46
+
+slice "Import scheme settlement file" 01-04 status Done
+slice "Import ledger postings" 05-08 status Done
+slice "Exact match on reference" 09-12 status Done
+slice "Fuzzy match on amount and value date" 13-14 status Done
+slice "Raise breaks for leftovers" 15-17 status Done
+slice "Breaks queue" 18-18 status Done
+slice "ML-suggested classification" 19-21 status Planned stage future
+slice "Classify break" 22-24 status Done
+slice "Post to suspense" 25-26 status Done
+slice "Tolerance auto-clear under 0.50" 27-29 status Review stage staging
+slice "Age and escalate" 30-33 status Done
+slice "Propose write-off (maker)" 34-36 status Done
+slice "Approve write-off (checker)" 37-39 status Done
+slice "Post write-off" 40-42 status Done
+slice "Close the reconciliation day" 43-46 status Done
+
+// ── Ingest settlement file ───────────────────────────────────────────────────
+rf 01 evt Scheme.SettlementFileReceived { fileId: "SCTINST-NWBKGB2L-20250612-EOD", participantBic: "NWBKGB2L", valueDate: "2025-06-12", recordCount: 1891, controlTotalDebit: 412870.55, controlTotalCredit: 388120.10, currency: "EUR", sha256: "9c1f...e2a7", receivedAt: "2025-06-12T22:05:14Z" }
+tf 02 pcr SettlementFileTranslator ->> 01
+tf 03 cmd ImportSettlementFile { fileId: "SCTINST-NWBKGB2L-20250612-EOD", valueDate: "2025-06-12", recordCount: 1891, controlTotalDebit: 412870.55, controlTotalCredit: 388120.10, currency: "EUR" }
+tf 04 evt SettlementFileImported [[SettlementFileImported04]]
+
+// ── Ingest ledger postings ───────────────────────────────────────────────────
+rf 05 evt Ledger.DayPostingsClosed { ledgerDate: "2025-06-12", nostroAccount: "NOSTRO-SCTINST-EUR", postingCount: 1888, totalDebit: 412792.35, totalCredit: 388120.10, currency: "EUR", closedAt: "2025-06-12T22:00:00Z" }
+tf 06 pcr LedgerPostingsTranslator ->> 05
+tf 07 cmd ImportLedgerPostings { ledgerDate: "2025-06-12", nostroAccount: "NOSTRO-SCTINST-EUR", postingCount: 1888, currency: "EUR" }
+tf 08 evt LedgerPostingsImported [[LedgerPostingsImported08]]
+
+// ── Auto-matching ────────────────────────────────────────────────────────────
+tf 09 rmo UnmatchedItems ->> 04 ->> 08 [[UnmatchedItems09]]
+tf 10 pcr AutoMatcher ->> 09
+tf 11 cmd MatchByReference { reconRunId: "run-20250612-01", valueDate: "2025-06-12", externalItemId: "ext-000173", internalItemId: "int-88213", matchKey: "E2E-20250612-000173" }
+tf 12 evt ItemsMatchedByReference { reconRunId: "run-20250612-01", matchId: "m-000001", externalItemId: "ext-000173", internalItemId: "int-88213", matchKey: "E2E-20250612-000173", amount: 250.00, currency: "EUR", matchedAt: "2025-06-12T22:06:01Z" }
+tf 13 cmd MatchByAmountAndDate ->> 10 { reconRunId: "run-20250612-01", externalItemId: "ext-001204", internalItemId: "int-88240", amount: 1200.00, currency: "EUR", externalValueDate: "2025-06-13", internalPostingDate: "2025-06-12", dateToleranceDays: 1 }
+tf 14 evt ItemsMatchedByAmountAndDate { reconRunId: "run-20250612-01", matchId: "m-001204", externalItemId: "ext-001204", internalItemId: "int-88240", amount: 1200.00, currency: "EUR", dateDifferenceDays: 1, matchedAt: "2025-06-12T22:06:03Z" }
+tf 15 cmd RaiseBreak ->> 10 { reconRunId: "run-20250612-01", breakId: "brk-0002", detectedType: "EXTERNAL_ONLY", externalItemId: "ext-001590", externalReference: "SCT-INST-1F44B0", amount: 78.20, currency: "EUR", valueDate: "2025-06-12" }
+tf 16 evt BreakRaised { reconRunId: "run-20250612-01", breakId: "brk-0002", detectedType: "EXTERNAL_ONLY", externalItemId: "ext-001590", externalReference: "SCT-INST-1F44B0", amount: 78.20, currency: "EUR", valueDate: "2025-06-12", raisedAt: "2025-06-12T22:06:09Z" }
+tf 17 rmo MatchRateSummary ->> 12 ->> 14 ->> 16 [[MatchRateSummary17]]
+
+// ── Break investigation ──────────────────────────────────────────────────────
+tf 18 rmo BreaksQueue ->> 16 [[BreaksQueue18]]
+
+tf 19 pcr BreakClassifierModel ->> 18
+tf 20 cmd SuggestBreakClassification { breakId: "brk-0002", modelVersion: "recon-cls-2025.08", suggestedClassification: "MISSING_INTERNAL", confidence: 0.87, topFeatures: ["external_only", "late_accp_flag", "amount_lt_100"] }
+tf 21 evt BreakClassificationSuggested { breakId: "brk-0002", modelVersion: "recon-cls-2025.08", suggestedClassification: "MISSING_INTERNAL", confidence: 0.87, suggestedAt: "2025-06-12T22:06:12Z" }
+
+tf 22 ui BreakInvestigationDesk @ReconciliationAnalyst
+tf 23 cmd ClassifyBreak { breakId: "brk-0002", classification: "MISSING_INTERNAL", rootCause: "LATE_SCHEME_ACCP_AFTER_TIMEOUT", linkedPaymentId: "pay-7f3a9c", analystId: "ra-0141", comment: "Scheme settled 3.3 s after our 10 s watchdog reversed the hold; no debit posted." }
+tf 24 evt BreakClassified { breakId: "brk-0002", classification: "MISSING_INTERNAL", rootCause: "LATE_SCHEME_ACCP_AFTER_TIMEOUT", linkedPaymentId: "pay-7f3a9c", amount: 78.20, currency: "EUR", analystId: "ra-0141", classifiedAt: "2025-06-13T08:12:40Z" }
+tf 25 cmd PostToSuspense { breakId: "brk-0002", suspenseAccount: "SUSP-RECON-4711", direction: "DEBIT", amount: 78.20, currency: "EUR", analystId: "ra-0141" }
+tf 26 evt PostedToSuspense { breakId: "brk-0002", suspenseAccount: "SUSP-RECON-4711", journalEntryId: "je-20250613-00417", direction: "DEBIT", amount: 78.20, currency: "EUR", postedAt: "2025-06-13T08:13:02Z" }
+
+tf 27 pcr ToleranceAutoClearer ->> 18
+tf 28 cmd AutoClearSmallDifference { breakId: "brk-0007", detectedType: "AMOUNT_DIFFERENCE", externalAmount: 499.88, internalAmount: 500.00, difference: 0.12, currency: "EUR", tolerance: 0.50, writeOffAccount: "PL-BANK-CHARGES-6120" }
+tf 29 evt SmallDifferenceAutoCleared { breakId: "brk-0007", difference: 0.12, currency: "EUR", tolerance: 0.50, writeOffAccount: "PL-BANK-CHARGES-6120", journalEntryId: "je-20250612-00902", clearedAt: "2025-06-12T22:06:15Z" }
+
+// ── Aging and escalation ─────────────────────────────────────────────────────
+tf 30 rmo AgedBreaks ->> 16 ->> 24 ->> 26 [[AgedBreaks30]]
+tf 31 pcr BreakAgingProcessor ->> 30
+tf 32 cmd EscalateBreak { breakId: "brk-0002", ageBusinessDays: 5, escalationThresholdDays: 5, escalateTo: "FinanceController", amount: 78.20, currency: "EUR" }
+tf 33 evt BreakEscalated { breakId: "brk-0002", ageBusinessDays: 5, escalatedTo: "FinanceController", escalationLevel: 1, escalatedAt: "2025-06-19T07:00:00Z" }
+
+// ── Write-off (maker-checker) ────────────────────────────────────────────────
+tf 34 ui WriteOffProposalScreen @ReconciliationAnalyst
+tf 35 cmd ProposeWriteOff { breakId: "brk-0002", proposalId: "wo-0031", amount: 78.20, currency: "EUR", suspenseAccount: "SUSP-RECON-4711", writeOffAccount: "PL-RECON-LOSSES-6150", justification: "Beneficiary bank confirms funds credited to customer; recall declined (CUST). Unrecoverable.", proposedBy: "ra-0141" }
+tf 36 evt WriteOffProposed { breakId: "brk-0002", proposalId: "wo-0031", amount: 78.20, currency: "EUR", writeOffAccount: "PL-RECON-LOSSES-6150", proposedBy: "ra-0141", proposedAt: "2025-06-20T10:41:00Z" }
+tf 37 ui WriteOffApprovalDesk @FinanceController
+tf 38 cmd ApproveWriteOff { proposalId: "wo-0031", breakId: "brk-0002", amount: 78.20, currency: "EUR", approvedBy: "fc-0002", approverLimit: 5000.00 }
+tf 39 evt WriteOffApproved { proposalId: "wo-0031", breakId: "brk-0002", amount: 78.20, currency: "EUR", proposedBy: "ra-0141", approvedBy: "fc-0002", approvedAt: "2025-06-20T14:05:30Z" }
+tf 40 pcr WriteOffPostingProcessor ->> 39
+tf 41 cmd PostWriteOff { proposalId: "wo-0031", breakId: "brk-0002", fromAccount: "SUSP-RECON-4711", toAccount: "PL-RECON-LOSSES-6150", amount: 78.20, currency: "EUR" }
+tf 42 evt WriteOffPosted { proposalId: "wo-0031", breakId: "brk-0002", journalEntryId: "je-20250620-00188", fromAccount: "SUSP-RECON-4711", toAccount: "PL-RECON-LOSSES-6150", amount: 78.20, currency: "EUR", postedAt: "2025-06-20T14:05:32Z" }
+
+// ── Finance close-out ────────────────────────────────────────────────────────
+tf 43 rmo ReconciliationCloseOutReport ->> 12 ->> 16 ->> 26 ->> 29 ->> 42 [[ReconciliationCloseOutReport43]]
+tf 44 ui CloseOutDashboard @FinanceController
+tf 45 cmd CloseReconciliationDay { valueDate: "2025-06-12", reconRunId: "run-20250612-01", closedBy: "fc-0002", openBreaks: 0, breaksInSuspense: 1, autoMatchRate: 0.9741 }
+tf 46 evt ReconciliationDayClosed { valueDate: "2025-06-12", reconRunId: "run-20250612-01", matchedItems: 1842, autoMatchRate: 0.9741, breaksRaised: 49, breaksResolved: 47, breaksInSuspense: 1, writtenOff: 1, writtenOffAmount: 78.20, currency: "EUR", closedBy: "fc-0002", closedAt: "2025-06-20T16:30:00Z" }
+
+data SettlementFileImported04 {
+  fileId: "SCTINST-NWBKGB2L-20250612-EOD"
+  valueDate: "2025-06-12"
+  currency: "EUR"
+  recordCount: 1891
+  controlTotalDebit: 412870.55
+  controlTotalCredit: 388120.10
+  sampleLines: [
+    { externalItemId: "ext-000173", schemeReference: "SCT-INST-9A81C2", endToEndId: "E2E-20250612-000173", direction: "DEBIT", amount: 250.00, valueDate: "2025-06-12" }
+    { externalItemId: "ext-001204", schemeReference: "SCT-INST-2B77D4", endToEndId: "E2E-20250612-001204", direction: "DEBIT", amount: 1200.00, valueDate: "2025-06-13" }
+    { externalItemId: "ext-001590", schemeReference: "SCT-INST-1F44B0", endToEndId: "E2E-20250612-001590", direction: "DEBIT", amount: 78.20, valueDate: "2025-06-12" }
+    { externalItemId: "ext-001777", schemeReference: "SCT-INST-77C0A9", endToEndId: "E2E-20250612-001777", direction: "CREDIT", amount: 499.88, valueDate: "2025-06-12" }
+  ]
+  importedAt: "2025-06-12T22:05:40Z"
+}
+
+data LedgerPostingsImported08 {
+  ledgerDate: "2025-06-12"
+  nostroAccount: "NOSTRO-SCTINST-EUR"
+  currency: "EUR"
+  postingCount: 1888
+  totalDebit: 412792.35
+  totalCredit: 388120.10
+  samplePostings: [
+    { internalItemId: "int-88213", journalEntryId: "je-20250612-88213", endToEndId: "E2E-20250612-000173", direction: "DEBIT", amount: 250.00, postedAt: "2025-06-12T09:14:05.230Z" }
+    { internalItemId: "int-88240", journalEntryId: "je-20250612-88240", endToEndId: "", direction: "DEBIT", amount: 1200.00, postedAt: "2025-06-12T23:58:41Z" }
+    { internalItemId: "int-88301", journalEntryId: "je-20250612-88301", endToEndId: "E2E-20250612-001777", direction: "CREDIT", amount: 500.00, postedAt: "2025-06-12T15:02:11Z" }
+  ]
+  importedAt: "2025-06-12T22:05:52Z"
+}
+
+data UnmatchedItems09 {
+  reconRunId: "run-20250612-01"
+  valueDate: "2025-06-12"
+  externalUnmatched: 1891
+  internalUnmatched: 1888
+  external: [
+    { externalItemId: "ext-000173", endToEndId: "E2E-20250612-000173", amount: 250.00, valueDate: "2025-06-12" }
+    { externalItemId: "ext-001204", endToEndId: "E2E-20250612-001204", amount: 1200.00, valueDate: "2025-06-13" }
+    { externalItemId: "ext-001590", endToEndId: "E2E-20250612-001590", amount: 78.20, valueDate: "2025-06-12" }
+  ]
+  internal: [
+    { internalItemId: "int-88213", endToEndId: "E2E-20250612-000173", amount: 250.00, postedAt: "2025-06-12T09:14:05.230Z" }
+    { internalItemId: "int-88240", endToEndId: "", amount: 1200.00, postedAt: "2025-06-12T23:58:41Z" }
+  ]
+}
+
+data MatchRateSummary17 {
+  reconRunId: "run-20250612-01"
+  valueDate: "2025-06-12"
+  totalExternal: 1891
+  matchedByReference: 1801
+  matchedByAmountAndDate: 41
+  breaksRaised: 49
+  autoMatchRate: 0.9741
+  target: 0.95
+  targetMet: true
+}
+
+data BreaksQueue18 {
+  openCount: 49
+  byDetectedType: { EXTERNAL_ONLY: 6, INTERNAL_ONLY: 3, AMOUNT_DIFFERENCE: 31, POSSIBLE_DUPLICATE: 9 }
+  items: [
+    { breakId: "brk-0002", detectedType: "EXTERNAL_ONLY", externalReference: "SCT-INST-1F44B0", amount: 78.20, currency: "EUR", valueDate: "2025-06-12", ageBusinessDays: 0, status: "OPEN" }
+    { breakId: "brk-0007", detectedType: "AMOUNT_DIFFERENCE", externalAmount: 499.88, internalAmount: 500.00, difference: 0.12, currency: "EUR", valueDate: "2025-06-12", ageBusinessDays: 0, status: "OPEN" }
+    { breakId: "brk-0011", detectedType: "POSSIBLE_DUPLICATE", internalItemIds: ["int-88377", "int-88378"], amount: 2500.00, currency: "EUR", valueDate: "2025-06-12", ageBusinessDays: 0, status: "OPEN" }
+  ]
+}
+
+data AgedBreaks30 {
+  asOf: "2025-06-19"
+  escalationThresholdDays: 5
+  buckets: { d0_2: 0, d3_4: 1, d5_plus: 1 }
+  items: [
+    { breakId: "brk-0002", classification: "MISSING_INTERNAL", amount: 78.20, currency: "EUR", ageBusinessDays: 5, status: "IN_SUSPENSE", escalationLevel: 0 }
+    { breakId: "brk-0011", classification: "DUPLICATE", amount: 2500.00, currency: "EUR", ageBusinessDays: 3, status: "CLASSIFIED", escalationLevel: 0 }
+  ]
+}
+
+data ReconciliationCloseOutReport43 {
+  valueDate: "2025-06-12"
+  reconRunId: "run-20250612-01"
+  autoMatchRate: 0.9741
+  breaksRaised: 49
+  breaksResolved: 47
+  breaksInSuspense: 1
+  breaksOpen: 0
+  suspenseBalance: 12.40
+  writtenOff: [ { breakId: "brk-0002", amount: 78.20, approvedBy: "fc-0002" } ]
+  autoClearedUnderTolerance: { count: 27, totalAmount: 4.61 }
+  readyToClose: true
+}
+
+// ── Open questions ───────────────────────────────────────────────────────────
+
+hotspot 28 {
+  Does Finance accept a EUR 0.50 tolerance for auto-clearing amount differences?
+  27 items / EUR 4.61 per day would clear without a human looking. External audit
+  wants the tolerance in the accounting policy first; Ops wants it live now.
+}
+
+hotspot 32 {
+  Is 5 business days the right escalation age for every classification?
+  TIMING breaks usually self-resolve in 1-2 days, MISSING_INTERNAL never does -
+  should the threshold depend on the classification?
+}
+
+hotspot 20 {
+  Who is accountable when the model suggests MISSING_INTERNAL and the analyst
+  accepts it blindly? Should suggestions below 0.80 confidence be hidden?
+}
+
+note 38 {
+  Maker-checker: the approver must be a different person from the proposer
+  (four-eyes) and must hold a limit at or above the amount. Finance
+  Controller limit EUR 5,000; above that the CFO approves.
+}
+
+note 13 {
+  Fuzzy pass runs only on items left unmatched after the exact-reference pass.
+  Same amount, same direction, value date within +/- 1 business day.
+  Ambiguous candidates (more than one internal item fits) are NOT matched.
+}
+
+// ── Scenarios ────────────────────────────────────────────────────────────────
+
+gwt 03 "import the settlement file when control totals reconcile to the lines"
+  given
+    evt Scheme.SettlementFileReceived { fileId: "SCTINST-NWBKGB2L-20250612-EOD", recordCount: 1891, controlTotalDebit: 412870.55, controlTotalCredit: 388120.10 }
+  when
+    cmd ImportSettlementFile { fileId: "SCTINST-NWBKGB2L-20250612-EOD", valueDate: "2025-06-12", recordCount: 1891, controlTotalDebit: 412870.55, controlTotalCredit: 388120.10 }
+  then
+    evt SettlementFileImported { fileId: "SCTINST-NWBKGB2L-20250612-EOD", valueDate: "2025-06-12", recordCount: 1891 }
+
+gwt 03 "reject a settlement file whose control totals do not add up"
+  given
+    evt Scheme.SettlementFileReceived { fileId: "SCTINST-NWBKGB2L-20250612-EOD", recordCount: 1891, controlTotalDebit: 412870.55 }
+  when
+    cmd ImportSettlementFile { fileId: "SCTINST-NWBKGB2L-20250612-EOD", valueDate: "2025-06-12", recordCount: 1891, controlTotalDebit: 412870.55, sumOfLinesDebit: 412770.55 }
+  then
+    evt SettlementFileRejected { fileId: "SCTINST-NWBKGB2L-20250612-EOD", reason: "control_total_mismatch", expected: 412870.55, actual: 412770.55 }
+
+gwt 03 "ignore a duplicate delivery of the same file"
+  given
+    evt SettlementFileImported { fileId: "SCTINST-NWBKGB2L-20250612-EOD", sha256: "9c1f...e2a7" }
+  when
+    cmd ImportSettlementFile { fileId: "SCTINST-NWBKGB2L-20250612-EOD", valueDate: "2025-06-12", sha256: "9c1f...e2a7" }
+  then
+    evt SettlementFileImportIgnored { fileId: "SCTINST-NWBKGB2L-20250612-EOD", reason: "already_imported" }
+
+gwt 07 "import ledger postings once the ledger day is closed"
+  given
+    evt Ledger.DayPostingsClosed { ledgerDate: "2025-06-12", nostroAccount: "NOSTRO-SCTINST-EUR", postingCount: 1888 }
+  when
+    cmd ImportLedgerPostings { ledgerDate: "2025-06-12", nostroAccount: "NOSTRO-SCTINST-EUR", postingCount: 1888 }
+  then
+    evt LedgerPostingsImported { ledgerDate: "2025-06-12", nostroAccount: "NOSTRO-SCTINST-EUR", postingCount: 1888 }
+
+gwt 07 "reject importing postings for a ledger day that is still open"
+  given
+    evt Ledger.DayOpened { ledgerDate: "2025-06-12", nostroAccount: "NOSTRO-SCTINST-EUR" }
+  when
+    cmd ImportLedgerPostings { ledgerDate: "2025-06-12", nostroAccount: "NOSTRO-SCTINST-EUR" }
+  then
+    evt LedgerPostingsImportRejected { ledgerDate: "2025-06-12", reason: "ledger_day_not_closed" }
+
+gwt 11 "match an external line to an internal posting on end-to-end id"
+  given
+    evt SettlementFileImported { fileId: "SCTINST-NWBKGB2L-20250612-EOD", valueDate: "2025-06-12" }
+    evt LedgerPostingsImported { ledgerDate: "2025-06-12" }
+    rmo UnmatchedItems { external: [ { externalItemId: "ext-000173", endToEndId: "E2E-20250612-000173", amount: 250.00 } ], internal: [ { internalItemId: "int-88213", endToEndId: "E2E-20250612-000173", amount: 250.00 } ] }
+  when
+    cmd MatchByReference { reconRunId: "run-20250612-01", externalItemId: "ext-000173", internalItemId: "int-88213", matchKey: "E2E-20250612-000173" }
+  then
+    evt ItemsMatchedByReference { reconRunId: "run-20250612-01", matchId: "m-000001", externalItemId: "ext-000173", internalItemId: "int-88213", amount: 250.00 }
+
+gwt 11 "reject a reference match when the amounts differ"
+  given
+    rmo UnmatchedItems { external: [ { externalItemId: "ext-001777", endToEndId: "E2E-20250612-001777", amount: 499.88 } ], internal: [ { internalItemId: "int-88301", endToEndId: "E2E-20250612-001777", amount: 500.00 } ] }
+  when
+    cmd MatchByReference { reconRunId: "run-20250612-01", externalItemId: "ext-001777", internalItemId: "int-88301", matchKey: "E2E-20250612-001777" }
+  then
+    evt ReferenceMatchRejected { reconRunId: "run-20250612-01", externalItemId: "ext-001777", internalItemId: "int-88301", reason: "amount_mismatch", externalAmount: 499.88, internalAmount: 500.00 }
+
+gwt 11 "reject matching an item that is already matched"
+  given
+    evt ItemsMatchedByReference { reconRunId: "run-20250612-01", matchId: "m-000001", externalItemId: "ext-000173", internalItemId: "int-88213" }
+  when
+    cmd MatchByReference { reconRunId: "run-20250612-01", externalItemId: "ext-000173", internalItemId: "int-88299", matchKey: "E2E-20250612-000173" }
+  then
+    evt ReferenceMatchRejected { reconRunId: "run-20250612-01", externalItemId: "ext-000173", reason: "already_matched", existingMatchId: "m-000001" }
+
+gwt 13 "fuzzy-match same amount with value date one day apart"
+  given
+    rmo UnmatchedItems { external: [ { externalItemId: "ext-001204", amount: 1200.00, valueDate: "2025-06-13" } ], internal: [ { internalItemId: "int-88240", amount: 1200.00, postedAt: "2025-06-12T23:58:41Z" } ] }
+  when
+    cmd MatchByAmountAndDate { reconRunId: "run-20250612-01", externalItemId: "ext-001204", internalItemId: "int-88240", amount: 1200.00, dateToleranceDays: 1 }
+  then
+    evt ItemsMatchedByAmountAndDate { reconRunId: "run-20250612-01", matchId: "m-001204", externalItemId: "ext-001204", internalItemId: "int-88240", amount: 1200.00, dateDifferenceDays: 1 }
+
+gwt 13 "reject a fuzzy match outside the date tolerance"
+  given
+    rmo UnmatchedItems { external: [ { externalItemId: "ext-001205", amount: 1200.00, valueDate: "2025-06-16" } ], internal: [ { internalItemId: "int-88240", amount: 1200.00, postedAt: "2025-06-12T23:58:41Z" } ] }
+  when
+    cmd MatchByAmountAndDate { reconRunId: "run-20250612-01", externalItemId: "ext-001205", internalItemId: "int-88240", amount: 1200.00, dateToleranceDays: 1 }
+  then
+    evt FuzzyMatchRejected { reconRunId: "run-20250612-01", externalItemId: "ext-001205", internalItemId: "int-88240", reason: "outside_date_tolerance", dateDifferenceDays: 4 }
+
+gwt 10 "AutoMatcher leaves ambiguous candidates unmatched"
+  given
+    rmo UnmatchedItems { external: [ { externalItemId: "ext-001300", amount: 2500.00, valueDate: "2025-06-12" } ], internal: [ { internalItemId: "int-88377", amount: 2500.00 }, { internalItemId: "int-88378", amount: 2500.00 } ] }
+  then
+    evt FuzzyMatchSkipped { reconRunId: "run-20250612-01", externalItemId: "ext-001300", reason: "ambiguous_candidates", candidateInternalItemIds: ["int-88377", "int-88378"] }
+
+gwt 15 "raise a break for an external line with no internal posting"
+  given
+    evt SettlementFileImported { fileId: "SCTINST-NWBKGB2L-20250612-EOD", valueDate: "2025-06-12" }
+    rmo UnmatchedItems { external: [ { externalItemId: "ext-001590", externalReference: "SCT-INST-1F44B0", amount: 78.20 } ], internal: [] }
+  when
+    cmd RaiseBreak { reconRunId: "run-20250612-01", breakId: "brk-0002", detectedType: "EXTERNAL_ONLY", externalItemId: "ext-001590", amount: 78.20, currency: "EUR" }
+  then
+    evt BreakRaised { reconRunId: "run-20250612-01", breakId: "brk-0002", detectedType: "EXTERNAL_ONLY", externalItemId: "ext-001590", amount: 78.20, currency: "EUR" }
+
+gwt 15 "raise an amount-difference break when both sides exist but disagree"
+  given
+    evt ReferenceMatchRejected { reconRunId: "run-20250612-01", externalItemId: "ext-001777", internalItemId: "int-88301", reason: "amount_mismatch", externalAmount: 499.88, internalAmount: 500.00 }
+  when
+    cmd RaiseBreak { reconRunId: "run-20250612-01", breakId: "brk-0007", detectedType: "AMOUNT_DIFFERENCE", externalItemId: "ext-001777", internalItemId: "int-88301", externalAmount: 499.88, internalAmount: 500.00, difference: 0.12, currency: "EUR" }
+  then
+    evt BreakRaised { reconRunId: "run-20250612-01", breakId: "brk-0007", detectedType: "AMOUNT_DIFFERENCE", externalAmount: 499.88, internalAmount: 500.00, difference: 0.12, currency: "EUR" }
+
+gwt 15 "ignore raising a second break for the same unmatched item"
+  given
+    evt BreakRaised { reconRunId: "run-20250612-01", breakId: "brk-0002", externalItemId: "ext-001590" }
+  when
+    cmd RaiseBreak { reconRunId: "run-20250612-01", breakId: "brk-0002b", detectedType: "EXTERNAL_ONLY", externalItemId: "ext-001590", amount: 78.20, currency: "EUR" }
+  then
+    evt BreakRaiseIgnored { reconRunId: "run-20250612-01", externalItemId: "ext-001590", reason: "break_already_open", existingBreakId: "brk-0002" }
+
+gwt 20 "model suggests a classification with high confidence"
+  given
+    evt BreakRaised { breakId: "brk-0002", detectedType: "EXTERNAL_ONLY", amount: 78.20, currency: "EUR" }
+    evt Payments.LateAcceptanceFlagged { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-1F44B0" }
+  when
+    cmd SuggestBreakClassification { breakId: "brk-0002", modelVersion: "recon-cls-2025.08", suggestedClassification: "MISSING_INTERNAL", confidence: 0.87 }
+  then
+    evt BreakClassificationSuggested { breakId: "brk-0002", suggestedClassification: "MISSING_INTERNAL", confidence: 0.87 }
+
+gwt 20 "model withholds a suggestion below the confidence floor"
+  given
+    evt BreakRaised { breakId: "brk-0011", detectedType: "POSSIBLE_DUPLICATE", amount: 2500.00, currency: "EUR" }
+  when
+    cmd SuggestBreakClassification { breakId: "brk-0011", modelVersion: "recon-cls-2025.08", suggestedClassification: "DUPLICATE", confidence: 0.61, confidenceFloor: 0.80 }
+  then
+    evt BreakClassificationSuggestionWithheld { breakId: "brk-0011", confidence: 0.61, confidenceFloor: 0.80 }
+
+gwt 23 "classify an external-only break as MISSING_INTERNAL"
+  given
+    evt BreakRaised { breakId: "brk-0002", detectedType: "EXTERNAL_ONLY", externalReference: "SCT-INST-1F44B0", amount: 78.20, currency: "EUR" }
+  when
+    cmd ClassifyBreak { breakId: "brk-0002", classification: "MISSING_INTERNAL", rootCause: "LATE_SCHEME_ACCP_AFTER_TIMEOUT", linkedPaymentId: "pay-7f3a9c", analystId: "ra-0141" }
+  then
+    evt BreakClassified { breakId: "brk-0002", classification: "MISSING_INTERNAL", rootCause: "LATE_SCHEME_ACCP_AFTER_TIMEOUT", amount: 78.20, currency: "EUR" }
+
+gwt 23 "classify an internal-only break as MISSING_EXTERNAL"
+  given
+    evt BreakRaised { breakId: "brk-0004", detectedType: "INTERNAL_ONLY", internalItemId: "int-88355", amount: 310.00, currency: "EUR" }
+  when
+    cmd ClassifyBreak { breakId: "brk-0004", classification: "MISSING_EXTERNAL", rootCause: "SCHEME_REJECTED_AFTER_POSTING", analystId: "ra-0141" }
+  then
+    evt BreakClassified { breakId: "brk-0004", classification: "MISSING_EXTERNAL", rootCause: "SCHEME_REJECTED_AFTER_POSTING", amount: 310.00, currency: "EUR" }
+
+gwt 23 "classify a value-date gap as TIMING"
+  given
+    evt BreakRaised { breakId: "brk-0005", detectedType: "EXTERNAL_ONLY", amount: 1200.00, currency: "EUR", valueDate: "2025-06-13" }
+    evt LedgerPostingsImported { ledgerDate: "2025-06-13", samplePostings: [ { internalItemId: "int-90012", amount: 1200.00 } ] }
+  when
+    cmd ClassifyBreak { breakId: "brk-0005", classification: "TIMING", rootCause: "POSTED_NEXT_LEDGER_DAY", expectedToClearBy: "2025-06-13", analystId: "ra-0141" }
+  then
+    evt BreakClassified { breakId: "brk-0005", classification: "TIMING", rootCause: "POSTED_NEXT_LEDGER_DAY", expectedToClearBy: "2025-06-13" }
+
+gwt 23 "classify a difference caused by beneficiary bank charges as AMOUNT_MISMATCH"
+  given
+    evt BreakRaised { breakId: "brk-0007", detectedType: "AMOUNT_DIFFERENCE", externalAmount: 499.88, internalAmount: 500.00, difference: 0.12, currency: "EUR" }
+  when
+    cmd ClassifyBreak { breakId: "brk-0007", classification: "AMOUNT_MISMATCH", rootCause: "BENEFICIARY_BANK_CHARGES", analystId: "ra-0141" }
+  then
+    evt BreakClassified { breakId: "brk-0007", classification: "AMOUNT_MISMATCH", rootCause: "BENEFICIARY_BANK_CHARGES", difference: 0.12, currency: "EUR" }
+
+gwt 23 "classify two internal postings for one external line as DUPLICATE"
+  given
+    evt BreakRaised { breakId: "brk-0011", detectedType: "POSSIBLE_DUPLICATE", internalItemIds: ["int-88377", "int-88378"], amount: 2500.00, currency: "EUR" }
+  when
+    cmd ClassifyBreak { breakId: "brk-0011", classification: "DUPLICATE", rootCause: "RETRY_POSTED_TWICE", duplicateInternalItemId: "int-88378", analystId: "ra-0141" }
+  then
+    evt BreakClassified { breakId: "brk-0011", classification: "DUPLICATE", rootCause: "RETRY_POSTED_TWICE", duplicateInternalItemId: "int-88378", amount: 2500.00 }
+
+gwt 23 "reject classifying a break that has already been written off"
+  given
+    evt WriteOffPosted { breakId: "brk-0002", proposalId: "wo-0031", amount: 78.20, currency: "EUR" }
+  when
+    cmd ClassifyBreak { breakId: "brk-0002", classification: "TIMING", analystId: "ra-0141" }
+  then
+    evt BreakClassificationRejected { breakId: "brk-0002", reason: "break_already_written_off" }
+
+gwt 25 "post a classified break to suspense"
+  given
+    evt BreakClassified { breakId: "brk-0002", classification: "MISSING_INTERNAL", amount: 78.20, currency: "EUR" }
+  when
+    cmd PostToSuspense { breakId: "brk-0002", suspenseAccount: "SUSP-RECON-4711", direction: "DEBIT", amount: 78.20, currency: "EUR" }
+  then
+    evt PostedToSuspense { breakId: "brk-0002", suspenseAccount: "SUSP-RECON-4711", journalEntryId: "je-20250613-00417", amount: 78.20, currency: "EUR" }
+
+gwt 25 "reject posting an unclassified break to suspense"
+  given
+    evt BreakRaised { breakId: "brk-0004", detectedType: "INTERNAL_ONLY", amount: 310.00, currency: "EUR" }
+  when
+    cmd PostToSuspense { breakId: "brk-0004", suspenseAccount: "SUSP-RECON-4711", direction: "CREDIT", amount: 310.00, currency: "EUR" }
+  then
+    evt SuspensePostingRejected { breakId: "brk-0004", reason: "break_not_classified" }
+
+gwt 25 "reject posting a TIMING break - it is expected to self-clear"
+  given
+    evt BreakClassified { breakId: "brk-0005", classification: "TIMING", expectedToClearBy: "2025-06-13" }
+  when
+    cmd PostToSuspense { breakId: "brk-0005", suspenseAccount: "SUSP-RECON-4711", direction: "DEBIT", amount: 1200.00, currency: "EUR" }
+  then
+    evt SuspensePostingRejected { breakId: "brk-0005", reason: "timing_breaks_are_not_suspended", expectedToClearBy: "2025-06-13" }
+
+gwt 25 "ignore posting a break that is already in suspense"
+  given
+    evt PostedToSuspense { breakId: "brk-0002", suspenseAccount: "SUSP-RECON-4711", journalEntryId: "je-20250613-00417" }
+  when
+    cmd PostToSuspense { breakId: "brk-0002", suspenseAccount: "SUSP-RECON-4711", direction: "DEBIT", amount: 78.20, currency: "EUR" }
+  then
+    evt SuspensePostingIgnored { breakId: "brk-0002", reason: "already_in_suspense", existingJournalEntryId: "je-20250613-00417" }
+
+gwt 28 "auto-clear an amount difference under the tolerance (staging)"
+  given
+    evt BreakRaised { breakId: "brk-0007", detectedType: "AMOUNT_DIFFERENCE", externalAmount: 499.88, internalAmount: 500.00, difference: 0.12, currency: "EUR" }
+  when
+    cmd AutoClearSmallDifference { breakId: "brk-0007", difference: 0.12, currency: "EUR", tolerance: 0.50, writeOffAccount: "PL-BANK-CHARGES-6120" }
+  then
+    evt SmallDifferenceAutoCleared { breakId: "brk-0007", difference: 0.12, currency: "EUR", tolerance: 0.50, writeOffAccount: "PL-BANK-CHARGES-6120" }
+
+gwt 28 "reject auto-clearing a difference at or above the tolerance (staging)"
+  given
+    evt BreakRaised { breakId: "brk-0008", detectedType: "AMOUNT_DIFFERENCE", externalAmount: 999.25, internalAmount: 1000.00, difference: 0.75, currency: "EUR" }
+  when
+    cmd AutoClearSmallDifference { breakId: "brk-0008", difference: 0.75, currency: "EUR", tolerance: 0.50 }
+  then
+    evt AutoClearRejected { breakId: "brk-0008", reason: "difference_exceeds_tolerance", difference: 0.75, tolerance: 0.50 }
+
+gwt 28 "reject auto-clearing anything that is not an amount difference (staging)"
+  given
+    evt BreakRaised { breakId: "brk-0002", detectedType: "EXTERNAL_ONLY", amount: 78.20, currency: "EUR" }
+  when
+    cmd AutoClearSmallDifference { breakId: "brk-0002", difference: 78.20, currency: "EUR", tolerance: 0.50 }
+  then
+    evt AutoClearRejected { breakId: "brk-0002", reason: "not_an_amount_difference", detectedType: "EXTERNAL_ONLY" }
+
+gwt 27 "ToleranceAutoClearer stays quiet for differences at or above 0.50 (staging)"
+  given
+    rmo BreaksQueue { items: [ { breakId: "brk-0008", detectedType: "AMOUNT_DIFFERENCE", difference: 0.75 } ] }
+  then
+    evt AutoClearSkipped { breakId: "brk-0008", reason: "difference_exceeds_tolerance", difference: 0.75, tolerance: 0.50 }
+
+gwt 31 "BreakAgingProcessor escalates a break at 5 business days"
+  given
+    evt PostedToSuspense { breakId: "brk-0002", amount: 78.20, currency: "EUR", postedAt: "2025-06-13T08:13:02Z" }
+    rmo AgedBreaks { items: [ { breakId: "brk-0002", ageBusinessDays: 5, escalationLevel: 0 } ] }
+  when
+    cmd EscalateBreak { breakId: "brk-0002", ageBusinessDays: 5, escalationThresholdDays: 5, escalateTo: "FinanceController" }
+  then
+    evt BreakEscalated { breakId: "brk-0002", ageBusinessDays: 5, escalatedTo: "FinanceController", escalationLevel: 1 }
+
+gwt 31 "BreakAgingProcessor leaves younger breaks alone"
+  given
+    rmo AgedBreaks { items: [ { breakId: "brk-0011", ageBusinessDays: 3, escalationLevel: 0 } ] }
+  then
+    evt EscalationSkipped { breakId: "brk-0011", reason: "below_threshold", ageBusinessDays: 3, escalationThresholdDays: 5 }
+
+gwt 32 "escalate an aged break to the Finance Controller"
+  given
+    evt BreakClassified { breakId: "brk-0002", classification: "MISSING_INTERNAL", amount: 78.20, currency: "EUR" }
+    evt PostedToSuspense { breakId: "brk-0002", postedAt: "2025-06-13T08:13:02Z" }
+  when
+    cmd EscalateBreak { breakId: "brk-0002", ageBusinessDays: 5, escalationThresholdDays: 5, escalateTo: "FinanceController" }
+  then
+    evt BreakEscalated { breakId: "brk-0002", escalatedTo: "FinanceController", escalationLevel: 1 }
+
+gwt 32 "ignore escalating a break already at that level"
+  given
+    evt BreakEscalated { breakId: "brk-0002", escalatedTo: "FinanceController", escalationLevel: 1 }
+  when
+    cmd EscalateBreak { breakId: "brk-0002", ageBusinessDays: 6, escalationThresholdDays: 5, escalateTo: "FinanceController" }
+  then
+    evt BreakEscalationIgnored { breakId: "brk-0002", reason: "already_escalated", escalationLevel: 1 }
+
+gwt 32 "reject escalating a break that was resolved in the meantime"
+  given
+    evt BreakResolved { breakId: "brk-0005", resolution: "MATCHED_NEXT_DAY", resolvedAt: "2025-06-13T22:06:00Z" }
+  when
+    cmd EscalateBreak { breakId: "brk-0005", ageBusinessDays: 5, escalationThresholdDays: 5, escalateTo: "FinanceController" }
+  then
+    evt BreakEscalationRejected { breakId: "brk-0005", reason: "break_already_resolved" }
+
+gwt 35 "propose a write-off for an escalated, unrecoverable break"
+  given
+    evt PostedToSuspense { breakId: "brk-0002", suspenseAccount: "SUSP-RECON-4711", amount: 78.20, currency: "EUR" }
+    evt BreakEscalated { breakId: "brk-0002", escalatedTo: "FinanceController", escalationLevel: 1 }
+  when
+    cmd ProposeWriteOff { breakId: "brk-0002", proposalId: "wo-0031", amount: 78.20, currency: "EUR", writeOffAccount: "PL-RECON-LOSSES-6150", justification: "Recall declined (CUST); unrecoverable.", proposedBy: "ra-0141" }
+  then
+    evt WriteOffProposed { breakId: "brk-0002", proposalId: "wo-0031", amount: 78.20, currency: "EUR", proposedBy: "ra-0141" }
+
+gwt 35 "reject a write-off proposal for a break that is not in suspense"
+  given
+    evt BreakClassified { breakId: "brk-0004", classification: "MISSING_EXTERNAL", amount: 310.00, currency: "EUR" }
+  when
+    cmd ProposeWriteOff { breakId: "brk-0004", proposalId: "wo-0032", amount: 310.00, currency: "EUR", proposedBy: "ra-0141" }
+  then
+    evt WriteOffProposalRejected { breakId: "brk-0004", reason: "break_not_in_suspense" }
+
+gwt 35 "reject a write-off proposal whose amount differs from the suspense balance"
+  given
+    evt PostedToSuspense { breakId: "brk-0002", suspenseAccount: "SUSP-RECON-4711", amount: 78.20, currency: "EUR" }
+    evt BreakEscalated { breakId: "brk-0002", escalationLevel: 1 }
+  when
+    cmd ProposeWriteOff { breakId: "brk-0002", proposalId: "wo-0033", amount: 80.00, currency: "EUR", proposedBy: "ra-0141" }
+  then
+    evt WriteOffProposalRejected { breakId: "brk-0002", reason: "amount_differs_from_suspense_balance", suspenseBalance: 78.20, proposed: 80.00 }
+
+gwt 38 "Finance Controller approves a write-off within limit"
+  given
+    evt WriteOffProposed { breakId: "brk-0002", proposalId: "wo-0031", amount: 78.20, currency: "EUR", proposedBy: "ra-0141" }
+  when
+    cmd ApproveWriteOff { proposalId: "wo-0031", amount: 78.20, currency: "EUR", approvedBy: "fc-0002", approverLimit: 5000.00 }
+  then
+    evt WriteOffApproved { proposalId: "wo-0031", breakId: "brk-0002", amount: 78.20, currency: "EUR", proposedBy: "ra-0141", approvedBy: "fc-0002" }
+
+gwt 38 "reject approval by the same person who proposed (four-eyes)"
+  given
+    evt WriteOffProposed { breakId: "brk-0002", proposalId: "wo-0031", amount: 78.20, currency: "EUR", proposedBy: "ra-0141" }
+  when
+    cmd ApproveWriteOff { proposalId: "wo-0031", amount: 78.20, currency: "EUR", approvedBy: "ra-0141", approverLimit: 5000.00 }
+  then
+    evt WriteOffApprovalRejected { proposalId: "wo-0031", reason: "approver_is_proposer", proposedBy: "ra-0141", approvedBy: "ra-0141" }
+
+gwt 38 "reject approval above the approver's limit"
+  given
+    evt WriteOffProposed { breakId: "brk-0019", proposalId: "wo-0034", amount: 12500.00, currency: "EUR", proposedBy: "ra-0141" }
+  when
+    cmd ApproveWriteOff { proposalId: "wo-0034", amount: 12500.00, currency: "EUR", approvedBy: "fc-0002", approverLimit: 5000.00 }
+  then
+    evt WriteOffApprovalRejected { proposalId: "wo-0034", reason: "amount_exceeds_approver_limit", amount: 12500.00, approverLimit: 5000.00, requiredApprover: "CFO" }
+
+gwt 38 "Finance Controller declines a write-off and sends it back"
+  given
+    evt WriteOffProposed { breakId: "brk-0002", proposalId: "wo-0031", amount: 78.20, currency: "EUR", proposedBy: "ra-0141" }
+  when
+    cmd ApproveWriteOff { proposalId: "wo-0031", amount: 78.20, currency: "EUR", approvedBy: "fc-0002", decision: "DECLINE", comment: "Raise a second recall attempt first." }
+  then
+    evt WriteOffDeclined { proposalId: "wo-0031", breakId: "brk-0002", declinedBy: "fc-0002", comment: "Raise a second recall attempt first." }
+
+gwt 41 "post the approved write-off from suspense to the P&L account"
+  given
+    evt PostedToSuspense { breakId: "brk-0002", suspenseAccount: "SUSP-RECON-4711", amount: 78.20, currency: "EUR" }
+    evt WriteOffApproved { proposalId: "wo-0031", breakId: "brk-0002", amount: 78.20, currency: "EUR", approvedBy: "fc-0002" }
+  when
+    cmd PostWriteOff { proposalId: "wo-0031", breakId: "brk-0002", fromAccount: "SUSP-RECON-4711", toAccount: "PL-RECON-LOSSES-6150", amount: 78.20, currency: "EUR" }
+  then
+    evt WriteOffPosted { proposalId: "wo-0031", breakId: "brk-0002", journalEntryId: "je-20250620-00188", amount: 78.20, currency: "EUR" }
+
+gwt 41 "reject posting a write-off that was not approved"
+  given
+    evt WriteOffProposed { breakId: "brk-0002", proposalId: "wo-0031", amount: 78.20, currency: "EUR" }
+  when
+    cmd PostWriteOff { proposalId: "wo-0031", breakId: "brk-0002", fromAccount: "SUSP-RECON-4711", toAccount: "PL-RECON-LOSSES-6150", amount: 78.20, currency: "EUR" }
+  then
+    evt WriteOffPostingRejected { proposalId: "wo-0031", reason: "not_approved" }
+
+gwt 41 "ignore posting a write-off twice"
+  given
+    evt WriteOffPosted { proposalId: "wo-0031", breakId: "brk-0002", journalEntryId: "je-20250620-00188" }
+  when
+    cmd PostWriteOff { proposalId: "wo-0031", breakId: "brk-0002", fromAccount: "SUSP-RECON-4711", toAccount: "PL-RECON-LOSSES-6150", amount: 78.20, currency: "EUR" }
+  then
+    evt WriteOffPostingIgnored { proposalId: "wo-0031", reason: "already_posted", existingJournalEntryId: "je-20250620-00188" }
+
+gwt 45 "close the day when every break is resolved, suspended or written off"
+  given
+    evt ItemsMatchedByReference { reconRunId: "run-20250612-01", matchId: "m-000001" }
+    evt WriteOffPosted { breakId: "brk-0002", amount: 78.20, currency: "EUR" }
+    rmo ReconciliationCloseOutReport { valueDate: "2025-06-12", breaksOpen: 0, breaksInSuspense: 1, readyToClose: true }
+  when
+    cmd CloseReconciliationDay { valueDate: "2025-06-12", reconRunId: "run-20250612-01", closedBy: "fc-0002" }
+  then
+    evt ReconciliationDayClosed { valueDate: "2025-06-12", reconRunId: "run-20250612-01", autoMatchRate: 0.9741, breaksInSuspense: 1, writtenOffAmount: 78.20 }
+
+gwt 45 "reject closing the day while unclassified breaks remain"
+  given
+    evt BreakRaised { reconRunId: "run-20250612-01", breakId: "brk-0004", detectedType: "INTERNAL_ONLY", amount: 310.00, currency: "EUR" }
+    rmo ReconciliationCloseOutReport { valueDate: "2025-06-12", breaksOpen: 1, readyToClose: false }
+  when
+    cmd CloseReconciliationDay { valueDate: "2025-06-12", reconRunId: "run-20250612-01", closedBy: "fc-0002" }
+  then
+    evt ReconciliationDayCloseRejected { valueDate: "2025-06-12", reason: "open_breaks_remain", openBreakIds: ["brk-0004"] }
+
+gwt 45 "reject closing the day below the 95% auto-match target without an override"
+  given
+    rmo ReconciliationCloseOutReport { valueDate: "2025-06-12", autoMatchRate: 0.9120, breaksOpen: 0, readyToClose: true }
+  when
+    cmd CloseReconciliationDay { valueDate: "2025-06-12", reconRunId: "run-20250612-01", closedBy: "fc-0002", override: false }
+  then
+    evt ReconciliationDayCloseRejected { valueDate: "2025-06-12", reason: "auto_match_rate_below_target", autoMatchRate: 0.9120, target: 0.95 }
+
+gwt 45 "reject closing a day that is already closed"
+  given
+    evt ReconciliationDayClosed { valueDate: "2025-06-12", reconRunId: "run-20250612-01", closedBy: "fc-0002" }
+  when
+    cmd CloseReconciliationDay { valueDate: "2025-06-12", reconRunId: "run-20250612-01", closedBy: "fc-0002" }
+  then
+    evt ReconciliationDayCloseRejected { valueDate: "2025-06-12", reason: "already_closed" }

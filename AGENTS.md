@@ -13,11 +13,13 @@ needing to read every source file first.
 ├── cmd/evml/        CLI entry-point (main package)
 ├── testdata/
 │   └── fixtures/    *.evml sample files used by render_test.go
-├── model.go         Domain types (Model, Frame, DataEntity, …)
-├── parse.go         Hand-written recursive-descent parser
-├── render.go        SVG renderer + layout helpers
-├── validate.go      Post-parse validation helpers
-├── cli.go           CLI wiring (Cobra / flag parsing)
+├── model.go         Domain types (Model, Frame, Slice, Chapter, Hotspot, Stage, …)
+├── parse.go         Hand-written recursive-descent parser (records Line/LineCount for editors)
+├── render.go        SVG renderer + layout helpers (chapters, slices, hotspots, stage styling)
+├── validate.go      Validate / ValidateConnections / ValidateRanges / Lint
+├── filter.go        FilterStages — the as-is / staging / future "lens"
+├── diff.go          Diff — semantic comparison of two versions by frame ID
+├── cli.go           CLI wiring: svg [--stage], lint [--strict], diff
 ├── cli_test.go
 ├── parse_test.go
 ├── render_test.go
@@ -41,8 +43,15 @@ needing to read every source file first.
 | Run all tests | `mise run test` |
 | Dev (hot reload) | `mise run dev` |
 | Re-render changed fixture SVGs into `out/` | `mise run svg` (`-- --all` forces every fixture) |
+| Lint every fixture | `mise run lint` (`-- --strict` fails on any finding) |
+| Web app without an LLM | `mise run webapp:nollm` |
 | Direct test run | `go test ./...` |
 | Direct build | `go build -o bin/evml ./cmd/evml` |
+
+> Sandboxed agents: if `go build`/`go test` fails with `operation not permitted`
+> on `~/Library/Caches/go-build`, set `GOCACHE=$TMPDIR/gocache`. The
+> `writing stat cache … operation not permitted` warning from the module cache
+> is harmless.
 
 ---
 
@@ -101,6 +110,31 @@ needing to read every source file first.
 4. Add a `case` in `SwimlaneBand` in `model.go`.
 5. Add at least one fixture and a targeted test.
 
+### Adding a new top-level keyword (like `hotspot`, `slice`)
+1. Parse it in the `switch` in `parser.parse` **and** add it to `isTopLevel`
+   (otherwise a `gwt` block swallows it as a statement).
+2. Record `Line`/`LineCount` on the new node — `cmd/evmlweb/internal/webapp/edit.go`
+   relies on them for text-level edits.
+3. Resolve references in `resolveReferences`; range checks go in `ValidateRanges`.
+4. Make `FilterStages` (filter.go) carry the node across when its frame survives.
+5. Update `EVENT_MODELING.md` §11 (BNF) and the relevant §12–14 section.
+
+### Stages (`current` / `staging` / `future`)
+- `Model.FrameStage(f)` is the only place that resolves a frame's effective
+  stage (explicit `#tag` → enclosing slice → current). Never re-derive it.
+- `Lint` skips `uncovered-command` for future-stage commands on purpose.
+- `FilterStages` with all three stages returns the *same* pointer; callers
+  may rely on that for cheap no-op lenses.
+
+### Parser leniency to preserve
+- Modifiers `@Actor` / `#stage` are accepted before `->>` sources **and** after
+  a single-line `{ … }` payload, but not after a quoted payload (pre-existing
+  behaviour: trailing junk after a quoted string is ignored).
+- Multi-line prose blocks (`note`, `hotspot`, `data`) retry without
+  quote-awareness when the quote-aware pass fails, so a lone apostrophe
+  ("the bank's clock") doesn't produce `unbalanced payload braces`.
+- `gwt` `LineCount` excludes trailing blank lines.
+
 ---
 
 ## Validation semantics (learned 2026-08, cross-checked against eventmodelers.ai)
@@ -123,10 +157,14 @@ needing to read every source file first.
 - When touching `allowedSources` or the four-pattern descriptions, update
   both `validate.go`'s error strings and the corresponding prose in
   `EVENT_MODELING.md` / `SKILL.md` together — they're expected to agree.
-- Four notation features from the eventmodelers.ai cheat sheet have no DSL
-  equivalent yet: hotspots, actor lanes, chapters, slice status tags. Grammar
-  sketches and rationale live in `EVENT_MODELING.md` §12 — read that before
-  proposing new keywords for any of these.
+- Hotspots, actors, chapters and slices (with status and stage) are
+  implemented — see `EVENT_MODELING.md` §12–14 and the
+  `staging-lens-hotspots.evml` fixture. Validation rules: chapter ranges
+  must not overlap; slices must not straddle a chapter boundary; ranges run
+  forwards in *declaration* order (frame IDs are labels, not positions).
+- Lint findings are advisory (`evml lint`), not validation errors; only
+  `--strict` turns them into a non-zero exit. Keep it that way so a model with
+  open questions still renders in a session.
 
 ---
 
@@ -151,9 +189,38 @@ github.com/leowmjw/go-event-modeling-tooling` (the `evml` library) stays zero-de
 The "no third-party packages" rule above applies to the root module only; `cmd/evmlweb`
 manages its own dependencies via its own `go.mod`/`go.sum`.
 
-Build/run it independently of the root toolchain: `cd cmd/evmlweb && go run .`. It reuses
-`evml.Parse` / `evml.ValidateConnections` / `evml.RenderSVG` unchanged and writes activated
-drafts straight into `testdata/fixtures/`, so it never needs to modify the core library.
+Build/run it independently of the root toolchain: `cd cmd/evmlweb && go run .` (or
+`go run . -llm=false` to skip Kronk entirely — every editing feature works without a model;
+only the Assistant tab is disabled). It reuses `evml.Parse` / `evml.Validate` /
+`evml.FilterStages` / `evml.Diff` / `evml.Lint` / `evml.RenderSVG` unchanged and writes
+promoted drafts straight into `testdata/fixtures/`, so it never needs to modify the core library.
+
+### Workshop editing model (learned 2026-09)
+
+Domain experts never see the DSL. Every form in the side panel (`Steps`, `Questions`,
+`Scenarios`, `Slices`) posts a few signals to a handler in `handlers_edit.go`, which:
+
+1. Formats the change as DSL text (`edit.go`: `FormatFrameLine`, `FormatScenario`,
+   `FormatHotspot`, `FormatSlice`, …).
+2. Splices it into the draft's **source text** using the parser's `Line`/`LineCount`
+   positions (`InsertAfterFrame`, `ReplaceLines`, `RemoveFrame`, `SetFrameStage`) — never
+   by re-serialising the AST, so comments and the expert's formatting survive.
+3. Re-parses + validates via `commitSource`. A rejected edit leaves the draft untouched and
+   sets `Session.LastError` (transient, shown once as the red banner); an accepted edit
+   appends a `system` transcript message — the transcript doubles as the **session log**
+   shown in the Compare tab.
+
+Invariants to keep:
+- New steps default to `#staging`; `SetFrameStage` writes an explicit `#current` only when
+  the frame would otherwise inherit a different stage from a slice.
+- `RemoveFrame` must leave a parseable file: it drops anchored notes/hotspots/scenarios,
+  strips `->> id` references from other frames, and shrinks or removes chapters/slices
+  whose range starts or ends on the frame. Add a test in `edit_test.go` when extending it.
+- The diagram is rendered **through the lens** (`Session.Lens`, persisted in the session
+  snapshot) on every request; `DraftVersion.SVG` remains the full render used as a
+  fallback when the source doesn't parse.
+- `handlers_edit_test.go` drives `App.Routes()` in-process with one cookie — extend that
+  test for any new endpoint. The sandbox cannot bind ports, so this is the smoke test.
 
 ### Datastar (client + server)
 
@@ -197,9 +264,23 @@ Reference: [data-star.dev attributes](https://data-star.dev/reference/attributes
 
 Full page load (Go template render) is unaffected; only the SSE patch path needs the split.
 
+#### Signals & client-side state
+
+- Panel/selection state lives in signals declared once on `#workspace-inner` with
+  `data-signals__ifmissing` so an SSE replace doesn't reset the open tab or selected step.
+  `lens` and `source` are server-owned: `lens` is re-declared on every patch and `source`
+  is pushed with `PatchSignals` after each workspace patch.
+- Forms send only their own signals: `@post(url, {filterSignals: {include: /^step/}})`.
+  Server handlers read camelCase JSON keys (`stepType`) for kebab-case bindings
+  (`data-bind:step-type`).
+- Clicking a frame in the SVG works because the renderer emits `data-frame="<id>"` on each
+  `g.box`; `#svg-container`'s click handler sets `$sel`. A `data-effect` toggles the
+  `.selected` class on `#frame-<id>`.
+- `$moved` guards against a pan being read as a click.
+
 #### Session persistence
 
-Per-browser state (model, active flow, active draft per flow) is keyed by the
+Per-browser state (model, active flow, active draft per flow, lens) is keyed by the
 `evmlweb_session` cookie token and written to `<state-dir>/_sessions/<token>.json`.
 `PersistSelection` is called after model/flow/draft-tab changes — not after in-draft edits
 (draft content is saved separately by `DraftStore.Save`).
@@ -217,9 +298,9 @@ commit). `resumeActiveFlow` must call `NewDraft` when `DraftOrder == 0`, same as
 #### Tests
 
 ```bash
-cd cmd/evmlweb && go test ./...
-# UI regression (evmlweb must be running on :8080 — start with `mise run webapp`):
-mise run test:ui-model-flow-selection
+cd cmd/evmlweb && go test ./...          # includes the in-process editing flow test
+# UI regression (evmlweb must be running on :8080 — `mise run webapp` or `mise run webapp:nollm`):
+mise run test:ui-model-flow-selection    # flow open, lens, click-to-select, add step, reload
 ```
 
 Browser debug logging: append `?debug=1` to the URL.

@@ -46,6 +46,13 @@ func BuildSystemPrompt(docsRoot string) string {
 	b.WriteString(grammar)
 	b.WriteString("\n\n=== SKILL.md (authoring guide) ===\n")
 	b.WriteString(skill)
+	b.WriteString("\n\n=== Working in a session ===\n")
+	b.WriteString("You are one voice in a live workshop; the experts also edit the model directly. " +
+		"Treat anything they describe as a proposal unless they say it is how things work today: " +
+		"tag new or changed frames #staging (or put them in a slice with stage staging), tag " +
+		"long-term goals #future, and never renumber or rename existing frames. When they raise " +
+		"a question you cannot answer, add a hotspot on the relevant frame instead of guessing. " +
+		"Keep the as-is process intact so the 'As-is' lens still shows a complete flow.")
 	b.WriteString("\n\n=== Response format ===\n")
 	b.WriteString("Always reply with a short (1-3 sentence) plain-language explanation of " +
 		"what you changed or are proposing, followed by the COMPLETE updated .evml " +

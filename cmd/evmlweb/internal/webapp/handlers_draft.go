@@ -5,9 +5,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/starfederation/datastar-go/datastar"
+
+	evml "github.com/leowmjw/go-event-modeling-tooling"
 )
 
 func (a *App) handleNewVersion(w http.ResponseWriter, r *http.Request) {
@@ -70,11 +73,19 @@ func (a *App) handleActivate(w http.ResponseWriter, r *http.Request) {
 	}
 	a.sessionLog(s).Info("action: draft activated", "flow", flow, "draft_id", draftID, "path", dest)
 
+	prevBaseline := fs.BaselineEvml
 	fs.BaselineEvml = d.EvmlSource
 	fs.BaselineSVG = d.SVG
 	fs.IsNew = false
 
-	note := fmt.Sprintf("Activated as %s — this is now the flow's baseline.", flow+".evml")
+	note := fmt.Sprintf("Promoted to baseline as %s.", flow+".evml")
+	if before, err := evml.Parse(prevBaseline); err == nil {
+		if after, err := evml.Parse(d.EvmlSource); err == nil {
+			if lines := evml.Diff(before, after).Summary(); len(lines) > 0 {
+				note += " Changes: " + strings.Join(lines, " · ")
+			}
+		}
+	}
 	d.Transcript = append(d.Transcript, ChatMessage{Role: RoleSystem, Content: note, At: time.Now()})
 	_ = a.store.Save(d)
 

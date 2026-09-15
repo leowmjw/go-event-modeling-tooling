@@ -1,0 +1,702 @@
+eventmodeling
+
+// Instant account-to-account payment — v2, after two more workshop sessions.
+//
+// Session 2 (2025-07-03, Payments + Ledger + Clearing + Compliance):
+//   * Confirmation of Payee (name/IBAN match) shipped before initiation.  → current
+//   * The v1 hotspot "what if the scheme never answers?" was decided: a
+//     watchdog times the payment out 10 s after CreditTransferSent and the
+//     ledger releases the hold as if the payment never happened.  → current
+//   * Real-time sanctions screening with an analyst review desk is being
+//     validated against real traffic.  → staging
+// Session 3 (2025-08-21, + Fraud + Customer Care):
+//   * Recall / request-for-return needing beneficiary consent.  → future
+//   * Fraud scoring that can step-up authenticate the customer.  → future
+//
+// Frame IDs 01-34 are the v1 baseline and keep their IDs so `evml diff`
+// lines up; frames added in v2 use 1xx IDs. Run
+//   evml diff fintech-instant-payment-v1.evml fintech-instant-payment-v2.evml
+// to see what the two sessions changed.
+
+actor Customer
+actor ComplianceAnalyst
+
+chapter "Payment Initiation" 01-152
+chapter "Ledger: hold funds" 05-10
+chapter "Compliance screening" 110-119
+chapter "Clearing Gateway" 11-23
+chapter "Ledger: settle or release" 24-30
+chapter "Notifications" 31-34
+chapter "Payment recall" 130-136
+
+slice "Confirmation of Payee" 101-102 status Done
+slice "Initiate payment" 01-04 status Done
+slice "Fraud scoring and step-up" 150-152 status Planned stage future
+slice "Hold funds" 05-09 status Done
+slice "Insufficient funds rejection" 10-10 status Done
+slice "Real-time sanctions screening" 110-114 status InProgress stage staging
+slice "Analyst review desk" 115-119 status InProgress stage staging
+slice "Send credit transfer (pacs.008)" 11-14 status Done
+slice "Scheme accept or reject (pacs.002)" 15-20 status Done
+slice "Scheme timeout auto-reversal" 121-23 status Done
+slice "Settle or release hold" 24-30 status Done
+slice "Notify customer" 31-34 status Done
+slice "Recall / request for return" 130-136 status Planned stage future
+
+// ── Payment Initiation ───────────────────────────────────────────────────────
+tf 01 ui SendMoneyScreen @Customer
+tf 101 cmd VerifyPayee { paymentDraftId: "draft-2c91", creditorIban: "DE89370400440532013000", enteredName: "Anna Schmidt", accountType: "PERSONAL" }
+tf 102 evt PayeeNameMatched { paymentDraftId: "draft-2c91", creditorIban: "DE89370400440532013000", matchResult: "MATCH", registeredName: "Anna Schmidt", copReference: "COP-7d2e19", verifiedAt: "2025-06-12T09:13:58Z" }
+tf 02 cmd InitiatePayment { paymentId: "pay-7f3a9c", debtorAccountId: "acc-118203", creditorIban: "DE89370400440532013000", creditorName: "Anna Schmidt", amount: 250.00, currency: "EUR", remittanceInfo: "Invoice 4471", initiatedAt: "2025-06-12T09:14:03Z" }
+tf 03 evt PaymentInitiated { paymentId: "pay-7f3a9c", endToEndId: "E2E-20250612-000173", debtorAccountId: "acc-118203", creditorIban: "DE89370400440532013000", amount: 250.00, currency: "EUR", initiatedAt: "2025-06-12T09:14:03Z" }
+tf 04 rmo PaymentStatus { paymentId: "pay-7f3a9c", status: "INITIATED", amount: 250.00, currency: "EUR", lastUpdatedAt: "2025-06-12T09:14:03Z" }
+
+tf 150 pcr FraudScorer ->> 03
+tf 151 cmd RequestStepUpAuthentication { paymentId: "pay-7f3a9c", customerId: "cust-40912", fraudScore: 83, threshold: 80, signals: ["NEW_PAYEE", "NEW_DEVICE", "AMOUNT_ABOVE_P95"], method: "APP_BIOMETRIC" }
+tf 152 evt StepUpAuthenticationRequested { paymentId: "pay-7f3a9c", customerId: "cust-40912", challengeId: "chl-91ab", method: "APP_BIOMETRIC", expiresAt: "2025-06-12T09:19:03Z" }
+
+// ── Ledger: hold funds ───────────────────────────────────────────────────────
+rf 05 evt Payments.PaymentInitiated { paymentId: "pay-7f3a9c", debtorAccountId: "acc-118203", amount: 250.00, currency: "EUR" }
+tf 06 pcr LedgerTranslator ->> 05
+tf 07 cmd HoldFunds { paymentId: "pay-7f3a9c", accountId: "acc-118203", amount: 250.00, currency: "EUR" }
+tf 08 evt FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", accountId: "acc-118203", amount: 250.00, currency: "EUR", heldAt: "2025-06-12T09:14:03.410Z" }
+tf 09 rmo AccountBalance [[AccountBalance09]]
+tf 10 evt FundsHoldRejected ->> 07 { paymentId: "pay-7f3a9c", accountId: "acc-118203", reasonCode: "AM04", reasonText: "Insufficient funds", requested: 250.00, available: 120.35, currency: "EUR" }
+
+// ── Compliance screening (staging) ───────────────────────────────────────────
+rf 110 evt Ledger.FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+tf 111 pcr SanctionsScreener ->> 110
+tf 112 cmd ScreenPayment { paymentId: "pay-7f3a9c", debtorName: "Michael Leow", creditorName: "Anna Schmidt", creditorIban: "DE89370400440532013000", lists: ["EU_CONSOLIDATED", "OFAC_SDN", "UK_HMT"], fuzzyThreshold: 0.85 }
+tf 113 evt PaymentCleared { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", result: "NO_HIT", listsVersion: "2025-06-11", screenedAt: "2025-06-12T09:14:03.540Z" }
+tf 114 evt SanctionsHitRaised ->> 112 { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", listName: "EU_CONSOLIDATED", entityId: "EU.4471.23", matchedName: "Anna SCHMIDT", matchScore: 0.91, raisedAt: "2025-06-12T09:14:03.540Z" }
+tf 115 rmo SanctionsReviewQueue ->> 114 [[SanctionsReviewQueue115]]
+tf 116 ui SanctionsReviewDesk @ComplianceAnalyst
+tf 117 cmd ResolveSanctionsHit { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", decision: "RELEASE", rationale: "False positive: date of birth and nationality do not match list entry", analystId: "an-0072" }
+tf 118 evt PaymentCleared { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", result: "ANALYST_RELEASE", analystId: "an-0072", clearedAt: "2025-06-12T09:21:47Z" }
+tf 119 evt PaymentBlocked ->> 117 { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", decision: "BLOCK", reasonCode: "RR04", reasonText: "Regulatory reason", analystId: "an-0072", blockedAt: "2025-06-12T09:21:47Z" }
+
+// ── Clearing Gateway ─────────────────────────────────────────────────────────
+rf 11 evt Ledger.FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+rf 120 evt Compliance.PaymentCleared { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", result: "NO_HIT" } #staging
+tf 12 pcr ClearingTranslator ->> 11 ->> 120
+tf 13 cmd SendCreditTransfer { paymentId: "pay-7f3a9c", messageType: "pacs.008", msgId: "MSG-NWBK-20250612-0917", endToEndId: "E2E-20250612-000173", debtorAgentBic: "NWBKGB2L", creditorAgentBic: "COBADEFF", amount: 250.00, currency: "EUR" }
+tf 14 evt CreditTransferSent { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", endToEndId: "E2E-20250612-000173", amount: 250.00, currency: "EUR", sentAt: "2025-06-12T09:14:03.620Z" }
+rf 15 evt Scheme.PaymentStatusReported { messageType: "pacs.002", originalMsgId: "MSG-NWBK-20250612-0917", originalEndToEndId: "E2E-20250612-000173", transactionStatus: "ACCP", schemeReference: "SCT-INST-9A81C2", reportedAt: "2025-06-12T09:14:05.102Z" }
+tf 16 pcr SchemeStatusTranslator ->> 15
+tf 17 cmd CompletePayment { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2", settledAt: "2025-06-12T09:14:05.102Z" }
+tf 18 evt PaymentCompleted { paymentId: "pay-7f3a9c", holdId: "hold-55a1", schemeReference: "SCT-INST-9A81C2", amount: 250.00, currency: "EUR", completedAt: "2025-06-12T09:14:05.180Z" }
+tf 19 cmd FailPayment ->> 16 { paymentId: "pay-7f3a9c", reasonCode: "AC04", reasonText: "Creditor account closed" }
+tf 20 evt PaymentFailed { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reasonCode: "AC04", reasonText: "Creditor account closed", failedAt: "2025-06-12T09:14:05.180Z" }
+
+tf 121 rmo PendingSchemeResponses ->> 14 [[PendingSchemeResponses121]]
+tf 21 pcr SchemeTimeoutWatchdog ->> 121
+tf 22 cmd TimeOutPayment { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", waitedSeconds: 10 }
+tf 23 evt PaymentTimedOut { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reasonCode: "AB05", waitedSeconds: 10 }
+
+// ── Ledger: settle or release ────────────────────────────────────────────────
+rf 24 evt Payments.PaymentCompleted { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+rf 25 evt Payments.PaymentFailed { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reasonCode: "AC04" }
+rf 122 evt Payments.PaymentTimedOut { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reasonCode: "AB05", waitedSeconds: 10 }
+tf 26 pcr LedgerSettlementTranslator ->> 24 ->> 25 ->> 122
+tf 27 cmd PostDebit { paymentId: "pay-7f3a9c", holdId: "hold-55a1", accountId: "acc-118203", amount: 250.00, currency: "EUR" }
+tf 28 evt DebitPosted { paymentId: "pay-7f3a9c", holdId: "hold-55a1", journalEntryId: "je-20250612-88213", accountId: "acc-118203", amount: 250.00, currency: "EUR", ledgerBalanceAfter: 1250.00, postedAt: "2025-06-12T09:14:05.230Z" }
+tf 29 cmd ReleaseHold ->> 26 { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "SCHEME_REJECTED" }
+tf 30 evt HoldReleased { paymentId: "pay-7f3a9c", holdId: "hold-55a1", accountId: "acc-118203", amount: 250.00, currency: "EUR", reason: "SCHEME_REJECTED", releasedAt: "2025-06-12T09:14:05.240Z" }
+
+// ── Notifications ────────────────────────────────────────────────────────────
+rf 31 evt Payments.PaymentCompleted { paymentId: "pay-7f3a9c", customerId: "cust-40912", creditorName: "Anna Schmidt", amount: 250.00, currency: "EUR" }
+tf 32 pcr NotificationTranslator ->> 31
+tf 33 cmd NotifyCustomer { paymentId: "pay-7f3a9c", customerId: "cust-40912", channel: "PUSH", template: "PAYMENT_COMPLETED", amount: 250.00, currency: "EUR", creditorName: "Anna Schmidt" }
+tf 34 evt CustomerNotified { paymentId: "pay-7f3a9c", customerId: "cust-40912", notificationId: "ntf-c31e", channel: "PUSH", template: "PAYMENT_COMPLETED", deliveredAt: "2025-06-12T09:14:06Z" }
+
+// ── Payment recall (future) ──────────────────────────────────────────────────
+tf 130 ui PaymentDetailScreen @Customer
+tf 131 cmd RequestRecall { paymentId: "pay-7f3a9c", recallId: "rcl-0a4d", reasonCode: "DUPL", reasonText: "Duplicate payment", requestedAt: "2025-06-12T10:02:11Z" }
+tf 132 evt RecallRequestSent { paymentId: "pay-7f3a9c", recallId: "rcl-0a4d", messageType: "camt.056", originalEndToEndId: "E2E-20250612-000173", reasonCode: "DUPL", amount: 250.00, currency: "EUR", sentAt: "2025-06-12T10:02:12Z", answerDueBy: "2025-07-03" }
+rf 133 evt Scheme.RecallAnswered { recallId: "rcl-0a4d", messageType: "pacs.004", answer: "RETURNED", beneficiaryConsent: true, returnedAmount: 250.00, currency: "EUR", returnReference: "RTN-5C22E0", answeredAt: "2025-06-13T08:40:00Z" }
+tf 134 pcr RecallOutcomeTranslator ->> 133
+tf 135 cmd AcceptRecall { paymentId: "pay-7f3a9c", recallId: "rcl-0a4d", returnedAmount: 250.00, currency: "EUR", returnReference: "RTN-5C22E0" }
+tf 136 evt RecallAccepted { paymentId: "pay-7f3a9c", recallId: "rcl-0a4d", returnedAmount: 250.00, currency: "EUR", returnReference: "RTN-5C22E0", acceptedAt: "2025-06-13T08:40:02Z" }
+
+data AccountBalance09 {
+  accountId: "acc-118203"
+  currency: "EUR"
+  ledgerBalance: 1500.00
+  heldAmount: 250.00
+  availableBalance: 1250.00
+  holds: [
+    { holdId: "hold-55a1", paymentId: "pay-7f3a9c", amount: 250.00 }
+  ]
+  asOf: "2025-06-12T09:14:03.410Z"
+}
+
+data SanctionsReviewQueue115 {
+  pendingCount: 1
+  oldestWaitingSeconds: 42
+  items: [
+    { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", listName: "EU_CONSOLIDATED", matchScore: 0.91, amount: 250.00, currency: "EUR", holdId: "hold-55a1", raisedAt: "2025-06-12T09:14:03.540Z" }
+  ]
+}
+
+data PendingSchemeResponses121 {
+  deadlineSeconds: 10
+  items: [
+    { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", sentAt: "2025-06-12T09:14:03.620Z", ageSeconds: 10.2, overdue: true }
+  ]
+}
+
+// ── Decisions recorded (former hotspots) ─────────────────────────────────────
+
+note 21 {
+  Decision, session 2 (2025-07-03): if no pacs.002 arrives within 10 s of
+  CreditTransferSent the watchdog issues TimeOutPayment (reason AB05). The
+  ledger releases the hold as if the payment never happened and the customer
+  is told the payment did not go through. Ops no longer releases holds by hand.
+}
+
+note 33 {
+  Decision, session 2: insufficient-funds rejections (AM04) are shown in-app
+  only; scheme failures and timeouts get a push. Sanctions holds use the
+  neutral PAYMENT_DELAYED template - never mention screening (tipping-off).
+}
+
+note 120 {
+  Under the staging proposal this frame supersedes 11: Clearing waits for
+  Compliance.PaymentCleared instead of reacting to Ledger.FundsHeld directly.
+  Frame 11 is kept so the as-is lens (--stage current) stays intact.
+}
+
+note 02 {
+  Scheme maximum for a single instant credit transfer is EUR 100,000 (raised
+  from 15,000 in 2020). Minimum is EUR 0.01. Since v2 the payee must have a
+  Confirmation of Payee result (MATCH, or CLOSE_MATCH acknowledged by the customer).
+}
+
+// ── Open questions after sessions 2 and 3 ────────────────────────────────────
+
+hotspot 112 {
+  False-positive SLA: the scheme allows 20 s end-to-end and the analyst queue
+  averages 7 minutes. Do we (a) fail the payment with RR04 and offer to resend
+  as a non-instant SCT after review, or (b) let it time out and retry
+  automatically once released? Compliance and Product disagree.
+}
+
+hotspot 117 {
+  Who can override a BLOCK? MLRO only, or any L2 analyst with four-eyes?
+  Internal Audit wants named-individual accountability on every release.
+}
+
+hotspot 119 {
+  A BLOCK is an asset freeze, not a rejection: the hold must NOT be released
+  back to the customer. That is a ledger state we do not have today
+  (FundsFrozen). Who owns modelling it - Ledger or Compliance?
+}
+
+hotspot 17 {
+  Late ACCP after our own 10 s timeout: the scheme has settled but we already
+  released the hold, so money left the bank without a debit. Today Ops fixes
+  this by hand. Post the debit retroactively (may overdraw) or auto-recall?
+}
+
+hotspot 136 {
+  Returned funds after a recall: credit them as a new inbound payment, or
+  reverse the original DebitPosted journal entry? Finance wants a reversal so
+  end-of-day reconciliation matches one-for-one.
+}
+
+hotspot 151 {
+  What if the customer never completes the step-up? Expire the challenge
+  after 5 minutes and reject the payment, or leave it INITIATED for 24 h?
+}
+
+// ── Scenarios ────────────────────────────────────────────────────────────────
+
+gwt 101 "payee name matches the account holder"
+  given
+    evt AccountOpened { accountId: "acc-118203", customerId: "cust-40912", currency: "EUR" }
+  when
+    cmd VerifyPayee { paymentDraftId: "draft-2c91", creditorIban: "DE89370400440532013000", enteredName: "Anna Schmidt" }
+  then
+    evt PayeeNameMatched { paymentDraftId: "draft-2c91", matchResult: "MATCH", registeredName: "Anna Schmidt", copReference: "COP-7d2e19" }
+
+gwt 101 "close match returns the registered name for the customer to confirm"
+  given
+    evt AccountOpened { accountId: "acc-118203", customerId: "cust-40912", currency: "EUR" }
+  when
+    cmd VerifyPayee { paymentDraftId: "draft-2c91", creditorIban: "DE89370400440532013000", enteredName: "Ana Schmidt" }
+  then
+    evt PayeeNameCloseMatch { paymentDraftId: "draft-2c91", matchResult: "CLOSE_MATCH", registeredName: "Anna Schmidt", copReference: "COP-7d2e1a" }
+
+gwt 101 "no match is recorded and the customer is warned"
+  given
+    evt AccountOpened { accountId: "acc-118203", customerId: "cust-40912", currency: "EUR" }
+  when
+    cmd VerifyPayee { paymentDraftId: "draft-2c91", creditorIban: "DE89370400440532013000", enteredName: "Peter Muller" }
+  then
+    evt PayeeNameNotMatched { paymentDraftId: "draft-2c91", matchResult: "NO_MATCH", copReference: "COP-7d2e1b", warning: "The name does not match the account. Continuing is at your own risk." }
+
+gwt 101 "payee bank does not support Confirmation of Payee"
+  given
+    evt AccountOpened { accountId: "acc-118203", customerId: "cust-40912", currency: "EUR" }
+  when
+    cmd VerifyPayee { paymentDraftId: "draft-2c91", creditorIban: "FR7630006000011234567890189", enteredName: "Anna Schmidt" }
+  then
+    evt PayeeVerificationUnavailable { paymentDraftId: "draft-2c91", reasonCode: "COP_NOT_SUPPORTED", creditorAgentBic: "AGRIFRPP" }
+
+gwt 02 "initiate a payment within scheme limits"
+  given
+    evt AccountOpened { accountId: "acc-118203", customerId: "cust-40912", currency: "EUR" }
+  when
+    cmd InitiatePayment { paymentId: "pay-7f3a9c", debtorAccountId: "acc-118203", creditorIban: "DE89370400440532013000", amount: 250.00, currency: "EUR" }
+  then
+    evt PaymentInitiated { paymentId: "pay-7f3a9c", endToEndId: "E2E-20250612-000173", amount: 250.00, currency: "EUR" }
+
+gwt 02 "reject a payment above the scheme maximum"
+  given
+    evt AccountOpened { accountId: "acc-118203", customerId: "cust-40912", currency: "EUR" }
+  when
+    cmd InitiatePayment { paymentId: "pay-7f3aa0", debtorAccountId: "acc-118203", creditorIban: "DE89370400440532013000", amount: 120000.00, currency: "EUR" }
+  then
+    evt PaymentInitiationRejected { paymentId: "pay-7f3aa0", reasonCode: "AM02", reasonText: "Amount exceeds scheme maximum", limit: 100000.00 }
+
+gwt 02 "reject a payment to a malformed creditor IBAN"
+  given
+    evt AccountOpened { accountId: "acc-118203", customerId: "cust-40912", currency: "EUR" }
+  when
+    cmd InitiatePayment { paymentId: "pay-7f3aa1", debtorAccountId: "acc-118203", creditorIban: "DE89-NOT-AN-IBAN", amount: 250.00, currency: "EUR" }
+  then
+    evt PaymentInitiationRejected { paymentId: "pay-7f3aa1", reasonCode: "AC01", reasonText: "Incorrect account number" }
+
+gwt 02 "reject initiation when the payee was not verified"
+  given
+    evt AccountOpened { accountId: "acc-118203", customerId: "cust-40912", currency: "EUR" }
+  when
+    cmd InitiatePayment { paymentId: "pay-7f3aa2", debtorAccountId: "acc-118203", creditorIban: "DE89370400440532013000", creditorName: "Anna Schmidt", amount: 250.00, currency: "EUR", copReference: null }
+  then
+    evt PaymentInitiationRejected { paymentId: "pay-7f3aa2", reasonCode: "COP_REQUIRED", reasonText: "Payee must be verified before sending" }
+
+gwt 02 "allow initiation on a close match the customer has acknowledged"
+  given
+    evt PayeeNameCloseMatch { paymentDraftId: "draft-2c91", registeredName: "Anna Schmidt", copReference: "COP-7d2e1a" }
+    evt CloseMatchAcknowledged { paymentDraftId: "draft-2c91", copReference: "COP-7d2e1a", customerId: "cust-40912" }
+  when
+    cmd InitiatePayment { paymentId: "pay-7f3a9c", debtorAccountId: "acc-118203", creditorIban: "DE89370400440532013000", amount: 250.00, currency: "EUR", copReference: "COP-7d2e1a" }
+  then
+    evt PaymentInitiated { paymentId: "pay-7f3a9c", endToEndId: "E2E-20250612-000173", amount: 250.00, currency: "EUR", copReference: "COP-7d2e1a" }
+
+gwt 150 "FraudScorer requests step-up when the score crosses the threshold"
+  given
+    evt PaymentInitiated { paymentId: "pay-7f3a9c", customerId: "cust-40912", amount: 250.00, currency: "EUR" }
+    evt NewDeviceRegistered { customerId: "cust-40912", deviceId: "dev-88f1", registeredAt: "2025-06-12T09:10:00Z" }
+  when
+    cmd RequestStepUpAuthentication { paymentId: "pay-7f3a9c", fraudScore: 83, threshold: 80 }
+  then
+    evt StepUpAuthenticationRequested { paymentId: "pay-7f3a9c", challengeId: "chl-91ab", method: "APP_BIOMETRIC" }
+
+gwt 150 "FraudScorer lets a low-score payment through untouched"
+  given
+    evt PaymentInitiated { paymentId: "pay-7f3a9d", customerId: "cust-40912", amount: 12.00, currency: "EUR" }
+  then
+    evt FraudScoreRecorded { paymentId: "pay-7f3a9d", fraudScore: 11, threshold: 80, stepUpRequired: false }
+
+gwt 151 "reject a second step-up while one challenge is still open"
+  given
+    evt StepUpAuthenticationRequested { paymentId: "pay-7f3a9c", challengeId: "chl-91ab", expiresAt: "2025-06-12T09:19:03Z" }
+  when
+    cmd RequestStepUpAuthentication { paymentId: "pay-7f3a9c", fraudScore: 83, threshold: 80 }
+  then
+    evt StepUpRequestRejected { paymentId: "pay-7f3a9c", reason: "challenge_already_open", challengeId: "chl-91ab" }
+
+gwt 07 "hold funds when available balance covers the amount"
+  given
+    evt Payments.PaymentInitiated { paymentId: "pay-7f3a9c", debtorAccountId: "acc-118203", amount: 250.00, currency: "EUR" }
+    rmo AccountBalance { accountId: "acc-118203", availableBalance: 1500.00 }
+  when
+    cmd HoldFunds { paymentId: "pay-7f3a9c", accountId: "acc-118203", amount: 250.00, currency: "EUR" }
+  then
+    evt FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+
+gwt 07 "reject the hold when available balance is insufficient"
+  given
+    evt Payments.PaymentInitiated { paymentId: "pay-7f3a9c", debtorAccountId: "acc-118203", amount: 250.00, currency: "EUR" }
+    rmo AccountBalance { accountId: "acc-118203", availableBalance: 120.35 }
+  when
+    cmd HoldFunds { paymentId: "pay-7f3a9c", accountId: "acc-118203", amount: 250.00, currency: "EUR" }
+  then
+    evt FundsHoldRejected { paymentId: "pay-7f3a9c", reasonCode: "AM04", requested: 250.00, available: 120.35 }
+
+gwt 07 "ignore a duplicate hold for the same payment"
+  given
+    evt FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+  when
+    cmd HoldFunds { paymentId: "pay-7f3a9c", accountId: "acc-118203", amount: 250.00, currency: "EUR" }
+  then
+    evt FundsHoldIgnored { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "already_held" }
+
+gwt 112 "clear a payment with no list hit"
+  given
+    evt Ledger.FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+  when
+    cmd ScreenPayment { paymentId: "pay-7f3a9c", creditorName: "Anna Schmidt", lists: ["EU_CONSOLIDATED", "OFAC_SDN", "UK_HMT"], fuzzyThreshold: 0.85 }
+  then
+    evt PaymentCleared { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", result: "NO_HIT" }
+
+gwt 112 "raise a hit when a name scores above the fuzzy threshold"
+  given
+    evt Ledger.FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+  when
+    cmd ScreenPayment { paymentId: "pay-7f3a9c", creditorName: "Anna Schmidt", lists: ["EU_CONSOLIDATED", "OFAC_SDN", "UK_HMT"], fuzzyThreshold: 0.85 }
+  then
+    evt SanctionsHitRaised { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", listName: "EU_CONSOLIDATED", entityId: "EU.4471.23", matchScore: 0.91 }
+
+gwt 112 "refuse to screen against a stale list"
+  given
+    evt Ledger.FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+    evt SanctionsListLoaded { listName: "EU_CONSOLIDATED", version: "2025-06-01", loadedAt: "2025-06-01T02:00:00Z" }
+  when
+    cmd ScreenPayment { paymentId: "pay-7f3a9c", creditorName: "Anna Schmidt", lists: ["EU_CONSOLIDATED"], maxListAgeHours: 48 }
+  then
+    evt ScreeningRefused { paymentId: "pay-7f3a9c", reason: "list_stale", listName: "EU_CONSOLIDATED", listAgeHours: 271 }
+
+gwt 117 "analyst releases a false positive"
+  given
+    evt SanctionsHitRaised { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", listName: "EU_CONSOLIDATED", matchScore: 0.91 }
+  when
+    cmd ResolveSanctionsHit { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", decision: "RELEASE", rationale: "False positive: date of birth and nationality do not match list entry", analystId: "an-0072" }
+  then
+    evt PaymentCleared { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", result: "ANALYST_RELEASE", analystId: "an-0072" }
+
+gwt 117 "analyst blocks a confirmed match"
+  given
+    evt SanctionsHitRaised { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", listName: "EU_CONSOLIDATED", matchScore: 0.98 }
+  when
+    cmd ResolveSanctionsHit { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", decision: "BLOCK", rationale: "Confirmed match on name, DOB and passport number", analystId: "an-0072" }
+  then
+    evt PaymentBlocked { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", decision: "BLOCK", reasonCode: "RR04", analystId: "an-0072" }
+
+gwt 117 "reject a resolution without a rationale"
+  given
+    evt SanctionsHitRaised { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", listName: "EU_CONSOLIDATED", matchScore: 0.91 }
+  when
+    cmd ResolveSanctionsHit { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", decision: "RELEASE", rationale: "", analystId: "an-0072" }
+  then
+    evt SanctionsResolutionRejected { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", reason: "rationale_required" }
+
+gwt 117 "ignore a second resolution for an already resolved hit"
+  given
+    evt PaymentBlocked { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", decision: "BLOCK", analystId: "an-0072" }
+  when
+    cmd ResolveSanctionsHit { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", decision: "RELEASE", rationale: "Changed my mind", analystId: "an-0072" }
+  then
+    evt SanctionsResolutionRejected { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", reason: "already_resolved", existingDecision: "BLOCK" }
+
+gwt 13 "send pacs.008 once funds are held"
+  given
+    evt Ledger.FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+  when
+    cmd SendCreditTransfer { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", endToEndId: "E2E-20250612-000173", amount: 250.00, currency: "EUR" }
+  then
+    evt CreditTransferSent { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", sentAt: "2025-06-12T09:14:03.620Z" }
+
+gwt 13 "send pacs.008 only after compliance clears the payment (staging)"
+  given
+    evt Ledger.FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+    evt Compliance.PaymentCleared { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", result: "NO_HIT" }
+  when
+    cmd SendCreditTransfer { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", endToEndId: "E2E-20250612-000173", amount: 250.00, currency: "EUR" }
+  then
+    evt CreditTransferSent { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", sentAt: "2025-06-12T09:14:03.620Z" }
+
+gwt 13 "refuse to send while a sanctions hit is unresolved (staging)"
+  given
+    evt Ledger.FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+    evt Compliance.SanctionsHitRaised { paymentId: "pay-7f3a9c", screeningId: "scr-3e70" }
+  when
+    cmd SendCreditTransfer { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", endToEndId: "E2E-20250612-000173", amount: 250.00, currency: "EUR" }
+  then
+    evt CreditTransferSendRejected { paymentId: "pay-7f3a9c", reasonCode: "RR04", reasonText: "Awaiting compliance review" }
+
+gwt 13 "reject a second send for the same end-to-end id"
+  given
+    evt CreditTransferSent { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", endToEndId: "E2E-20250612-000173" }
+  when
+    cmd SendCreditTransfer { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0918", endToEndId: "E2E-20250612-000173", amount: 250.00, currency: "EUR" }
+  then
+    evt CreditTransferSendRejected { paymentId: "pay-7f3a9c", reasonCode: "DUPL", reasonText: "Duplicate end-to-end id" }
+
+gwt 13 "reject sending when the creditor agent is not reachable in the scheme"
+  given
+    evt Ledger.FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+  when
+    cmd SendCreditTransfer { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", creditorAgentBic: "XXXXGB99", amount: 250.00, currency: "EUR" }
+  then
+    evt CreditTransferSendRejected { paymentId: "pay-7f3a9c", reasonCode: "RC01", reasonText: "Creditor agent not reachable for SCT Inst" }
+
+gwt 17 "complete the payment on ACCP"
+  given
+    evt CreditTransferSent { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917" }
+    evt Scheme.PaymentStatusReported { originalMsgId: "MSG-NWBK-20250612-0917", transactionStatus: "ACCP", schemeReference: "SCT-INST-9A81C2" }
+  when
+    cmd CompletePayment { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2" }
+  then
+    evt PaymentCompleted { paymentId: "pay-7f3a9c", holdId: "hold-55a1", schemeReference: "SCT-INST-9A81C2", amount: 250.00, currency: "EUR" }
+
+gwt 17 "reject completion when the payment has already failed"
+  given
+    evt PaymentFailed { paymentId: "pay-7f3a9c", reasonCode: "AC04" }
+  when
+    cmd CompletePayment { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2" }
+  then
+    evt PaymentCompletionRejected { paymentId: "pay-7f3a9c", reason: "already_failed" }
+
+gwt 17 "ignore a duplicate ACCP for an already completed payment"
+  given
+    evt PaymentCompleted { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2" }
+  when
+    cmd CompletePayment { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2" }
+  then
+    evt PaymentCompletionIgnored { paymentId: "pay-7f3a9c", reason: "already_completed" }
+
+gwt 17 "flag a late ACCP that arrives after the payment timed out"
+  given
+    evt PaymentTimedOut { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reasonCode: "AB05", waitedSeconds: 10 }
+    evt Scheme.PaymentStatusReported { originalMsgId: "MSG-NWBK-20250612-0917", transactionStatus: "ACCP", schemeReference: "SCT-INST-9A81C2", reportedAt: "2025-06-12T09:14:16.902Z" }
+  when
+    cmd CompletePayment { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2" }
+  then
+    evt LateAcceptanceFlagged { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2", timedOutAt: "2025-06-12T09:14:13.620Z", acceptedAt: "2025-06-12T09:14:16.902Z", requiresManualReview: true }
+
+gwt 19 "fail the payment on RJCT with the scheme reason code"
+  given
+    evt CreditTransferSent { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917" }
+    evt Scheme.PaymentStatusReported { originalMsgId: "MSG-NWBK-20250612-0917", transactionStatus: "RJCT", reasonCode: "AC04" }
+  when
+    cmd FailPayment { paymentId: "pay-7f3a9c", reasonCode: "AC04", reasonText: "Creditor account closed" }
+  then
+    evt PaymentFailed { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reasonCode: "AC04" }
+
+gwt 19 "reject failing a payment that already completed"
+  given
+    evt PaymentCompleted { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2" }
+  when
+    cmd FailPayment { paymentId: "pay-7f3a9c", reasonCode: "AC04" }
+  then
+    evt PaymentFailureRejected { paymentId: "pay-7f3a9c", reason: "already_completed" }
+
+gwt 16 "SchemeStatusTranslator routes ACCP to CompletePayment"
+  given
+    evt Scheme.PaymentStatusReported { originalMsgId: "MSG-NWBK-20250612-0917", transactionStatus: "ACCP", schemeReference: "SCT-INST-9A81C2" }
+  when
+    cmd CompletePayment { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2" }
+  then
+    evt PaymentCompleted { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2" }
+
+gwt 16 "SchemeStatusTranslator routes RJCT to FailPayment"
+  given
+    evt Scheme.PaymentStatusReported { originalMsgId: "MSG-NWBK-20250612-0917", transactionStatus: "RJCT", reasonCode: "AC04" }
+  when
+    cmd FailPayment { paymentId: "pay-7f3a9c", reasonCode: "AC04" }
+  then
+    evt PaymentFailed { paymentId: "pay-7f3a9c", reasonCode: "AC04" }
+
+gwt 21 "SchemeTimeoutWatchdog fires when a response is 10 s overdue"
+  given
+    evt CreditTransferSent { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", sentAt: "2025-06-12T09:14:03.620Z" }
+    rmo PendingSchemeResponses { msgId: "MSG-NWBK-20250612-0917", ageSeconds: 10.2, overdue: true }
+  when
+    cmd TimeOutPayment { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", waitedSeconds: 10 }
+  then
+    evt PaymentTimedOut { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reasonCode: "AB05", waitedSeconds: 10 }
+
+gwt 21 "SchemeTimeoutWatchdog stays quiet when the pacs.002 arrived in time"
+  given
+    evt CreditTransferSent { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", sentAt: "2025-06-12T09:14:03.620Z" }
+    evt Scheme.PaymentStatusReported { originalMsgId: "MSG-NWBK-20250612-0917", transactionStatus: "ACCP", reportedAt: "2025-06-12T09:14:05.102Z" }
+    rmo PendingSchemeResponses { items: [] }
+  then
+    evt TimeoutCheckSkipped { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", reason: "response_received", responseAgeSeconds: 1.5 }
+
+gwt 22 "time out a payment with no scheme response"
+  given
+    evt CreditTransferSent { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", sentAt: "2025-06-12T09:14:03.620Z" }
+  when
+    cmd TimeOutPayment { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", waitedSeconds: 10 }
+  then
+    evt PaymentTimedOut { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reasonCode: "AB05", waitedSeconds: 10 }
+
+gwt 22 "reject timing out a payment that already completed"
+  given
+    evt PaymentCompleted { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2" }
+  when
+    cmd TimeOutPayment { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", waitedSeconds: 10 }
+  then
+    evt PaymentTimeoutRejected { paymentId: "pay-7f3a9c", reason: "already_completed" }
+
+gwt 22 "reject timing out a payment that already failed"
+  given
+    evt PaymentFailed { paymentId: "pay-7f3a9c", reasonCode: "AC04" }
+  when
+    cmd TimeOutPayment { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", waitedSeconds: 10 }
+  then
+    evt PaymentTimeoutRejected { paymentId: "pay-7f3a9c", reason: "already_failed" }
+
+gwt 27 "post the debit against the hold after completion"
+  given
+    evt FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+    evt Payments.PaymentCompleted { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+  when
+    cmd PostDebit { paymentId: "pay-7f3a9c", holdId: "hold-55a1", accountId: "acc-118203", amount: 250.00, currency: "EUR" }
+  then
+    evt DebitPosted { paymentId: "pay-7f3a9c", holdId: "hold-55a1", journalEntryId: "je-20250612-88213", amount: 250.00, ledgerBalanceAfter: 1250.00 }
+
+gwt 27 "reject posting a debit when the hold was already released"
+  given
+    evt HoldReleased { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "SCHEME_REJECTED" }
+    evt Payments.PaymentCompleted { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+  when
+    cmd PostDebit { paymentId: "pay-7f3a9c", holdId: "hold-55a1", accountId: "acc-118203", amount: 250.00, currency: "EUR" }
+  then
+    evt DebitPostingRejected { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "hold_not_active" }
+
+gwt 27 "reject posting when the amount differs from the held amount"
+  given
+    evt FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+  when
+    cmd PostDebit { paymentId: "pay-7f3a9c", holdId: "hold-55a1", accountId: "acc-118203", amount: 260.00, currency: "EUR" }
+  then
+    evt DebitPostingRejected { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "amount_mismatch", held: 250.00, requested: 260.00 }
+
+gwt 29 "release the hold when the scheme rejects the transfer"
+  given
+    evt FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+    evt Payments.PaymentFailed { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reasonCode: "AC04" }
+  when
+    cmd ReleaseHold { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "SCHEME_REJECTED" }
+  then
+    evt HoldReleased { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, reason: "SCHEME_REJECTED" }
+
+gwt 29 "release the hold when the payment timed out (auto-reversal)"
+  given
+    evt FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+    evt Payments.PaymentTimedOut { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reasonCode: "AB05", waitedSeconds: 10 }
+  when
+    cmd ReleaseHold { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "SCHEME_TIMEOUT" }
+  then
+    evt HoldReleased { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, reason: "SCHEME_TIMEOUT" }
+
+gwt 29 "refuse to release a hold on a sanctions-blocked payment (staging)"
+  given
+    evt FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+    evt Compliance.PaymentBlocked { paymentId: "pay-7f3a9c", screeningId: "scr-3e70", reasonCode: "RR04" }
+  when
+    cmd ReleaseHold { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "SCHEME_REJECTED" }
+  then
+    evt HoldReleaseRejected { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "funds_frozen_by_compliance" }
+
+gwt 29 "ignore releasing a hold that is already released"
+  given
+    evt HoldReleased { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "SCHEME_REJECTED" }
+  when
+    cmd ReleaseHold { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "SCHEME_REJECTED" }
+  then
+    evt HoldReleaseIgnored { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "already_released" }
+
+gwt 29 "reject releasing a hold whose debit has already been posted"
+  given
+    evt DebitPosted { paymentId: "pay-7f3a9c", holdId: "hold-55a1", journalEntryId: "je-20250612-88213" }
+  when
+    cmd ReleaseHold { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "SCHEME_REJECTED" }
+  then
+    evt HoldReleaseRejected { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "debit_already_posted" }
+
+gwt 33 "notify the customer that the payment completed"
+  given
+    evt Payments.PaymentCompleted { paymentId: "pay-7f3a9c", customerId: "cust-40912", amount: 250.00, currency: "EUR" }
+  when
+    cmd NotifyCustomer { paymentId: "pay-7f3a9c", customerId: "cust-40912", channel: "PUSH", template: "PAYMENT_COMPLETED" }
+  then
+    evt CustomerNotified { paymentId: "pay-7f3a9c", notificationId: "ntf-c31e", channel: "PUSH", template: "PAYMENT_COMPLETED" }
+
+gwt 33 "notify the customer that the scheme rejected the payment"
+  given
+    evt Payments.PaymentFailed { paymentId: "pay-7f3a9c", customerId: "cust-40912", reasonCode: "AC04", reasonText: "Creditor account closed" }
+  when
+    cmd NotifyCustomer { paymentId: "pay-7f3a9c", customerId: "cust-40912", channel: "PUSH", template: "PAYMENT_FAILED", reasonText: "Creditor account closed" }
+  then
+    evt CustomerNotified { paymentId: "pay-7f3a9c", notificationId: "ntf-c31f", channel: "PUSH", template: "PAYMENT_FAILED" }
+
+gwt 33 "notify the customer that a timed-out payment was reversed"
+  given
+    evt Payments.PaymentTimedOut { paymentId: "pay-7f3a9c", customerId: "cust-40912", reasonCode: "AB05" }
+  when
+    cmd NotifyCustomer { paymentId: "pay-7f3a9c", customerId: "cust-40912", channel: "PUSH", template: "PAYMENT_NOT_SENT", reasonText: "The receiving bank did not respond in time. No money has left your account." }
+  then
+    evt CustomerNotified { paymentId: "pay-7f3a9c", notificationId: "ntf-c321", channel: "PUSH", template: "PAYMENT_NOT_SENT" }
+
+gwt 33 "use the neutral delayed template for a sanctions hold - never mention screening (staging)"
+  given
+    evt Compliance.SanctionsHitRaised { paymentId: "pay-7f3a9c", screeningId: "scr-3e70" }
+  when
+    cmd NotifyCustomer { paymentId: "pay-7f3a9c", customerId: "cust-40912", channel: "IN_APP", template: "PAYMENT_DELAYED" }
+  then
+    evt CustomerNotified { paymentId: "pay-7f3a9c", notificationId: "ntf-c322", channel: "IN_APP", template: "PAYMENT_DELAYED" }
+
+gwt 33 "fall back to in-app when the customer has push disabled"
+  given
+    evt Payments.PaymentCompleted { paymentId: "pay-7f3a9c", customerId: "cust-40912", amount: 250.00, currency: "EUR" }
+    evt PushNotificationsDisabled { customerId: "cust-40912" }
+  when
+    cmd NotifyCustomer { paymentId: "pay-7f3a9c", customerId: "cust-40912", channel: "PUSH", template: "PAYMENT_COMPLETED" }
+  then
+    evt CustomerNotified { paymentId: "pay-7f3a9c", notificationId: "ntf-c320", channel: "IN_APP", template: "PAYMENT_COMPLETED" }
+
+gwt 131 "request a recall for a duplicate payment within 13 months"
+  given
+    evt PaymentCompleted { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2", completedAt: "2025-06-12T09:14:05.180Z" }
+  when
+    cmd RequestRecall { paymentId: "pay-7f3a9c", recallId: "rcl-0a4d", reasonCode: "DUPL", requestedAt: "2025-06-12T10:02:11Z" }
+  then
+    evt RecallRequestSent { paymentId: "pay-7f3a9c", recallId: "rcl-0a4d", messageType: "camt.056", reasonCode: "DUPL", answerDueBy: "2025-07-03" }
+
+gwt 131 "reject a recall for a payment that never completed"
+  given
+    evt PaymentFailed { paymentId: "pay-7f3a9c", reasonCode: "AC04" }
+  when
+    cmd RequestRecall { paymentId: "pay-7f3a9c", recallId: "rcl-0a4e", reasonCode: "DUPL", requestedAt: "2025-06-12T10:02:11Z" }
+  then
+    evt RecallRequestRejected { paymentId: "pay-7f3a9c", reason: "payment_not_completed" }
+
+gwt 131 "reject a recall outside the 13-month scheme window"
+  given
+    evt PaymentCompleted { paymentId: "pay-1b0022", schemeReference: "SCT-INST-000A11", completedAt: "2024-03-01T12:00:00Z" }
+  when
+    cmd RequestRecall { paymentId: "pay-1b0022", recallId: "rcl-0a4f", reasonCode: "AM09", requestedAt: "2025-06-12T10:02:11Z" }
+  then
+    evt RecallRequestRejected { paymentId: "pay-1b0022", reason: "outside_recall_window", windowMonths: 13 }
+
+gwt 135 "beneficiary consents and the funds are returned"
+  given
+    evt RecallRequestSent { paymentId: "pay-7f3a9c", recallId: "rcl-0a4d", reasonCode: "DUPL", amount: 250.00, currency: "EUR" }
+    evt Scheme.RecallAnswered { recallId: "rcl-0a4d", messageType: "pacs.004", answer: "RETURNED", beneficiaryConsent: true, returnedAmount: 250.00, currency: "EUR" }
+  when
+    cmd AcceptRecall { paymentId: "pay-7f3a9c", recallId: "rcl-0a4d", returnedAmount: 250.00, currency: "EUR", returnReference: "RTN-5C22E0" }
+  then
+    evt RecallAccepted { paymentId: "pay-7f3a9c", recallId: "rcl-0a4d", returnedAmount: 250.00, currency: "EUR" }
+
+gwt 135 "beneficiary refuses and the recall is declined"
+  given
+    evt RecallRequestSent { paymentId: "pay-7f3a9c", recallId: "rcl-0a4d", reasonCode: "DUPL", amount: 250.00, currency: "EUR" }
+    evt Scheme.RecallAnswered { recallId: "rcl-0a4d", messageType: "camt.029", answer: "REFUSED", beneficiaryConsent: false, reasonCode: "CUST" }
+  when
+    cmd AcceptRecall { paymentId: "pay-7f3a9c", recallId: "rcl-0a4d", returnedAmount: 0.00, currency: "EUR" }
+  then
+    evt RecallDeclined { paymentId: "pay-7f3a9c", recallId: "rcl-0a4d", reasonCode: "CUST", reasonText: "Beneficiary refused" }
+
+gwt 135 "reject a partial return that does not match the recalled amount"
+  given
+    evt RecallRequestSent { paymentId: "pay-7f3a9c", recallId: "rcl-0a4d", reasonCode: "DUPL", amount: 250.00, currency: "EUR" }
+    evt Scheme.RecallAnswered { recallId: "rcl-0a4d", messageType: "pacs.004", answer: "RETURNED", returnedAmount: 240.00, currency: "EUR", chargesDeducted: 10.00 }
+  when
+    cmd AcceptRecall { paymentId: "pay-7f3a9c", recallId: "rcl-0a4d", returnedAmount: 240.00, currency: "EUR", returnReference: "RTN-5C22E1" }
+  then
+    evt RecallReturnDisputed { paymentId: "pay-7f3a9c", recallId: "rcl-0a4d", expected: 250.00, returned: 240.00, chargesDeducted: 10.00, requiresManualReview: true }

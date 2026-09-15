@@ -49,6 +49,7 @@ func (p *parser) parse() (*Model, error) {
 				return nil, err
 			}
 			frame.DeclarationIx = len(model.Frames)
+			frame.Line, frame.LineCount = p.line+1, consumed
 			model.Frames = append(model.Frames, frame)
 			p.line += consumed
 		case hasKeyword(trimmed, "rf"), hasKeyword(trimmed, "resetframe"):
@@ -58,6 +59,7 @@ func (p *parser) parse() (*Model, error) {
 			}
 			frame.Kind = FrameKindReset
 			frame.DeclarationIx = len(model.Frames)
+			frame.Line, frame.LineCount = p.line+1, consumed
 			model.Frames = append(model.Frames, frame)
 			p.line += consumed
 		case hasKeyword(trimmed, "data"):
@@ -72,13 +74,25 @@ func (p *parser) parse() (*Model, error) {
 			if err != nil {
 				return nil, err
 			}
+			note.Line, note.LineCount = p.line+1, consumed
 			model.NoteEntities = append(model.NoteEntities, note)
+			p.line += consumed
+		case hasKeyword(trimmed, "hotspot"):
+			note, consumed, err := p.parseNoteEntity(trimmed)
+			if err != nil {
+				return nil, err
+			}
+			model.Hotspots = append(model.Hotspots, &Hotspot{
+				SourceID: note.SourceID, DataType: note.DataType, Value: note.Value,
+				Line: p.line + 1, LineCount: consumed,
+			})
 			p.line += consumed
 		case hasKeyword(trimmed, "gwt"):
 			gwt, consumed, err := p.parseGWT(trimmed)
 			if err != nil {
 				return nil, err
 			}
+			gwt.Line, gwt.LineCount = p.line+1, consumed
 			model.GWTs = append(model.GWTs, gwt)
 			p.line += consumed
 		case hasKeyword(trimmed, "entity"):
@@ -87,6 +101,29 @@ func (p *parser) parse() (*Model, error) {
 				return nil, p.errorf("%s", err)
 			}
 			model.Entities = append(model.Entities, name)
+			p.line++
+		case hasKeyword(trimmed, "actor"):
+			name, err := parseEntityDecl(trimmed)
+			if err != nil {
+				return nil, p.errorf("missing actor name")
+			}
+			model.Actors = append(model.Actors, name)
+			p.line++
+		case hasKeyword(trimmed, "chapter"):
+			ch, err := p.parseChapter(trimmed)
+			if err != nil {
+				return nil, err
+			}
+			ch.Line = p.line + 1
+			model.Chapters = append(model.Chapters, ch)
+			p.line++
+		case hasKeyword(trimmed, "slice"):
+			sl, err := p.parseSlice(trimmed)
+			if err != nil {
+				return nil, err
+			}
+			sl.Line = p.line + 1
+			model.Slices = append(model.Slices, sl)
 			p.line++
 		default:
 			return nil, p.errorf("unrecognized top-level statement")
@@ -146,6 +183,21 @@ func (p *parser) parseFrame(trimmed string) (*Frame, int, error) {
 			}
 			frame.DataRefName = strings.TrimSpace(rest[2:end])
 			rest = rest[end+2:]
+		case strings.HasPrefix(rest, "@"):
+			actor, remainder, _ := nextToken(rest[1:])
+			if actor == "" {
+				return nil, 0, p.errorf("missing actor name after @")
+			}
+			frame.Actor = actor
+			rest = remainder
+		case strings.HasPrefix(rest, "#"):
+			raw, remainder, _ := nextToken(rest[1:])
+			stage, ok := ParseStage(raw)
+			if !ok {
+				return nil, 0, p.errorf("unknown stage %q (want current, staging or future)", raw)
+			}
+			frame.StageTag = stage
+			rest = remainder
 		default:
 			dataType, data, consumed, err := p.parsePayload(rest, false)
 			if err != nil {
@@ -153,7 +205,45 @@ func (p *parser) parseFrame(trimmed string) (*Frame, int, error) {
 			}
 			frame.DataType = dataType
 			frame.Data = data
+			// Modifiers may also trail a single-line payload:
+			//   tf 12 evt Foo { a: 1 } #future @Ops
+			if consumed == 1 && strings.HasPrefix(data, "{") {
+				if ix := strings.Index(rest, data); ix >= 0 {
+					if err := p.parseTrailingModifiers(frame, rest[ix+len(data):]); err != nil {
+						return nil, 0, err
+					}
+				}
+			}
 			return frame, consumed, nil
+		}
+	}
+}
+
+// parseTrailingModifiers accepts only @Actor / #stage tokens after a payload.
+func (p *parser) parseTrailingModifiers(frame *Frame, rest string) error {
+	for {
+		rest = strings.TrimSpace(rest)
+		if rest == "" {
+			return nil
+		}
+		switch {
+		case strings.HasPrefix(rest, "@"):
+			actor, remainder, _ := nextToken(rest[1:])
+			if actor == "" {
+				return p.errorf("missing actor name after @")
+			}
+			frame.Actor = actor
+			rest = remainder
+		case strings.HasPrefix(rest, "#"):
+			raw, remainder, _ := nextToken(rest[1:])
+			stage, ok := ParseStage(raw)
+			if !ok {
+				return p.errorf("unknown stage %q (want current, staging or future)", raw)
+			}
+			frame.StageTag = stage
+			rest = remainder
+		default:
+			return p.errorf("unexpected content after payload: %q", rest)
 		}
 	}
 }
@@ -243,6 +333,11 @@ func (p *parser) parseGWT(trimmed string) (*GWT, int, error) {
 	if len(gwt.Given) == 0 || len(gwt.Then) == 0 {
 		return nil, 0, p.errorf("gwt requires given and then statements")
 	}
+	// Don't count trailing blank lines as part of the block, so LineCount
+	// describes exactly the lines an editor should remove or replace.
+	for consumed > 1 && strings.TrimSpace(p.lines[p.line+consumed-1]) == "" {
+		consumed--
+	}
 	return gwt, consumed, nil
 }
 
@@ -286,7 +381,15 @@ func (p *parser) parsePayload(rest string, allowMultiline bool) (string, string,
 	}
 	switch rest[0] {
 	case '{':
-		data, consumed, err := collectBalanced(rest, p.lines[p.line+1:], allowMultiline, p.line+1)
+		data, consumed, err := collectBalanced(rest, p.lines[p.line+1:], allowMultiline, p.line+1, true)
+		if err != nil && allowMultiline {
+			// Prose blocks (notes, hotspots) often contain a lone apostrophe
+			// ("the bank's clock") that would otherwise be read as an
+			// unterminated string. Retry treating quotes as plain text.
+			if data2, consumed2, err2 := collectBalanced(rest, p.lines[p.line+1:], allowMultiline, p.line+1, false); err2 == nil {
+				return dataType, data2, consumed2, nil
+			}
+		}
 		return dataType, data, consumed, err
 	case '"', '\'':
 		data, _, err := parseQuoted(rest)
@@ -349,7 +452,148 @@ func resolveReferences(model *Model) error {
 		}
 		gwt.Source = source
 	}
+	for _, h := range model.Hotspots {
+		source, ok := frames[h.SourceID]
+		if !ok {
+			return fmt.Errorf("unknown hotspot source frame %s", h.SourceID)
+		}
+		h.Source = source
+	}
+	for _, ch := range model.Chapters {
+		start, ok := frames[ch.StartID]
+		if !ok {
+			return fmt.Errorf("chapter %q: unknown start frame %s", ch.Name, ch.StartID)
+		}
+		end, ok := frames[ch.EndID]
+		if !ok {
+			return fmt.Errorf("chapter %q: unknown end frame %s", ch.Name, ch.EndID)
+		}
+		ch.Start, ch.End = start, end
+	}
+	for _, sl := range model.Slices {
+		start, ok := frames[sl.StartID]
+		if !ok {
+			return fmt.Errorf("slice %q: unknown start frame %s", sl.Name, sl.StartID)
+		}
+		end, ok := frames[sl.EndID]
+		if !ok {
+			return fmt.Errorf("slice %q: unknown end frame %s", sl.Name, sl.EndID)
+		}
+		sl.Start, sl.End = start, end
+	}
 	return nil
+}
+
+// parseChapter handles: chapter "<Name>" <startId>-<endId>
+func (p *parser) parseChapter(trimmed string) (*Chapter, error) {
+	name, rest, err := p.parseQuotedName(afterKeyword(trimmed), "chapter")
+	if err != nil {
+		return nil, err
+	}
+	startID, endID, rest, err := p.parseRange(rest, "chapter")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(rest) != "" {
+		return nil, p.errorf("unexpected trailing content after chapter range: %q", strings.TrimSpace(rest))
+	}
+	return &Chapter{Name: name, StartID: startID, EndID: endID}, nil
+}
+
+// parseSlice handles: slice "<Name>" <startId>-<endId> [status <Status>] [stage <Stage>]
+func (p *parser) parseSlice(trimmed string) (*Slice, error) {
+	name, rest, err := p.parseQuotedName(afterKeyword(trimmed), "slice")
+	if err != nil {
+		return nil, err
+	}
+	startID, endID, rest, err := p.parseRange(rest, "slice")
+	if err != nil {
+		return nil, err
+	}
+	sl := &Slice{Name: name, StartID: startID, EndID: endID}
+	for {
+		key, remainder, ok := nextToken(rest)
+		if !ok {
+			return sl, nil
+		}
+		value, remainder, ok := nextToken(remainder)
+		if !ok {
+			return nil, p.errorf("slice %q: missing value after %q", name, key)
+		}
+		switch key {
+		case "status":
+			status, ok := ParseSliceStatus(value)
+			if !ok {
+				return nil, p.errorf("slice %q: unknown status %q (want one of %s)", name, value, strings.Join(SliceStatuses, ", "))
+			}
+			sl.Status = status
+		case "stage":
+			stage, ok := ParseStage(value)
+			if !ok {
+				return nil, p.errorf("slice %q: unknown stage %q (want current, staging or future)", name, value)
+			}
+			sl.Stage = stage
+		default:
+			return nil, p.errorf("slice %q: unknown modifier %q (want status or stage)", name, key)
+		}
+		rest = remainder
+	}
+}
+
+// parseQuotedName reads a mandatory quoted name at the start of rest and
+// returns it without quotes.
+func (p *parser) parseQuotedName(rest, what string) (string, string, error) {
+	rest = strings.TrimSpace(rest)
+	quoted, remainder, err := parseQuoted(rest)
+	if err != nil {
+		return "", "", p.errorf("%s requires a quoted name, e.g. %s \"Operations\" 01-07", what, what)
+	}
+	name := StripQuotes(quoted)
+	if strings.TrimSpace(name) == "" {
+		return "", "", p.errorf("%s name must not be empty", what)
+	}
+	return name, remainder, nil
+}
+
+// parseRange reads a <startId>-<endId> token (or "<startId> - <endId>").
+func (p *parser) parseRange(rest, what string) (string, string, string, error) {
+	tok, remainder, ok := nextToken(rest)
+	if !ok {
+		return "", "", "", p.errorf("%s requires a frame range, e.g. 01-07", what)
+	}
+	// Allow "01 - 07" spelled with spaces.
+	if !strings.Contains(tok, "-") {
+		dash, r2, ok := nextToken(remainder)
+		if ok && dash == "-" {
+			end, r3, ok := nextToken(r2)
+			if !ok {
+				return "", "", "", p.errorf("%s range is missing its end frame", what)
+			}
+			tok, remainder = tok+"-"+end, r3
+		}
+	}
+	parts := strings.SplitN(tok, "-", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", "", p.errorf("%s range %q must look like <start>-<end>, e.g. 01-07", what, tok)
+	}
+	for _, id := range parts {
+		if !isFrameID(id) {
+			return "", "", "", p.errorf("%s range %q: %q is not a 1-3 digit frame id", what, tok, id)
+		}
+	}
+	return parts[0], parts[1], remainder, nil
+}
+
+func isFrameID(s string) bool {
+	if len(s) == 0 || len(s) > 3 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeNewlines(input string) []string {
@@ -371,6 +615,8 @@ func isTopLevel(trimmed string) bool {
 	return hasKeyword(trimmed, "tf") || hasKeyword(trimmed, "timeframe") ||
 		hasKeyword(trimmed, "rf") || hasKeyword(trimmed, "resetframe") ||
 		hasKeyword(trimmed, "data") || hasKeyword(trimmed, "note") ||
+		hasKeyword(trimmed, "hotspot") || hasKeyword(trimmed, "actor") ||
+		hasKeyword(trimmed, "chapter") || hasKeyword(trimmed, "slice") ||
 		hasKeyword(trimmed, "gwt") || hasKeyword(trimmed, "entity")
 }
 
@@ -419,7 +665,7 @@ func parseQuoted(s string) (string, string, error) {
 	return "", "", fmt.Errorf("unterminated quoted string")
 }
 
-func collectBalanced(initial string, extra []string, allowMultiline bool, lineNumber int) (string, int, error) {
+func collectBalanced(initial string, extra []string, allowMultiline bool, lineNumber int, quoteAware bool) (string, int, error) {
 	var b strings.Builder
 	b.WriteString(initial)
 	depth := 0
@@ -445,7 +691,7 @@ func collectBalanced(initial string, extra []string, allowMultiline bool, lineNu
 				} else if ch == inString {
 					inString = 0
 				}
-			case ch == '"' || ch == '\'':
+			case quoteAware && (ch == '"' || ch == '\''):
 				inString = ch
 			case ch == '{':
 				depth++

@@ -20,6 +20,25 @@ description = "Start the evmlweb local event-modeling web app with hot reload (D
 run = "air -c .air.toml"
 dir = "cmd/evmlweb"
 
+[tasks."webapp:nollm"]
+description = "Start evmlweb without loading any local LLM (workshop mode: steps/questions/source editing only)"
+run = "go run . -llm=false"
+dir = "cmd/evmlweb"
+
+[tasks.lint]
+description = "Lint every fixture: open hotspots and completeness gaps (pass --strict to fail on any finding)"
+depends = ["build"]
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+status=0
+for f in testdata/fixtures/*.evml; do
+  echo "== $f"
+  ./bin/evml lint "$f" "$@" || status=1
+done
+exit $status
+'''
+
 [tasks."test:ui-model-flow-selection"]
 description = "Playwright regression: change model, open flow, assert SVG, reload restores selection (requires webapp on :8080)"
 dir = "cmd/evmlweb"

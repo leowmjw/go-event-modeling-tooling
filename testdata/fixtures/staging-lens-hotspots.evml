@@ -1,0 +1,69 @@
+eventmodeling
+
+// Exercises every workshop notation: actors, chapters, slices with status
+// and stage, frame-level stage overrides, and hotspots (open questions).
+// The as-is process is a simple top-up; the staging slice proposes a
+// velocity check; the future slice sketches a loyalty reward.
+
+actor Customer
+actor RiskAnalyst
+
+chapter "Top-up" 01-04
+chapter "Risk controls" 05-09
+chapter "Loyalty" 10-12
+
+slice "Top up wallet" 01-04 status Done
+slice "Velocity check" 05-08 status InProgress stage staging
+slice "Risk review desk" 09-09 status Planned stage staging
+slice "Reward top-ups" 10-12 status Created stage future
+
+tf 01 ui TopUpScreen @Customer
+tf 02 cmd TopUpWallet { walletId: "w-1", amount: 50.00, currency: "MYR" }
+tf 03 evt WalletToppedUp { walletId: "w-1", amount: 50.00, currency: "MYR" }
+tf 04 rmo WalletBalance { walletId: "w-1", balance: 150.00 }
+
+tf 05 pcr VelocityMonitor ->> 03
+tf 06 cmd FlagUnusualTopUp { walletId: "w-1", topUpsLast24h: 6, threshold: 5 }
+tf 07 evt UnusualTopUpFlagged { walletId: "w-1", topUpsLast24h: 6 }
+tf 08 rmo FlaggedTopUps { pending: 1 }
+tf 09 ui RiskReviewDesk @RiskAnalyst
+
+tf 10 pcr RewardCalculator ->> 03
+tf 11 cmd GrantTopUpPoints { walletId: "w-1", points: 5 }
+tf 12 evt TopUpPointsGranted { walletId: "w-1", points: 5 } #future
+
+hotspot 06 {
+  Is 5 top-ups per 24h the right threshold, or should it scale with KYC tier?
+}
+
+hotspot 11 {
+  Who owns the points budget - Marketing or Payments?
+}
+
+note 02 {
+  Minimum top-up is MYR 10.
+}
+
+gwt 02 "top up within limits"
+  given
+    evt WalletOpened { walletId: "w-1" }
+  when
+    cmd TopUpWallet { walletId: "w-1", amount: 50.00 }
+  then
+    evt WalletToppedUp { walletId: "w-1", amount: 50.00 }
+
+gwt 02 "reject top-up below minimum"
+  given
+    evt WalletOpened { walletId: "w-1" }
+  when
+    cmd TopUpWallet { walletId: "w-1", amount: 5.00 }
+  then
+    evt TopUpRejected { walletId: "w-1", reason: "below_minimum" }
+
+gwt 06 "flag sixth top-up in a day"
+  given
+    evt WalletToppedUp { walletId: "w-1", topUpsLast24h: 5 }
+  when
+    cmd FlagUnusualTopUp { walletId: "w-1", topUpsLast24h: 6 }
+  then
+    evt UnusualTopUpFlagged { walletId: "w-1", topUpsLast24h: 6 }

@@ -1,0 +1,575 @@
+eventmodeling
+
+// Debit-card dispute and chargeback lifecycle under US Regulation E.
+//
+// Bounded contexts (left to right across time):
+//   Cardholder Servicing -> Network Gateway (pre-dispute, future)
+//   -> Disputes (case + Reg E clock) -> Ledger (provisional credit)
+//   -> Network Gateway (chargeback, representment, arbitration)
+//   -> Disputes (resolution) -> Cardholder Notifications -> Ledger (settlement)
+//
+// How this model evolved across three sessions with the Disputes Ops and
+// Compliance experts:
+//   Session 1 (as-is): file -> open case -> provisional credit at business
+//     day 10 -> chargeback -> outcome letter. Reversal happened same day.
+//   Session 2: Compliance corrected the reversal rule - the cardholder must
+//     get >= 5 business days notice before a provisional credit is debited,
+//     so a settlement schedule read model and a guard processor were added.
+//     Representment and pre-arbitration were discovered as missing steps.
+//   Session 3: Ops proposed auto-adjudicating disputes under USD 25 (staging)
+//     and the network team sketched RDR/Ethoca pre-dispute alerts (future).
+//
+// Regulatory clocks are modelled as read models (RegEClockDashboard,
+// DisputeSettlementSchedule) watched by deadline-guard processors, so that
+// the canonical evt -> rmo -> pcr -> cmd shape carries the compliance rule.
+
+actor Cardholder
+actor DisputeAgent
+actor DisputesManager
+
+chapter "Cardholder Servicing" 01-04
+chapter "Network Gateway - pre-dispute alerts" 05-08
+chapter "Disputes - case and Reg E clock" 09-21
+chapter "Ledger - provisional credit" 22-26
+chapter "Network Gateway - chargeback cycle" 27-38
+chapter "Disputes - resolution" 39-42
+chapter "Cardholder Notifications" 43-48
+chapter "Ledger - settlement" 49-54
+
+slice "File dispute in app" 01-04 status Done
+slice "Merchant-collaboration pre-dispute resolution (RDR / Ethoca)" 05-08 status Planned stage future
+slice "Open case and start Reg E clock" 09-14 status Done
+slice "Auto-adjudicate small-value disputes" 15-17 status InProgress stage staging
+slice "Provisional credit when clock lapses unresolved" 18-21 status Done
+slice "Post provisional credit to ledger" 22-26 status Done
+slice "Raise chargeback" 27-30 status Done
+slice "Representment and pre-arbitration" 31-38 status Review
+slice "Resolve dispute" 39-42 status Done
+slice "Outcome letter and acknowledgement" 43-48 status Done
+slice "Settle provisional credit after notice period" 49-54 status Review
+
+tf 01 ui TransactionDetailScreen @Cardholder
+tf 02 cmd FileDispute { txnId: "txn-8f3a2c19", cardLast4: "4417", amount: 89.90, currency: "USD", merchant: "ACME ONLINE STORE", transactionPostedAt: "2026-02-18", claimType: "unauthorised", cardholderStatement: "I did not make this purchase" }
+tf 03 evt DisputeFiled { disputeId: "DSP-2026-004417", txnId: "txn-8f3a2c19", amount: 89.90, currency: "USD", claimType: "unauthorised", filedAt: "2026-03-02T14:05:00Z", transactionAgeDays: 12 }
+tf 04 rmo DisputeIntakeQueue [[DisputeIntakeQueue04]]
+
+rf 05 evt Network.PreDisputeAlertReceived { alertId: "RDR-5561203", scheme: "VISA_RDR", txnId: "txn-8f3a2c19", merchantDecision: "refund", amount: 89.90, currency: "USD", receivedAt: "2026-03-02T15:40:00Z" }
+tf 06 pcr PreDisputeAlertTranslator ->> 05
+tf 07 cmd ResolveDisputeByMerchantRefund { disputeId: "DSP-2026-004417", alertId: "RDR-5561203", refundAmount: 89.90, currency: "USD" }
+tf 08 evt DisputeResolvedByMerchantRefund { disputeId: "DSP-2026-004417", alertId: "RDR-5561203", refundAmount: 89.90, currency: "USD", chargebackAvoided: true, resolvedAt: "2026-03-02T15:41:00Z" }
+
+tf 09 ui DisputeIntakeDesk @DisputeAgent ->> 04
+tf 10 cmd OpenDisputeCase { disputeId: "DSP-2026-004417", txnId: "txn-8f3a2c19", reasonCode: "10.4", reasonDescription: "fraud_card_absent", amount: 89.90, currency: "USD", accountOpenedAt: "2025-01-14", accountAgeDays: 412, transactionAgeDays: 12, channel: "card_not_present" }
+tf 11 evt DisputeCaseOpened { caseId: "DSP-2026-004417", txnId: "txn-8f3a2c19", reasonCode: "10.4", amount: 89.90, currency: "USD", accountAgeDays: 412, transactionAgeDays: 12, channel: "card_not_present", openedAt: "2026-03-02T16:20:00Z", openedBy: "agent-0412" }
+tf 12 pcr RegEClockStarter ->> 11
+tf 13 cmd StartInvestigationClock { caseId: "DSP-2026-004417", startedOn: "2026-03-02", businessDaysAllowed: 10, resolutionDeadlineDays: 90, deadlineBasis: "pos_card_not_present" }
+tf 14 evt InvestigationClockStarted { caseId: "DSP-2026-004417", startedOn: "2026-03-02", businessDaysAllowed: 10, provisionalCreditDueBy: "2026-03-16", resolutionDeadline: "2026-05-31", deadlineBasis: "pos_card_not_present" }
+tf 15 pcr SmallValueAutoAdjudicator ->> 11
+tf 16 cmd AutoResolveSmallValueDispute { caseId: "DSP-2026-004417", amount: 12.40, currency: "USD", thresholdAmount: 25.00, priorDisputes12m: 0 }
+tf 17 evt SmallValueDisputeAutoResolved { caseId: "DSP-2026-004417", amount: 12.40, currency: "USD", outcome: "won", policy: "small_value_write_off_v1", resolvedAt: "2026-03-02T16:21:00Z" }
+tf 18 rmo RegEClockDashboard ->> 11 ->> 14 [[RegEClockDashboard18]]
+tf 19 pcr ProvisionalCreditDeadlineMonitor ->> 18
+tf 20 cmd IssueProvisionalCredit { caseId: "DSP-2026-004417", amount: 89.90, currency: "USD", businessDaysElapsed: 10, investigationStatus: "unresolved", extendedDeadline: "2026-05-31" }
+tf 21 evt ProvisionalCreditIssued { caseId: "DSP-2026-004417", amount: 89.90, currency: "USD", issuedAt: "2026-03-16T02:00:00Z", businessDaysElapsed: 10, investigationExtendedTo: "2026-05-31" }
+
+rf 22 evt Disputes.ProvisionalCreditIssued { caseId: "DSP-2026-004417", accountId: "acct-77120", amount: 89.90, currency: "USD", issuedAt: "2026-03-16T02:00:00Z" }
+tf 23 pcr LedgerPostingTranslator ->> 22
+tf 24 cmd PostProvisionalCredit { accountId: "acct-77120", caseId: "DSP-2026-004417", amount: 89.90, currency: "USD", entryType: "PROVISIONAL_CREDIT", memo: "Provisional credit - dispute DSP-2026-004417" }
+tf 25 evt ProvisionalCreditPosted { ledgerEntryId: "le-2026-0316-00981", accountId: "acct-77120", caseId: "DSP-2026-004417", amount: 89.90, currency: "USD", postedAt: "2026-03-16T02:00:05Z", valueDate: "2026-03-16" }
+tf 26 rmo CardholderAvailableBalance { accountId: "acct-77120", availableBalance: 1342.15, currency: "USD", provisionalCredits: [ { caseId: "DSP-2026-004417", amount: 89.90 } ] }
+
+tf 27 pcr ChargebackSubmitter ->> 11
+tf 28 cmd SendChargeback { caseId: "DSP-2026-004417", network: "VISA", reasonCode: "10.4", amount: 89.90, currency: "USD", acquirerBin: "476173", arn: "74123456789012345678901" }
+tf 29 evt ChargebackSent { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934", network: "VISA", reasonCode: "10.4", amount: 89.90, currency: "USD", sentAt: "2026-03-16T09:10:00Z", merchantResponseDueBy: "2026-04-15" }
+rf 30 evt Network.ChargebackAcceptedByMerchant { networkCaseId: "VCR-77120934", caseId: "DSP-2026-004417", amount: 89.90, currency: "USD", acceptedAt: "2026-03-24T11:00:00Z", liability: "merchant" }
+rf 31 evt Network.RepresentmentReceived { networkCaseId: "VCR-77120934", caseId: "DSP-2026-004417", amount: 89.90, currency: "USD", receivedAt: "2026-04-01T08:30:00Z", evidence: ["avs_full_match", "cvv2_match", "delivery_signature", "ip_matches_cardholder_home"], merchantResponseDueBy: "2026-04-15" }
+tf 32 rmo RepresentmentEvidencePack ->> 31 [[RepresentmentEvidencePack32]]
+tf 33 ui RepresentmentReviewDesk @DisputeAgent
+tf 34 cmd ReviewRepresentment { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934", decision: "reject_evidence", rationale: "delivery signature does not match cardholder; device fingerprint unknown", reviewedBy: "agent-0412" }
+tf 35 evt RepresentmentRejected { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934", rationale: "delivery signature does not match cardholder", reviewedAt: "2026-04-03T10:15:00Z", nextStep: "pre_arbitration" }
+tf 36 cmd FilePreArbitration ->> 33 { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934", amount: 89.90, currency: "USD", filingFee: 0.00, deadline: "2026-05-03" }
+tf 37 evt PreArbitrationFiled { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934", filedAt: "2026-04-06T09:00:00Z", merchantResponseDueBy: "2026-05-06" }
+rf 38 evt Network.ArbitrationRulingReceived { networkCaseId: "VCR-77120934", caseId: "DSP-2026-004417", ruling: "issuer_favour", amount: 89.90, currency: "USD", feesAssessedTo: "merchant", feeAmount: 500.00, rulingAt: "2026-04-28T16:00:00Z" }
+
+tf 39 pcr DisputeResolver ->> 30 ->> 38
+tf 40 cmd ResolveDispute { caseId: "DSP-2026-004417", outcome: "won", basis: "arbitration_ruling", networkCaseId: "VCR-77120934", amount: 89.90, currency: "USD" }
+tf 41 evt DisputeWon { caseId: "DSP-2026-004417", basis: "arbitration_ruling", amount: 89.90, currency: "USD", resolvedAt: "2026-04-30T09:00:00Z", calendarDaysElapsed: 59, resolutionDeadline: "2026-05-31" }
+tf 42 evt DisputeLost { caseId: "DSP-2026-004417", basis: "arbitration_ruling", amount: 89.90, currency: "USD", deniedAt: "2026-04-30T09:00:00Z", denialReason: "compelling_evidence_cardholder_participated" }
+
+tf 43 pcr OutcomeLetterComposer ->> 41 ->> 42
+tf 44 cmd SendOutcomeLetter { caseId: "DSP-2026-004417", outcome: "denied", channels: ["in_app", "email", "postal"], template: "REG_E_DENIAL_V4", reversalNotBefore: "2026-05-07", documentsAvailableOnRequest: true }
+tf 45 evt OutcomeLetterSent { caseId: "DSP-2026-004417", letterId: "ltr-2026-0430-0142", outcome: "denied", sentAt: "2026-04-30T09:05:00Z", noticeBusinessDays: 5, reversalNotBefore: "2026-05-07" }
+tf 46 ui DisputeOutcomeScreen @Cardholder
+tf 47 cmd AcknowledgeOutcomeLetter { caseId: "DSP-2026-004417", letterId: "ltr-2026-0430-0142", channel: "in_app" }
+tf 48 evt OutcomeLetterAcknowledged { caseId: "DSP-2026-004417", letterId: "ltr-2026-0430-0142", acknowledgedAt: "2026-05-01T18:22:00Z", channel: "in_app" }
+
+tf 49 rmo DisputeSettlementSchedule ->> 41 ->> 42 ->> 45 [[DisputeSettlementSchedule49]]
+tf 50 pcr ProvisionalCreditSettlementGuard ->> 49
+tf 51 cmd SettleProvisionalCredit { caseId: "DSP-2026-004417", ledgerEntryId: "le-2026-0316-00981", outcome: "denied", amount: 89.90, currency: "USD", noticeSentAt: "2026-04-30T09:05:00Z", settlementDate: "2026-05-08" }
+tf 52 evt ProvisionalCreditReversed { caseId: "DSP-2026-004417", ledgerEntryId: "le-2026-0508-01144", reversesEntryId: "le-2026-0316-00981", amount: 89.90, currency: "USD", postedAt: "2026-05-08T02:00:00Z", businessDaysSinceNotice: 6 }
+tf 53 evt ProvisionalCreditMadePermanent { caseId: "DSP-2026-004417", ledgerEntryId: "le-2026-0316-00981", amount: 89.90, currency: "USD", madePermanentAt: "2026-04-30T09:10:00Z", basis: "dispute_won" }
+tf 54 rmo DisputeCaseLedgerSummary [[DisputeCaseLedgerSummary54]]
+
+data DisputeIntakeQueue04 {
+  awaitingIntake: [
+    { disputeId: "DSP-2026-004417", filedAt: "2026-03-02T14:05:00Z", amount: 89.90, currency: "USD", claimType: "unauthorised", transactionAgeDays: 12 }
+  ]
+  oldestWaitingHours: 2.3
+}
+
+data RegEClockDashboard18 {
+  caseId: "DSP-2026-004417"
+  startedOn: "2026-03-02"
+  businessDaysAllowed: 10
+  businessDaysElapsed: 10
+  provisionalCreditDueBy: "2026-03-16"
+  provisionalCreditIssued: false
+  resolutionDeadline: "2026-05-31"
+  investigationStatus: "unresolved"
+  accountAgeDays: 412
+}
+
+data RepresentmentEvidencePack32 {
+  caseId: "DSP-2026-004417"
+  networkCaseId: "VCR-77120934"
+  merchant: "ACME ONLINE STORE"
+  evidence: [
+    { type: "avs_full_match", weight: "medium" }
+    { type: "cvv2_match", weight: "medium" }
+    { type: "delivery_signature", weight: "high", note: "signature does not match cardholder name" }
+    { type: "ip_matches_cardholder_home", weight: "high" }
+  ]
+  reviewDueBy: "2026-04-15"
+}
+
+data DisputeSettlementSchedule49 {
+  caseId: "DSP-2026-004417"
+  ledgerEntryId: "le-2026-0316-00981"
+  outcome: "denied"
+  amount: 89.90
+  currency: "USD"
+  noticeSentAt: "2026-04-30T09:05:00Z"
+  noticeBusinessDaysRequired: 5
+  earliestReversalDate: "2026-05-07"
+  settled: false
+}
+
+data DisputeCaseLedgerSummary54 {
+  caseId: "DSP-2026-004417"
+  accountId: "acct-77120"
+  entries: [
+    { ledgerEntryId: "le-2026-0316-00981", type: "PROVISIONAL_CREDIT", amount: 89.90, postedAt: "2026-03-16" }
+    { ledgerEntryId: "le-2026-0508-01144", type: "PROVISIONAL_CREDIT_REVERSAL", amount: -89.90, postedAt: "2026-05-08" }
+  ]
+  netEffect: 0.00
+  currency: "USD"
+  status: "closed_denied"
+}
+
+hotspot 13 {
+  Accounts open < 30 days get 20 business days (not 10) before provisional
+  credit is due. Do we model a NewAccountClockStarted branch, or is
+  businessDaysAllowed just a parameter derived from accountAgeDays?
+}
+
+hotspot 16 {
+  Is USD 25 the right auto-adjudication threshold? Ops suggested 25,
+  Finance wants 15, and the loss budget for FY26 assumes 20.
+}
+
+hotspot 15 {
+  Who signs off on the auto-adjudication policy - Disputes Ops, Compliance,
+  or the model-risk committee? Nobody in the room could say.
+}
+
+hotspot 51 {
+  Which business-day calendar counts the 5-day notice period: Federal
+  Reserve holidays, the bank holiday calendar, or the cardholder home state?
+}
+
+note 10 {
+  Reg E: a claim must be filed within 60 days of the statement showing the
+  error. Cases older than that are rejected at intake.
+}
+
+note 20 {
+  Session 1 decision: the deadline monitor runs nightly at 02:00 UTC and issues
+  provisional credit on the morning of business day 10 if the case is still
+  unresolved. Provisional credit extends the investigation to 45 days
+  (90 for POS, new accounts and foreign transactions).
+}
+
+note 51 {
+  Session 2 correction from Compliance: reversal used to happen the same day
+  as denial. It must now wait at least 5 business days after the outcome
+  letter is sent. If the bank misses its own deadline (resolutionDeadline)
+  the provisional credit becomes permanent regardless of outcome.
+}
+
+note 31 {
+  Session 2 discovery: merchants can represent (second presentment) with
+  compelling evidence within 30 days of the chargeback. This path did not
+  exist in the as-is model.
+}
+
+gwt 02 "cardholder files an unauthorised-transaction dispute"
+  given
+    evt CardTransactionPosted { txnId: "txn-8f3a2c19", amount: 89.90, currency: "USD", postedAt: "2026-02-18" }
+  when
+    cmd FileDispute { txnId: "txn-8f3a2c19", amount: 89.90, currency: "USD", claimType: "unauthorised" }
+  then
+    evt DisputeFiled { disputeId: "DSP-2026-004417", txnId: "txn-8f3a2c19", amount: 89.90, currency: "USD", transactionAgeDays: 12 }
+
+gwt 02 "reject a second dispute on the same transaction"
+  given
+    evt DisputeFiled { disputeId: "DSP-2026-004417", txnId: "txn-8f3a2c19" }
+  when
+    cmd FileDispute { txnId: "txn-8f3a2c19", amount: 89.90, currency: "USD", claimType: "unauthorised" }
+  then
+    evt DisputeRejected { txnId: "txn-8f3a2c19", reason: "dispute_already_open", existingDisputeId: "DSP-2026-004417" }
+
+gwt 02 "reject dispute on a pending (not yet posted) authorisation"
+  given
+    evt CardAuthorisationApproved { txnId: "txn-9b11d0", amount: 42.00, currency: "USD", status: "pending" }
+  when
+    cmd FileDispute { txnId: "txn-9b11d0", amount: 42.00, currency: "USD", claimType: "unauthorised" }
+  then
+    evt DisputeRejected { txnId: "txn-9b11d0", reason: "transaction_not_posted" }
+
+gwt 07 "future - merchant refunds via RDR before a chargeback is raised"
+  given
+    evt DisputeFiled { disputeId: "DSP-2026-004417", txnId: "txn-8f3a2c19", amount: 89.90 }
+    evt Network.PreDisputeAlertReceived { alertId: "RDR-5561203", txnId: "txn-8f3a2c19", merchantDecision: "refund" }
+  when
+    cmd ResolveDisputeByMerchantRefund { disputeId: "DSP-2026-004417", alertId: "RDR-5561203", refundAmount: 89.90 }
+  then
+    evt DisputeResolvedByMerchantRefund { disputeId: "DSP-2026-004417", chargebackAvoided: true }
+
+gwt 10 "agent opens a case for a dispute filed within 60 days"
+  given
+    evt DisputeFiled { disputeId: "DSP-2026-004417", txnId: "txn-8f3a2c19", amount: 89.90, currency: "USD", transactionAgeDays: 12 }
+  when
+    cmd OpenDisputeCase { disputeId: "DSP-2026-004417", reasonCode: "10.4", amount: 89.90, currency: "USD", accountAgeDays: 412, transactionAgeDays: 12 }
+  then
+    evt DisputeCaseOpened { caseId: "DSP-2026-004417", reasonCode: "10.4", amount: 89.90, currency: "USD", accountAgeDays: 412 }
+
+gwt 10 "reject case open when transaction is older than 60 days"
+  given
+    evt DisputeFiled { disputeId: "DSP-2026-004501", txnId: "txn-1c77ab", amount: 210.00, currency: "USD", transactionAgeDays: 74 }
+  when
+    cmd OpenDisputeCase { disputeId: "DSP-2026-004501", reasonCode: "10.4", amount: 210.00, currency: "USD", transactionAgeDays: 74 }
+  then
+    evt DisputeCaseRejected { disputeId: "DSP-2026-004501", reason: "outside_60_day_reg_e_window", transactionAgeDays: 74 }
+
+gwt 10 "reject case open with a reason code not valid for the network"
+  given
+    evt DisputeFiled { disputeId: "DSP-2026-004417", txnId: "txn-8f3a2c19", amount: 89.90, currency: "USD" }
+  when
+    cmd OpenDisputeCase { disputeId: "DSP-2026-004417", reasonCode: "4837", amount: 89.90, currency: "USD" }
+  then
+    evt DisputeCaseRejected { disputeId: "DSP-2026-004417", reason: "reason_code_not_valid_for_network", network: "VISA", reasonCode: "4837" }
+
+gwt 13 "start a 10-business-day clock for an established account"
+  given
+    evt DisputeCaseOpened { caseId: "DSP-2026-004417", accountAgeDays: 412, channel: "card_not_present", openedAt: "2026-03-02T16:20:00Z" }
+  when
+    cmd StartInvestigationClock { caseId: "DSP-2026-004417", startedOn: "2026-03-02", businessDaysAllowed: 10, resolutionDeadlineDays: 90 }
+  then
+    evt InvestigationClockStarted { caseId: "DSP-2026-004417", businessDaysAllowed: 10, provisionalCreditDueBy: "2026-03-16", resolutionDeadline: "2026-05-31" }
+
+gwt 13 "start a 20-business-day clock for an account open less than 30 days"
+  given
+    evt DisputeCaseOpened { caseId: "DSP-2026-004602", accountAgeDays: 17, channel: "card_not_present", openedAt: "2026-03-02T16:40:00Z" }
+  when
+    cmd StartInvestigationClock { caseId: "DSP-2026-004602", startedOn: "2026-03-02", businessDaysAllowed: 20, resolutionDeadlineDays: 90 }
+  then
+    evt InvestigationClockStarted { caseId: "DSP-2026-004602", businessDaysAllowed: 20, provisionalCreditDueBy: "2026-03-30", resolutionDeadline: "2026-05-31" }
+
+gwt 13 "reject a second clock for the same case"
+  given
+    evt InvestigationClockStarted { caseId: "DSP-2026-004417", startedOn: "2026-03-02" }
+  when
+    cmd StartInvestigationClock { caseId: "DSP-2026-004417", startedOn: "2026-03-03", businessDaysAllowed: 10 }
+  then
+    evt InvestigationClockRejected { caseId: "DSP-2026-004417", reason: "clock_already_running" }
+
+gwt 16 "staging - auto-resolve a first-time dispute under USD 25 in the cardholder's favour"
+  given
+    evt DisputeCaseOpened { caseId: "DSP-2026-004488", amount: 12.40, currency: "USD", reasonCode: "10.4" }
+  when
+    cmd AutoResolveSmallValueDispute { caseId: "DSP-2026-004488", amount: 12.40, currency: "USD", thresholdAmount: 25.00, priorDisputes12m: 0 }
+  then
+    evt SmallValueDisputeAutoResolved { caseId: "DSP-2026-004488", amount: 12.40, outcome: "won", policy: "small_value_write_off_v1" }
+
+gwt 16 "staging - refuse auto-resolution when cardholder has 3 or more disputes in 12 months"
+  given
+    evt DisputeCaseOpened { caseId: "DSP-2026-004489", amount: 9.99, currency: "USD", reasonCode: "10.4" }
+  when
+    cmd AutoResolveSmallValueDispute { caseId: "DSP-2026-004489", amount: 9.99, currency: "USD", thresholdAmount: 25.00, priorDisputes12m: 3 }
+  then
+    evt SmallValueAutoResolutionRefused { caseId: "DSP-2026-004489", reason: "repeat_disputer", priorDisputes12m: 3 }
+
+gwt 15 "staging - adjudicator does not act on disputes at or above the threshold"
+  given
+    evt DisputeCaseOpened { caseId: "DSP-2026-004417", amount: 89.90, currency: "USD" }
+  when
+    cmd AutoResolveSmallValueDispute { caseId: "DSP-2026-004417", amount: 89.90, currency: "USD", thresholdAmount: 25.00 }
+  then
+    evt SmallValueAutoResolutionSkipped { caseId: "DSP-2026-004417", reason: "amount_at_or_above_threshold", amount: 89.90, thresholdAmount: 25.00 }
+
+gwt 20 "issue provisional credit when business day 10 lapses with the case unresolved"
+  given
+    evt InvestigationClockStarted { caseId: "DSP-2026-004417", startedOn: "2026-03-02", businessDaysAllowed: 10, provisionalCreditDueBy: "2026-03-16" }
+    rmo RegEClockDashboard { caseId: "DSP-2026-004417", businessDaysElapsed: 10, investigationStatus: "unresolved", provisionalCreditIssued: false }
+  when
+    cmd IssueProvisionalCredit { caseId: "DSP-2026-004417", amount: 89.90, currency: "USD", businessDaysElapsed: 10 }
+  then
+    evt ProvisionalCreditIssued { caseId: "DSP-2026-004417", amount: 89.90, currency: "USD", investigationExtendedTo: "2026-05-31" }
+
+gwt 20 "reject provisional credit when already issued for the case"
+  given
+    evt ProvisionalCreditIssued { caseId: "DSP-2026-004417", amount: 89.90, currency: "USD", issuedAt: "2026-03-16T02:00:00Z" }
+  when
+    cmd IssueProvisionalCredit { caseId: "DSP-2026-004417", amount: 89.90, currency: "USD", businessDaysElapsed: 11 }
+  then
+    evt ProvisionalCreditRejected { caseId: "DSP-2026-004417", reason: "already_issued", existingIssuedAt: "2026-03-16T02:00:00Z" }
+
+gwt 20 "reject provisional credit when the case was already resolved inside the clock"
+  given
+    evt DisputeWon { caseId: "DSP-2026-004417", basis: "merchant_accepted_chargeback", resolvedAt: "2026-03-10T11:00:00Z" }
+  when
+    cmd IssueProvisionalCredit { caseId: "DSP-2026-004417", amount: 89.90, currency: "USD", businessDaysElapsed: 10 }
+  then
+    evt ProvisionalCreditRejected { caseId: "DSP-2026-004417", reason: "case_already_resolved" }
+
+gwt 19 "deadline monitor stays silent while the clock has business days remaining"
+  given
+    rmo RegEClockDashboard { caseId: "DSP-2026-004417", businessDaysElapsed: 7, businessDaysAllowed: 10, investigationStatus: "unresolved" }
+  then
+    evt ProvisionalCreditCheckDeferred { caseId: "DSP-2026-004417", businessDaysRemaining: 3, nextCheckOn: "2026-03-12" }
+
+gwt 24 "post provisional credit to the cardholder ledger"
+  given
+    evt Disputes.ProvisionalCreditIssued { caseId: "DSP-2026-004417", accountId: "acct-77120", amount: 89.90, currency: "USD" }
+  when
+    cmd PostProvisionalCredit { accountId: "acct-77120", caseId: "DSP-2026-004417", amount: 89.90, currency: "USD", entryType: "PROVISIONAL_CREDIT" }
+  then
+    evt ProvisionalCreditPosted { ledgerEntryId: "le-2026-0316-00981", accountId: "acct-77120", amount: 89.90, currency: "USD" }
+
+gwt 24 "reject duplicate posting for the same case (idempotency)"
+  given
+    evt ProvisionalCreditPosted { ledgerEntryId: "le-2026-0316-00981", accountId: "acct-77120", caseId: "DSP-2026-004417", amount: 89.90 }
+  when
+    cmd PostProvisionalCredit { accountId: "acct-77120", caseId: "DSP-2026-004417", amount: 89.90, currency: "USD", entryType: "PROVISIONAL_CREDIT" }
+  then
+    evt LedgerPostingRejected { accountId: "acct-77120", caseId: "DSP-2026-004417", reason: "duplicate_provisional_credit", existingLedgerEntryId: "le-2026-0316-00981" }
+
+gwt 24 "reject posting to a closed account"
+  given
+    evt AccountClosed { accountId: "acct-77120", closedAt: "2026-03-10T00:00:00Z" }
+    evt Disputes.ProvisionalCreditIssued { caseId: "DSP-2026-004417", accountId: "acct-77120", amount: 89.90, currency: "USD" }
+  when
+    cmd PostProvisionalCredit { accountId: "acct-77120", caseId: "DSP-2026-004417", amount: 89.90, currency: "USD", entryType: "PROVISIONAL_CREDIT" }
+  then
+    evt LedgerPostingRejected { accountId: "acct-77120", caseId: "DSP-2026-004417", reason: "account_closed", fallback: "issue_check_to_cardholder" }
+
+gwt 28 "send chargeback to the network for an open fraud case"
+  given
+    evt DisputeCaseOpened { caseId: "DSP-2026-004417", reasonCode: "10.4", amount: 89.90, currency: "USD" }
+  when
+    cmd SendChargeback { caseId: "DSP-2026-004417", network: "VISA", reasonCode: "10.4", amount: 89.90, currency: "USD" }
+  then
+    evt ChargebackSent { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934", network: "VISA", amount: 89.90, merchantResponseDueBy: "2026-04-15" }
+
+gwt 28 "reject chargeback when the network filing window (120 days) has passed"
+  given
+    evt DisputeCaseOpened { caseId: "DSP-2026-004520", reasonCode: "10.4", amount: 55.00, currency: "USD", transactionAgeDays: 131 }
+  when
+    cmd SendChargeback { caseId: "DSP-2026-004520", network: "VISA", reasonCode: "10.4", amount: 55.00, currency: "USD" }
+  then
+    evt ChargebackRejected { caseId: "DSP-2026-004520", reason: "network_filing_window_expired", transactionAgeDays: 131, windowDays: 120 }
+
+gwt 28 "reject chargeback when one is already in flight for the case"
+  given
+    evt ChargebackSent { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934" }
+  when
+    cmd SendChargeback { caseId: "DSP-2026-004417", network: "VISA", reasonCode: "10.4", amount: 89.90, currency: "USD" }
+  then
+    evt ChargebackRejected { caseId: "DSP-2026-004417", reason: "chargeback_already_sent", networkCaseId: "VCR-77120934" }
+
+gwt 34 "agent rejects merchant evidence and escalates to pre-arbitration"
+  given
+    evt ChargebackSent { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934" }
+    evt Network.RepresentmentReceived { networkCaseId: "VCR-77120934", evidence: ["avs_full_match", "delivery_signature"] }
+  when
+    cmd ReviewRepresentment { caseId: "DSP-2026-004417", decision: "reject_evidence", rationale: "delivery signature does not match cardholder" }
+  then
+    evt RepresentmentRejected { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934", nextStep: "pre_arbitration" }
+
+gwt 34 "agent accepts compelling evidence and the dispute is lost"
+  given
+    evt ChargebackSent { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934" }
+    evt Network.RepresentmentReceived { networkCaseId: "VCR-77120934", evidence: ["avs_full_match", "cvv2_match", "delivery_signature", "ip_matches_cardholder_home", "prior_undisputed_purchases_same_device"] }
+  when
+    cmd ReviewRepresentment { caseId: "DSP-2026-004417", decision: "accept_evidence", rationale: "compelling evidence - cardholder participated" }
+  then
+    evt RepresentmentAccepted { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934", nextStep: "resolve_as_lost" }
+
+gwt 34 "reject review after the representment response window has closed"
+  given
+    evt Network.RepresentmentReceived { networkCaseId: "VCR-77120934", receivedAt: "2026-04-01T08:30:00Z", merchantResponseDueBy: "2026-04-15" }
+  when
+    cmd ReviewRepresentment { caseId: "DSP-2026-004417", decision: "reject_evidence", reviewedAt: "2026-05-02T10:00:00Z" }
+  then
+    evt RepresentmentReviewRejected { caseId: "DSP-2026-004417", reason: "response_window_closed", merchantResponseDueBy: "2026-04-15" }
+
+gwt 36 "file pre-arbitration after rejecting representment"
+  given
+    evt RepresentmentRejected { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934", nextStep: "pre_arbitration" }
+  when
+    cmd FilePreArbitration { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934", amount: 89.90, currency: "USD" }
+  then
+    evt PreArbitrationFiled { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934", merchantResponseDueBy: "2026-05-06" }
+
+gwt 36 "reject pre-arbitration when representment was accepted"
+  given
+    evt RepresentmentAccepted { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934" }
+  when
+    cmd FilePreArbitration { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934", amount: 89.90, currency: "USD" }
+  then
+    evt PreArbitrationRejected { caseId: "DSP-2026-004417", reason: "representment_already_accepted" }
+
+gwt 36 "require manager approval for pre-arbitration when expected fees exceed the disputed amount"
+  given
+    evt RepresentmentRejected { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934", amount: 89.90 }
+  when
+    cmd FilePreArbitration { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934", amount: 89.90, currency: "USD", expectedArbitrationFee: 500.00 }
+  then
+    evt PreArbitrationReferredToManager { caseId: "DSP-2026-004417", reason: "fee_exceeds_disputed_amount", expectedArbitrationFee: 500.00, approver: "DisputesManager" }
+
+gwt 40 "resolve as won when the merchant accepts the chargeback"
+  given
+    evt ChargebackSent { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934" }
+    evt Network.ChargebackAcceptedByMerchant { networkCaseId: "VCR-77120934", liability: "merchant" }
+  when
+    cmd ResolveDispute { caseId: "DSP-2026-004417", outcome: "won", basis: "merchant_accepted_chargeback" }
+  then
+    evt DisputeWon { caseId: "DSP-2026-004417", basis: "merchant_accepted_chargeback", amount: 89.90, currency: "USD" }
+
+gwt 40 "resolve as won on an arbitration ruling in the issuer's favour"
+  given
+    evt PreArbitrationFiled { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934" }
+    evt Network.ArbitrationRulingReceived { networkCaseId: "VCR-77120934", ruling: "issuer_favour", feesAssessedTo: "merchant", feeAmount: 500.00 }
+  when
+    cmd ResolveDispute { caseId: "DSP-2026-004417", outcome: "won", basis: "arbitration_ruling" }
+  then
+    evt DisputeWon { caseId: "DSP-2026-004417", basis: "arbitration_ruling", amount: 89.90, currency: "USD", calendarDaysElapsed: 59 }
+
+gwt 40 "resolve as lost on an arbitration ruling in the merchant's favour"
+  given
+    evt PreArbitrationFiled { caseId: "DSP-2026-004417", networkCaseId: "VCR-77120934" }
+    evt Network.ArbitrationRulingReceived { networkCaseId: "VCR-77120934", ruling: "merchant_favour", feesAssessedTo: "issuer", feeAmount: 500.00 }
+  when
+    cmd ResolveDispute { caseId: "DSP-2026-004417", outcome: "lost", basis: "arbitration_ruling" }
+  then
+    evt DisputeLost { caseId: "DSP-2026-004417", basis: "arbitration_ruling", denialReason: "compelling_evidence_cardholder_participated", arbitrationFeeAmount: 500.00 }
+
+gwt 40 "reject resolution when the case is already resolved"
+  given
+    evt DisputeWon { caseId: "DSP-2026-004417", basis: "merchant_accepted_chargeback" }
+  when
+    cmd ResolveDispute { caseId: "DSP-2026-004417", outcome: "lost", basis: "arbitration_ruling" }
+  then
+    evt DisputeResolutionRejected { caseId: "DSP-2026-004417", reason: "already_resolved", existingOutcome: "won" }
+
+gwt 44 "send a denial letter with the 5-business-day reversal notice"
+  given
+    evt DisputeLost { caseId: "DSP-2026-004417", deniedAt: "2026-04-30T09:00:00Z", denialReason: "compelling_evidence_cardholder_participated" }
+  when
+    cmd SendOutcomeLetter { caseId: "DSP-2026-004417", outcome: "denied", template: "REG_E_DENIAL_V4", reversalNotBefore: "2026-05-07" }
+  then
+    evt OutcomeLetterSent { caseId: "DSP-2026-004417", letterId: "ltr-2026-0430-0142", outcome: "denied", noticeBusinessDays: 5, reversalNotBefore: "2026-05-07" }
+
+gwt 44 "send a won letter confirming the credit is permanent"
+  given
+    evt DisputeWon { caseId: "DSP-2026-004417", resolvedAt: "2026-04-30T09:00:00Z" }
+  when
+    cmd SendOutcomeLetter { caseId: "DSP-2026-004417", outcome: "won", template: "REG_E_RESOLVED_V2" }
+  then
+    evt OutcomeLetterSent { caseId: "DSP-2026-004417", letterId: "ltr-2026-0430-0143", outcome: "won", noticeBusinessDays: 0 }
+
+gwt 44 "reject a denial letter that omits the reversal date"
+  given
+    evt DisputeLost { caseId: "DSP-2026-004417", deniedAt: "2026-04-30T09:00:00Z" }
+  when
+    cmd SendOutcomeLetter { caseId: "DSP-2026-004417", outcome: "denied", template: "REG_E_DENIAL_V4" }
+  then
+    evt OutcomeLetterRejected { caseId: "DSP-2026-004417", reason: "denial_letter_requires_reversal_not_before_date" }
+
+gwt 47 "cardholder acknowledges the outcome letter in app"
+  given
+    evt OutcomeLetterSent { caseId: "DSP-2026-004417", letterId: "ltr-2026-0430-0142" }
+  when
+    cmd AcknowledgeOutcomeLetter { caseId: "DSP-2026-004417", letterId: "ltr-2026-0430-0142", channel: "in_app" }
+  then
+    evt OutcomeLetterAcknowledged { caseId: "DSP-2026-004417", letterId: "ltr-2026-0430-0142", channel: "in_app" }
+
+gwt 47 "ignore a repeated acknowledgement"
+  given
+    evt OutcomeLetterAcknowledged { caseId: "DSP-2026-004417", letterId: "ltr-2026-0430-0142", acknowledgedAt: "2026-05-01T18:22:00Z" }
+  when
+    cmd AcknowledgeOutcomeLetter { caseId: "DSP-2026-004417", letterId: "ltr-2026-0430-0142", channel: "email" }
+  then
+    evt OutcomeLetterAcknowledgementIgnored { caseId: "DSP-2026-004417", reason: "already_acknowledged" }
+
+gwt 51 "reverse provisional credit once 5 business days have passed since the denial notice"
+  given
+    evt DisputeLost { caseId: "DSP-2026-004417", deniedAt: "2026-04-30T09:00:00Z" }
+    evt OutcomeLetterSent { caseId: "DSP-2026-004417", outcome: "denied", sentAt: "2026-04-30T09:05:00Z", reversalNotBefore: "2026-05-07" }
+    rmo DisputeSettlementSchedule { caseId: "DSP-2026-004417", outcome: "denied", earliestReversalDate: "2026-05-07", settled: false }
+  when
+    cmd SettleProvisionalCredit { caseId: "DSP-2026-004417", ledgerEntryId: "le-2026-0316-00981", outcome: "denied", amount: 89.90, currency: "USD", settlementDate: "2026-05-08" }
+  then
+    evt ProvisionalCreditReversed { caseId: "DSP-2026-004417", reversesEntryId: "le-2026-0316-00981", amount: 89.90, currency: "USD", businessDaysSinceNotice: 6 }
+
+gwt 51 "make provisional credit permanent when the dispute is won"
+  given
+    evt DisputeWon { caseId: "DSP-2026-004417", basis: "arbitration_ruling", resolvedAt: "2026-04-30T09:00:00Z" }
+    rmo DisputeSettlementSchedule { caseId: "DSP-2026-004417", outcome: "won", settled: false }
+  when
+    cmd SettleProvisionalCredit { caseId: "DSP-2026-004417", ledgerEntryId: "le-2026-0316-00981", outcome: "won", amount: 89.90, currency: "USD", settlementDate: "2026-04-30" }
+  then
+    evt ProvisionalCreditMadePermanent { caseId: "DSP-2026-004417", ledgerEntryId: "le-2026-0316-00981", amount: 89.90, currency: "USD", basis: "dispute_won" }
+
+gwt 51 "make provisional credit permanent when the bank misses its own 90-day deadline"
+  given
+    evt InvestigationClockStarted { caseId: "DSP-2026-004417", resolutionDeadline: "2026-05-31" }
+    evt ProvisionalCreditIssued { caseId: "DSP-2026-004417", amount: 89.90, currency: "USD" }
+    rmo DisputeSettlementSchedule { caseId: "DSP-2026-004417", outcome: "unresolved", resolutionDeadline: "2026-05-31", settled: false }
+  when
+    cmd SettleProvisionalCredit { caseId: "DSP-2026-004417", ledgerEntryId: "le-2026-0316-00981", outcome: "deadline_missed", amount: 89.90, currency: "USD", settlementDate: "2026-06-01" }
+  then
+    evt ProvisionalCreditMadePermanent { caseId: "DSP-2026-004417", ledgerEntryId: "le-2026-0316-00981", amount: 89.90, currency: "USD", basis: "bank_missed_resolution_deadline" }
+
+gwt 51 "reject reversal before the 5-business-day notice period has elapsed"
+  given
+    evt DisputeLost { caseId: "DSP-2026-004417", deniedAt: "2026-04-30T09:00:00Z" }
+    evt OutcomeLetterSent { caseId: "DSP-2026-004417", outcome: "denied", sentAt: "2026-04-30T09:05:00Z", reversalNotBefore: "2026-05-07" }
+  when
+    cmd SettleProvisionalCredit { caseId: "DSP-2026-004417", ledgerEntryId: "le-2026-0316-00981", outcome: "denied", amount: 89.90, currency: "USD", settlementDate: "2026-05-04" }
+  then
+    evt ProvisionalCreditSettlementRejected { caseId: "DSP-2026-004417", reason: "notice_period_not_elapsed", businessDaysSinceNotice: 2, requiredBusinessDays: 5 }
+
+gwt 51 "reject settlement when the provisional credit was already reversed"
+  given
+    evt ProvisionalCreditReversed { caseId: "DSP-2026-004417", reversesEntryId: "le-2026-0316-00981", amount: 89.90 }
+  when
+    cmd SettleProvisionalCredit { caseId: "DSP-2026-004417", ledgerEntryId: "le-2026-0316-00981", outcome: "denied", amount: 89.90, currency: "USD", settlementDate: "2026-05-09" }
+  then
+    evt ProvisionalCreditSettlementRejected { caseId: "DSP-2026-004417", reason: "already_settled", existingEntryId: "le-2026-0508-01144" }
+
+gwt 50 "settlement guard waits while the notice period is still running"
+  given
+    rmo DisputeSettlementSchedule { caseId: "DSP-2026-004417", outcome: "denied", noticeSentAt: "2026-04-30T09:05:00Z", earliestReversalDate: "2026-05-07", settled: false }
+  then
+    evt ProvisionalCreditSettlementDeferred { caseId: "DSP-2026-004417", nextCheckOn: "2026-05-07", reason: "notice_period_running" }

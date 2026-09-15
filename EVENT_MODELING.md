@@ -19,7 +19,9 @@
 9. [Identifier rules](#9-identifier-rules)
 10. [Payload rules](#10-payload-rules)
 11. [Full formal grammar (BNF-style)](#11-full-formal-grammar-bnf-style)
-12. [Proposed future extensions (not yet implemented)](#12-proposed-future-extensions-not-yet-implemented)
+12. [Workshop notation: hotspots, actors, chapters, slices](#12-workshop-notation-hotspots-actors-chapters-slices)
+13. [Stages: as-is, staging, future](#13-stages-as-is-staging-future)
+14. [Tooling: lint, diff, stage lens](#14-tooling-lint-diff-stage-lens)
 
 ---
 
@@ -70,10 +72,14 @@ gwt 03 "scenario label"
 ### Time frame
 
 ```
-tf <id> <type> <Name> [->> <sourceId>]* [[[dataRef]]]? [payload]?
+tf <id> <type> <Name> [@<Actor>]? [#<stage>]? [->> <sourceId>]* [[[dataRef]]]? [payload]? [@<Actor>]? [#<stage>]?
 ```
 
 - `tf` (or `timeframe`) — a regular step in the timeline.
+- `@<Actor>` — optional persona performing this step (see §12.2). May appear
+  before the `->>` sources or after a single-line `{ … }` payload.
+- `#<stage>` — optional stage override: `#current`, `#staging` or `#future`
+  (see §13). Same placement rules as `@Actor`.
 - `<id>` — 1-3 digit numeric identifier (e.g. `01`, `7`, `123`).
 - `<type>` — one of the entity type keywords from §2.
 - `<Name>` — a qualified identifier: `PascalCase` or `Namespace.Name`.
@@ -115,6 +121,10 @@ rf 04 evt External.InventoryChanged
 
 // qualified name (Namespace.Event)
 tf 05 evt Cart.ItemAdded
+
+// actor + stage modifiers
+tf 09 ui RiskReviewDesk @RiskAnalyst
+tf 12 evt TopUpPointsGranted { walletId: "w-1", points: 5 } #future
 ```
 
 ---
@@ -279,7 +289,7 @@ entity Hotel.Room
 All comment styles are ignored by the parser.
 
 > **Parser restriction:** comments are only valid at the *top level* — between
-> top-level declarations (`tf`, `rf`, `data`, `gwt`, etc.).  Do **not** place
+> top-level declarations (`tf`, `rf`, `data`, `gwt`, `hotspot`, `slice`, etc.).  Do **not** place
 > a comment line between two `gwt` blocks or anywhere inside a `gwt` block body.
 > The parser will attempt to parse the comment as a frame declaration and emit
 > `unknown entity type "//"`.  Annotate `gwt` blocks with label strings instead:
@@ -353,14 +363,21 @@ Statement   ::= TimeFrame
              |  ResetFrame
              |  DataEntity
              |  NoteEntity
+             |  Hotspot
              |  GWT
              |  EntityDecl
+             |  ActorDecl
+             |  Chapter
+             |  Slice
 
 TimeFrame   ::= ('tf'|'timeframe') FrameId EntityType QualifiedName
-                SourceRef* DataRef? Payload?
+                Modifier* SourceRef* DataRef? Payload? Modifier*
 
 ResetFrame  ::= ('rf'|'resetframe') FrameId EntityType QualifiedName
-                SourceRef* DataRef? Payload?
+                Modifier* SourceRef* DataRef? Payload? Modifier*
+
+Modifier    ::= '@' EID              (actor)
+             |  '#' StageKeyword     (stage override)
 
 SourceRef   ::= '->>' FrameId
 
@@ -369,6 +386,23 @@ DataRef     ::= '[[' EID ']]'
 DataEntity  ::= 'data' EID TypeHint? DataBlock
 
 NoteEntity  ::= 'note' FrameId TypeHint? DataBlock
+
+Hotspot     ::= 'hotspot' FrameId TypeHint? DataBlock
+
+ActorDecl   ::= 'actor' QualifiedName
+
+Chapter     ::= 'chapter' QuotedString FrameRange
+
+Slice       ::= 'slice' QuotedString FrameRange
+                ('status' StatusKeyword)? ('stage' StageKeyword)?
+
+FrameRange  ::= FrameId '-' FrameId          (declaration order, inclusive)
+
+StatusKeyword ::= 'Created'|'Planned'|'Assigned'|'InProgress'|'Review'
+               |  'Done'|'Blocked'|'Informational'      (case-insensitive)
+
+StageKeyword  ::= 'current'|'staging'|'future'
+               |  'as-is'|'proposed'                   (aliases, case-insensitive)
 
 GWT         ::= 'gwt' FrameId QuotedString?
                 'given' GWTStatement+
@@ -398,124 +432,126 @@ EID         ::= [_a-zA-Z][_\w]*
 
 ---
 
-## 12. Proposed future extensions (not yet implemented)
+## 12. Workshop notation: hotspots, actors, chapters, slices
 
-Four notation features exist on the eventmodelers.ai cheat sheet that this
-DSL has no equivalent for today: **hotspots**, **actor lanes**, **chapters**,
-and **slice status tags**. None of these are implemented — this section is a
-grammar sketch to work from when they are. Do not treat any syntax below as
-valid `.evml` until the parser, `model.go`, and `render.go` are updated to
-match, and this section is promoted out of "proposed."
+These four constructs come straight from the eventmodelers.ai cheat sheet
+and exist so a model can be *worked on in a room* — open questions stay
+visible, personas are explicit, and a long timeline reads like a table of
+contents. None of them change `allowedSources` or the four patterns.
 
 ### 12.1 Hotspots — `hotspot`
 
 ```
-hotspot <frameId> {
+hotspot <frameId> [`<dataType>`]? {
   <free-form question or blocker text>
 }
 ```
 
-- Sibling of `note`, but semantically distinct: a hotspot marks an
-  **unresolved** question or blocker, not a finished annotation. Rendered as
-  a red sticky (🔴) rather than `note`'s yellow.
-- A new `EntityStatus`-style flag, not an `EntityType` — it attaches to a
-  frame the same way `note` does, so no changes to `allowedSources` are
-  needed.
-- Enables a `evml lint --hotspots` (or `--strict`) mode that exits non-zero
-  if any hotspot remains, so "all open questions resolved" becomes a CI gate
-  instead of a convention nobody checks.
+- Sibling of `note`, but semantically distinct: a hotspot is an **unresolved**
+  question, blocker, or disputed rule. Rendered as a red sticky under the
+  swimlanes, plus a red count badge on the frame it belongs to.
+- `evml lint` lists every hotspot; `evml lint --strict` exits non-zero while
+  any remain, so "all open questions resolved" can gate a merge.
+- Resolve a hotspot by converting it into a `note` (decision recorded) or
+  deleting it (question no longer applies). The web app does this in one
+  click.
 
-### 12.2 Actor lanes — `actor` + `@ActorName`
+```evml
+hotspot 06 {
+  Is 5 top-ups per 24h the right threshold, or should it scale with KYC tier?
+}
+```
+
+### 12.2 Actors — `actor` + `@Actor`
 
 ```
 actor <Name>
-...
-tf <id> ui <QualifiedName> @<ActorName> [payload]?
+tf <id> <type> <Name> @<Actor> ...
 ```
 
-- `actor Guest`, `actor FrontDeskStaff` declare personas up front (parallel
-  to `entity`).
-- `@ActorName` is an optional suffix on `ui` (and possibly `pcr`, for
-  automated "actors") frames — orthogonal to `EntityType`, so it doesn't
-  interact with `allowedSources` either.
-- Rendering adds a **secondary vertical banding** across the UI swimlane,
-  colour-coded per actor — independent of the existing entity-type
-  swimlanes, which stay horizontal.
+- `actor Customer`, `actor RiskAnalyst` declare personas up front (parallel to
+  `entity`). Declaring is optional; `@X` on a frame is accepted without it.
+- `@Actor` is an optional modifier on any frame, most useful on `ui` (who is
+  at the screen) and `pcr` (which team owns the automation). Rendered as an
+  italic tag in the frame's title row.
 
 ### 12.3 Chapters — `chapter`
 
 ```
-chapter <Name> {
-  <frameId>-<frameId>
-}
+chapter "<Name>" <startId>-<endId>
 ```
 
-or, more simply, a range attached directly to a declaration:
+- A labelled blue band above the swimlanes spanning the frames from
+  `startId` to `endId` **in declaration order** (inclusive). Purely a
+  reading aid.
+- Ranges must run forwards and chapters must not overlap; `Validate`
+  reports both.
+- Replaces the `// ── Section ──` comment convention with something that
+  renders.
 
-```
+```evml
 chapter "Operations" 01-07
 chapter "Compensation" 08-21
 ```
 
-- Purely a rendering/navigation concern: a **wide labelled arrow or bracket**
-  spanning the given frame-ID range, drawn above the swimlanes. No effect on
-  parsing semantics of the frames themselves.
-- Frame ranges must be non-overlapping and reference declared `tf`/`rf` IDs;
-  validated the same way `->>` source IDs are today (existence check only,
-  in `ValidateConnections` or a sibling `ValidateChapters`).
-- Turns the `//` section-comment convention already used in fixtures like
-  `flight-arrival-post-flight-settlement.evml` (bounded-context banners) into
-  something that actually renders, instead of living only in source comments.
-
-### 12.4 Slice status tags — `status`
+### 12.4 Slices — `slice`
 
 ```
-slice <Name> [<startFrameId>-<endFrameId>] status <StatusKeyword>
+slice "<Name>" <startId>-<endId> [status <Status>] [stage <Stage>]
 ```
 
-Where `StatusKeyword` ∈ `Created | Planned | Assigned | InProgress | Review
-| Done | Blocked | Informational`.
+- A slice is one vertical business capability (see `SKILL.md` §"Slices &
+  Scenarios"). Rendered as a grey band between chapters and swimlanes; the
+  label shows `[Status · stage]` when set.
+- `status` ∈ `Created | Planned | Assigned | InProgress | Review | Done |
+  Blocked | Informational` — delivery progress. `Blocked` draws a red
+  outline.
+- `stage` ∈ `current | staging | future` — how real the slice is (§13).
+  Frames inside the slice inherit it unless they carry their own `#stage`.
+- Slices may overlap each other (they are stacked into rows) but must not
+  straddle a chapter boundary.
 
-- A `slice` is the vertical cut already described conceptually in `SKILL.md`
-  §"Slices & Scenarios" — this gives it an explicit DSL declaration instead
-  of being an implicit grouping.
-- Status renders as a small badge on the slice's frame range; `Blocked`
-  could additionally render a red border to align visually with hotspots.
-- Natural pairing with **chapters**: a chapter groups multiple named slices,
-  each with its own status, giving a build-progress view without leaving
-  the model.
+```evml
+slice "Top up wallet"  01-04 status Done
+slice "Velocity check" 05-08 status InProgress stage staging
+slice "Reward top-ups" 10-12 status Created    stage future
+```
 
-### What these unlock — 3 scenarios not modelable today
+---
 
-**Scenario 1 — Hotspots: making unresolved rules impossible to lose.**
-Today, an open question like *"what happens if two guests book the same
-room simultaneously?"* can only be captured as a `//` comment — which the
-parser ignores, which never renders, and which nothing can enforce. With
-`hotspot 06 { concurrent booking on the same room: last write wins, or
-reject? }` attached to `tf 06 cmd BookRoom`, the question is visible in the
-SVG and queryable by tooling. A CI gate (`evml lint --hotspots`) can then
-block a merge until every hotspot is either resolved (converted to a `note`
-or removed) or explicitly accepted — turning "we forgot to decide this"
-from a silent failure mode into a build failure.
+## 13. Stages: as-is, staging, future
 
-**Scenario 2 — Actor lanes: seeing who does what without reading labels.**
-`what-is-event-modeling.evml` mixes guest self-service (`SearchRoomsScreen`,
-`BookRoomScreen`) with staff-operated screens (`CheckInDesk`,
-`CheckOutDesk`) in the same UI swimlane — today you can only tell them apart
-by reading each frame's name. Tagging `tf 09 ui CheckInDesk @FrontDeskStaff`
-vs. `tf 01 ui SearchRoomsScreen @Guest` and rendering a colour-coded actor
-band makes the guest/staff split immediately visible, which matters for
-staffing and training conversations, and surfaces the "Bed" anti-pattern
-per-actor (e.g. "FrontDeskStaff fires four unrelated commands from one
-screen").
+Domain experts rarely agree on the *target* process in one sitting. Stages
+let the model hold three truths side by side without three files:
 
-**Scenario 3 — Chapters + slice status: a build tracker that lives in the
-diagram.** `flight-arrival-post-flight-settlement.evml` is 55 frames across
-four bounded contexts (Operations → Compensation → Finance → Marketing);
-today that boundary structure exists only as a `//` comment header nobody
-can query. Wrapping each context in a `chapter` with named `slice`s inside —
-`slice "Evaluate delay" 09-11 status Done`, `slice "Escalate unresolved
-claim" 36-39 status InProgress` — turns the model into a live progress view:
-which slices are shipped, which are in review, which are blocked. This
-closes the gap between "the diagram" and "the sprint board" instead of
-requiring both to be maintained separately and kept in sync by hand.
+| Stage | Meaning | Rendering |
+|---|---|---|
+| `current` (default) | The process as it runs today. | Normal |
+| `staging` | A proposed change being validated against reality. | Amber dashed border, `STAGING` badge, dashed arrows |
+| `future` | A longer-term goal kept visible for direction. | Grey dotted border, faded, `FUTURE` badge |
+
+Resolution order for a frame's effective stage:
+
+1. An explicit `#stage` on the frame.
+2. The innermost (last-declared) enclosing `slice … stage X`.
+3. `current`.
+
+Notes, hotspots, and `gwt` scenarios follow their frame. Aliases accepted
+when parsing: `as-is`/`asis` → `current`, `proposed` → `staging`.
+
+**Promotion** is a text edit: drop the `#staging` tag (or change the slice's
+`stage`), and the frames become part of the as-is model. `evml diff` lists
+every such stage change between two versions.
+
+---
+
+## 14. Tooling: lint, diff, stage lens
+
+| Command | Purpose |
+|---|---|
+| `evml svg <file> [--stage current,staging]` | Render; `--stage` filters to the given stages (the "lens"). Frames outside the lens are removed along with their notes, hotspots and scenarios; chapters and slices are clamped to the surviving frames. |
+| `evml lint <file> [--strict]` | Print open hotspots and completeness gaps (commands with no scenario, commands not followed by an event, `*Sent` events with no response outcome). `--strict` exits 1 when anything is reported. |
+| `evml diff <before> <after>` | Semantic diff by frame ID: added / removed / changed frames, stage changes, scenario and hotspot deltas, slices added/removed. |
+
+Library entry points: `Validate`, `ValidateRanges`, `Lint`, `FilterStages`,
+`Diff`, `Model.FrameStage`, `Model.HotspotsFor`.

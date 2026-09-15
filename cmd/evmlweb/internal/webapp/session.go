@@ -27,6 +27,8 @@ type Session struct {
 	ActiveFlow         string
 	Flows              map[string]*FlowState
 	ModelID            string // selected LLM, empty until the picker is used
+	Lens               string // which stages the diagram shows: current | staging | all ("" = all)
+	LastError          string // transient: last rejected edit, shown once in the workspace
 	PendingFlow        string
 	PendingDraftByFlow map[string]string
 }
@@ -83,6 +85,7 @@ func (ss *SessionStore) ForRequest(w http.ResponseWriter, r *http.Request) *Sess
 				Token:              token,
 				Flows:              make(map[string]*FlowState),
 				ModelID:            snap.ModelID,
+				Lens:               snap.Lens,
 				PendingFlow:        snap.ActiveFlow,
 				PendingDraftByFlow: snap.ActiveDraftByFlow,
 			}
@@ -129,6 +132,7 @@ func (ss *SessionStore) PersistSelection(s *Session) {
 	s.mu.Lock()
 	snap := sessionSnapshot{
 		ModelID:           s.ModelID,
+		Lens:              s.Lens,
 		ActiveFlow:        s.ActiveFlow,
 		ActiveDraftByFlow: make(map[string]string, len(s.Flows)),
 	}

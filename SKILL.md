@@ -291,6 +291,17 @@ data <RefName> {                          ← named data block
 }
 
 note <id> { free text }                   ← annotation on a frame
+hotspot <id> { open question }            ← unresolved question (red sticky)
+
+actor <Name>                              ← persona; use as @Name on frames
+tf <id> ui <Screen> @<Actor>              ← who is at the screen
+tf <id> cmd <VerbNoun> { ... } #staging   ← stage override: #current #staging #future
+
+chapter "<Name>" <start>-<end>            ← named section of the timeline
+slice "<Name>" <start>-<end> status <Status> stage <Stage>
+                                          ← one capability; Status = Created|Planned|
+                                            Assigned|InProgress|Review|Done|Blocked|Informational
+                                            Stage = current|staging|future
 
 gwt <id> "scenario label"
   given
@@ -315,6 +326,166 @@ gwt <id> "scenario label"
 | Unbalanced braces in payload | Count `{` and `}` — they must match |
 | Reusing the same frame ID | Each `tf`/`rf` must have a unique numeric ID |
 | Putting a command after another command without an event | Insert an `evt` in between — commands react to events or UI actions |
+
+---
+
+## Step 8 — Workshop notation: stages, hotspots, actors, chapters, slices
+
+The DSL carries the room's state of mind, not just the process. Use these
+whenever you are helping a group *change* a model rather than draw it once.
+
+### Stages — as-is, staging, future
+
+| The expert says… | Stage | Write |
+|---|---|---|
+| "this is how it works today", "currently", "we already do" | `current` | nothing (default) |
+| "we should", "what if", "the proposal is", "let's try" | `staging` | `#staging` on the frame, or `stage staging` on the slice |
+| "eventually", "next year", "the goal is", "someday" | `future` | `#future` / `stage future` |
+
+Rules:
+- **Default a proposed change to `staging`.** Never silently merge a proposal
+  into the as-is model; the whole point is that the room can compare them.
+- Keep IDs stable across versions. Frames added in a later session take the
+  next free IDs (or a new hundred: `101`, `102`, …); never renumber the as-is
+  frames, or `evml diff` and the lens lose the thread.
+- When a proposal sits *between* two as-is steps, do not rename or re-point
+  the as-is reset frame — add the new `rf … #staging` and give the translator
+  **both** sources. The as-is lens then still shows a complete flow.
+- Place staging/future frames at their **chronological** position (declaration
+  order is the timeline), and give the frames after them explicit `->>` sources
+  so the lens can drop the block without breaking inference.
+- Promotion is a text edit: drop `#staging` / change the slice `stage`. Record
+  the decision that justified it as a `note`.
+
+```evml
+rf 11  evt Ledger.FundsHeld { paymentId: "pay-1" }
+rf 120 evt Compliance.PaymentCleared { paymentId: "pay-1" } #staging
+tf 12  pcr ClearingTranslator ->> 11 ->> 120
+```
+
+### Hotspots — park, don't guess
+
+Anything the room cannot answer now becomes a `hotspot` on the frame it is
+about. It renders red, `evml lint` lists it, and `--strict` refuses to pass
+while it exists. Resolve it by replacing it with a `note` that records the
+question **and** the decision (keep the date), or delete it if it no longer
+applies.
+
+```evml
+// session 1
+hotspot 21 { What happens if the scheme never answers? }
+// session 2
+note 21 { Q: what if the scheme never answers? Decision (2026-09-02): time out after 10 s, release the hold. }
+```
+
+### Actors, chapters, slices
+
+- `actor` + `@Actor`: put a persona on every `ui` (who is at the screen) and on
+  `pcr` when a team owns the automation. Two personas on one screen is the
+  "Bed" anti-pattern in disguise.
+- `chapter`: one per bounded context *visit*. A context touched twice (Ledger
+  hold, then Ledger settle) gets two chapters — ranges must be contiguous and
+  must not overlap.
+- `slice`: one business capability, with `status` for delivery and `stage` for
+  reality. Slices may not straddle a chapter boundary.
+
+---
+
+## FinTech corner-case patterns
+
+Distilled from the `fintech-*.evml` fixtures (instant payments v1→v2, card
+disputes under Reg E, loan lifecycle, settlement reconciliation).
+
+### 1. Regulatory clocks are read models; deadline guards are processors
+
+"10 business days", "5 business days notice", "180 days past due" are derived
+state → an `rmo` answering "how much time is left?", watched by a `pcr` that
+issues the command only when the clock lapses. Put the deferral scenario on the
+**processor**.
+
+```evml
+tf 14 evt InvestigationClockStarted { caseId: "DSP-1", businessDaysAllowed: 10 }
+tf 18 rmo RegEClockDashboard ->> 11 ->> 14 { businessDaysElapsed: 10, investigationStatus: "unresolved" }
+tf 19 pcr ProvisionalCreditDeadlineMonitor ->> 18
+tf 20 cmd IssueProvisionalCredit { caseId: "DSP-1", amount: 89.90 }
+
+gwt 19 "stays silent while business days remain"
+  given
+    rmo RegEClockDashboard { businessDaysElapsed: 7, businessDaysAllowed: 10 }
+  then
+    evt ProvisionalCreditCheckDeferred { businessDaysRemaining: 3 }
+```
+
+### 2. "Nothing happened for N seconds" is also derived state
+
+A timeout or aging watchdog reacts to the *absence* of an event. Project the
+absence (`PendingSchemeResponses`, `AgedBreaks`) and source the watchdog from
+that read model; the guard's GWT uses a `then`-only suppression event.
+
+### 3. Notice-before-action: the `*Sent` event is a precondition
+
+When a rule says "notify, then wait N days", wire the `*Sent` event into the
+read model the settlement guard watches, so the earliest action date is
+derivable — and write the "acted too early" rejection.
+
+```evml
+gwt 51 "reject reversal before the notice period has elapsed"
+  given
+    evt OutcomeLetterSent { reversalNotBefore: "2026-05-07" }
+  when
+    cmd SettleProvisionalCredit { outcome: "denied", settlementDate: "2026-05-04" }
+  then
+    evt ProvisionalCreditSettlementRejected { reason: "notice_period_not_elapsed" }
+```
+
+### 4. One scheme message, one `rf`; route on the status field
+
+ISO 20022 replies (pacs.002, camt.029) are one message with a status code.
+Model **one** reset frame and let the translator fan out to separate commands
+(`CompletePayment` / `FailPayment`), covering the routing with GWTs on the
+processor. Conversely, when external parties reply in genuinely different
+messages (KYC verified vs failed, merchant accepts vs represents), declare each
+as its own named `rf` and let one `pcr` source from all of them.
+
+### 5. Alternative outcomes vs sequential decisions
+
+Mutually exclusive outcomes of the *same* decision (won → permanent, lost →
+reversed) may share one command and sibling events — that is not "Left Chair".
+Decisions that happen *in sequence* (eligibility → affordability → offer) must
+be separate command + event pairs.
+
+### 6. Maker-checker = two actors, two screens, two command/event pairs
+
+Never collapse four-eyes approval into one `Approve…` with a `proposedBy`
+field. The checker's command carries the rules: `approver_is_proposer`,
+`amount_exceeds_approver_limit`, and — for review desks — `application_not_referred`
+(otherwise the desk is a back door around the automated decision). The
+posting is an automation off the approval event.
+
+### 7. A block is not a reject
+
+A sanctions BLOCK freezes funds; a scheme RJCT or timeout releases them.
+Modelling both as "payment did not go through" hides a missing ledger state.
+Check the terminal ledger state of every failure branch; raise a hotspot for
+a state nobody can name yet.
+
+### 8. Read models never chain off read models
+
+`rmo ← evt` only. A "summary of summaries" fails validation. Point the report
+at the underlying events; if it truly needs another projection's derived
+numbers, an event (`ReconciliationRunSummarised`) is missing.
+
+### 9. Batch processes need partial-outcome events
+
+Matching, disbursement and screening work on batches. Emit per-item outcomes
+(`BreakRaised`, `PartialDisbursementRejected`) as well as the batch summary, or
+the exception path cannot be modelled.
+
+### DSL gotchas that bite in a session
+
+- Comments are top-level only; annotate scenarios with labels, never `//` between `gwt` blocks.
+- `lint` wants every `*Sent` event to have an `Accepted/Declined/Acknowledged…` outcome, and every `cmd` to be followed by its `evt` within two frames.
+- Keep quotes balanced inside `{ }` payloads. Prose in `note`/`hotspot` may contain apostrophes; payloads should use double quotes.
 
 ---
 
@@ -777,3 +948,7 @@ Add these checks after the standard checklist in Step 7:
 - [ ] **Partial failure `rf`:** if a context processes a batch, a named `rf` handles partial rejection back to the source context.
 - [ ] **Actor-response terminals:** every `*Sent` event has corresponding `*Accepted` / `*Declined` (or equivalent) outcome events and GWT scenarios.
 - [ ] **Async integration failures:** every external-rails payout/send frame has a failure `rf` path covering reversal and reissuance.
+- [ ] **Stages honest:** proposals are `#staging`/`stage staging`, goals are `future`; nothing proposed in the session has silently become `current`.
+- [ ] **Questions parked:** every unresolved rule is a `hotspot` on the frame it concerns, none are hidden in comments.
+- [ ] **Clocks as read models:** every deadline or timeout is an `rmo` watched by a guard `pcr` with a deferral scenario.
+- [ ] **Terminal ledger state per branch:** block vs reject vs timeout each name what happens to the money.

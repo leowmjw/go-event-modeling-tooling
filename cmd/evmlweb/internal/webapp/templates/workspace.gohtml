@@ -1,48 +1,341 @@
 {{define "workspace"}}
-<div id="workspace-inner">
+<div id="workspace-inner"
+     data-signals__ifmissing="{panel: 'steps', sel: '', addStep: false, stepType: 'cmd', stepName: '', stepPayload: '', stepActor: '', stepStage: 'staging', stepAfter: '', stepSources: '', stepReset: false, stage: '', scnFrame: '', scnLabel: '', scnGiven: '', scnWhen: '', scnThen: '', hotFrame: '', hotText: '', resolveText: '', resolveAction: 'note', sliceKind: 'slice', sliceName: '', sliceStart: '', sliceEnd: '', sliceStatus: '', sliceStage: 'current', message: ''}"
+     data-signals:lens="'{{.Lens}}'"
+     data-signals:source__ifmissing="{{printf "%q" .Source}}">
 {{if not .ActiveFlow}}
-  <p class="empty-hint">Pick an existing flow to see its current diagram, or generate a new one to start describing a process from scratch.</p>
+  <section class="welcome">
+    <h2>Run an event modeling session</h2>
+    <p>Pick a flow above to see the process as it runs today, or start a new one and describe it step by step.</p>
+    <ol>
+      <li><strong>Walk the timeline</strong> left to right. Click any step in the diagram to inspect it.</li>
+      <li><strong>Propose changes</strong> as <span class="badge badge-staging">staging</span> steps and slices — they render dashed so nobody mistakes them for today's process.</li>
+      <li><strong>Park open questions</strong> as red hotspots; resolve them into recorded decisions when the room agrees.</li>
+      <li><strong>Sketch the horizon</strong> as <span class="badge badge-future">future</span> goals, and hide them with the lens when you need to focus.</li>
+      <li><strong>Compare and promote</strong> a draft once it matches reality.</li>
+    </ol>
+  </section>
 {{else}}
-  <nav class="draft-tabs">
-    {{range .Drafts}}
-    <button class="tab {{if eq .ID $.ActiveDraftID}}active{{end}}"
-            data-on:click="@get('/flow/{{$.ActiveFlow}}/draft/{{.ID}}')">
-      {{.Label}}
-    </button>
-    {{end}}
-    <button class="tab tab-new" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/new-version')">+ New version</button>
-    {{if .ActiveDraftID}}
-    <button class="tab tab-activate" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/activate')">Activate</button>
-    {{end}}
+  <nav class="draft-bar">
+    <div class="draft-tabs">
+      <span class="draft-label">Drafts</span>
+      {{range .Drafts}}
+      <button class="tab {{if eq .ID $.ActiveDraftID}}active{{end}}"
+              title="{{.ID}}"
+              data-on:click="@get('/flow/{{$.ActiveFlow}}/draft/{{.ID}}')">
+        {{.Label}} <small>{{.Date}}</small>
+      </button>
+      {{end}}
+      <button class="tab tab-new" title="Fork the current draft into a new dated version" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/new-version')">+ New draft</button>
+    </div>
+    <div class="lens" title="Which stages the diagram shows">
+      <span class="draft-label">Lens</span>
+      <button class="lens-btn" data-class:active="$lens == 'current'" data-on:click="$lens = 'current'; @post('/lens', {filterSignals: {include: /^lens$/}})">As-is</button>
+      <button class="lens-btn" data-class:active="$lens == 'staging'" data-on:click="$lens = 'staging'; @post('/lens', {filterSignals: {include: /^lens$/}})">+ Staging{{if .StagingCount}} <small>{{.StagingCount}}</small>{{end}}</button>
+      <button class="lens-btn" data-class:active="$lens == 'all'" data-on:click="$lens = 'all'; @post('/lens', {filterSignals: {include: /^lens$/}})">+ Future{{if .FutureCount}} <small>{{.FutureCount}}</small>{{end}}</button>
+    </div>
+    <div class="draft-actions">
+      <a class="tab" href="/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/export.evml" download>Export .evml</a>
+      <a class="tab" href="/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/export.svg" download>Export .svg</a>
+      {{if .ActiveDraftID}}
+      <button class="tab tab-activate" title="Make this draft the flow's baseline (writes testdata/fixtures/{{.ActiveFlow}}.evml)"
+              data-on:click="if (confirm('Promote this draft to the baseline for {{.ActiveFlow}}? This overwrites the saved flow.')) @post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/activate', {filterSignals: {include: /^$/}})">Promote to baseline</button>
+      {{end}}
+    </div>
   </nav>
+
+  {{if .EditError}}
+  <div class="edit-error" role="alert"><strong>That change was not applied:</strong> {{.EditError}}</div>
+  {{end}}
+  {{if .ParseError}}
+  <div class="edit-error" role="alert"><strong>The current model text has a problem:</strong> {{.ParseError}} — fix it in the Source tab.</div>
+  {{end}}
 
   <div class="workspace-grid">
     <section class="svg-pane"
       data-signals:svg-scale="1" data-signals:svg-x="0" data-signals:svg-y="0" data-signals:panning="false"
-      data-signals:pan-start-x="0" data-signals:pan-start-y="0" data-signals:pan-orig-x="0" data-signals:pan-orig-y="0"
+      data-signals:pan-start-x="0" data-signals:pan-start-y="0" data-signals:pan-orig-x="0" data-signals:pan-orig-y="0" data-signals:moved="false"
       data-on:wheel__prevent="$svgScale = Math.min(4, Math.max(0.2, $svgScale - evt.deltaY / 1000))"
-      data-on:mousedown="$panning = true; $panStartX = evt.clientX; $panStartY = evt.clientY; $panOrigX = $svgX; $panOrigY = $svgY"
+      data-on:mousedown="$panning = true; $moved = false; $panStartX = evt.clientX; $panStartY = evt.clientY; $panOrigX = $svgX; $panOrigY = $svgY"
       data-on:mouseup__window="$panning = false"
-      data-on:mousemove__window="if ($panning) { $svgX = $panOrigX + (evt.clientX - $panStartX); $svgY = $panOrigY + (evt.clientY - $panStartY) }">
+      data-on:mousemove__window="if ($panning) { if (Math.abs(evt.clientX - $panStartX) + Math.abs(evt.clientY - $panStartY) > 3) $moved = true; $svgX = $panOrigX + (evt.clientX - $panStartX); $svgY = $panOrigY + (evt.clientY - $panStartY) }"
+      data-effect="document.querySelectorAll('#svg-container .box.selected').forEach(e => e.classList.remove('selected')); const el = document.getElementById('frame-' + $sel); if (el) el.classList.add('selected')">
       <div class="svg-toolbar">
         <button data-on:click="$svgScale = 1; $svgX = 0; $svgY = 0">Reset view</button>
-        <span class="hint">scroll to zoom, drag to pan</span>
+        <span class="hint">scroll to zoom · drag to pan · click a step to inspect it</span>
+        <span class="counts">{{.FrameCount}} steps · {{.ScenarioCount}} scenarios · {{len .Hotspots}} open questions</span>
       </div>
-      <div id="svg-container" data-attr:style="`transform: translate(${$svgX}px, ${$svgY}px) scale(${$svgScale})`">
+      <div id="svg-container" data-attr:style="`transform: translate(${$svgX}px, ${$svgY}px) scale(${$svgScale})`"
+           data-on:click="if (!$moved) { const g = evt.target.closest('[data-frame]'); if (g) { $sel = g.dataset.frame; $panel = 'steps' } }">
         {{if not .PatchSVG}}{{.ActiveSVG}}{{end}}
       </div>
     </section>
 
-    <section class="chat-pane">
-      {{template "chatlog" .}}
-      <form class="chat-input" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/chat')">
-        <textarea data-bind:message name="message" placeholder="Describe the process, or ask for a change…" rows="3"></textarea>
-        <button type="submit">Send</button>
-      </form>
-    </section>
+    <aside class="side-pane">
+      <nav class="panel-tabs">
+        <button data-class:active="$panel == 'steps'" data-on:click="$panel = 'steps'">Steps</button>
+        <button data-class:active="$panel == 'questions'" data-on:click="$panel = 'questions'">Questions{{if .Hotspots}} <span class="pill pill-red">{{len .Hotspots}}</span>{{end}}</button>
+        <button data-class:active="$panel == 'scenarios'" data-on:click="$panel = 'scenarios'">Scenarios</button>
+        <button data-class:active="$panel == 'slices'" data-on:click="$panel = 'slices'">Slices</button>
+        <button data-class:active="$panel == 'compare'" data-on:click="$panel = 'compare'">Compare{{if .Diff}} <span class="pill">{{len .Diff}}</span>{{end}}</button>
+        <button data-class:active="$panel == 'source'" data-on:click="$panel = 'source'">Source</button>
+        <button data-class:active="$panel == 'chat'" data-on:click="$panel = 'chat'" {{if not .HasModels}}title="No local model available"{{end}}>Assistant</button>
+      </nav>
+
+      {{template "panel-steps" .}}
+      {{template "panel-questions" .}}
+      {{template "panel-scenarios" .}}
+      {{template "panel-slices" .}}
+      {{template "panel-compare" .}}
+      {{template "panel-source" .}}
+      {{template "panel-chat" .}}
+    </aside>
   </div>
 {{end}}
 </div>
+{{end}}
+
+{{define "step-select-options"}}
+  <option value="">— pick a step —</option>
+  {{range .Steps}}<option value="{{.ID}}">{{.ID}} · {{.TypeLabel}} · {{.Name}}</option>{{end}}
+{{end}}
+
+{{define "panel-steps"}}
+<section class="panel" data-show="$panel == 'steps'">
+  <div class="panel-head">
+    <h3>Steps <small>in timeline order</small></h3>
+    <button class="btn btn-primary" data-on:click="$addStep = !$addStep; if ($addStep && !$stepAfter) $stepAfter = $sel">+ Add step</button>
+  </div>
+
+  <form class="form" data-show="$addStep" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/step', {filterSignals: {include: /^step/}})">
+    <div class="row">
+      <label>What kind of step?
+        <select data-bind:step-type>
+          <option value="ui">Screen — someone looks at / does something</option>
+          <option value="cmd">Command — an intention, can be refused</option>
+          <option value="evt">Event — a fact that happened (past tense)</option>
+          <option value="rmo">Read model — answers one question</option>
+          <option value="pcr">Automation — the system reacts by itself</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <label>Name <input data-bind:step-name placeholder="e.g. Approve loan offer / LoanOfferApproved" required></label>
+      <label>Who does it? <input data-bind:step-actor placeholder="optional, e.g. Underwriter"></label>
+    </div>
+    <div class="row">
+      <label>Key fields <input data-bind:step-payload placeholder='optional, e.g. loanId: "ln-1", amount: 5000.00'></label>
+    </div>
+    <div class="row">
+      <label>Insert after
+        <select data-bind:step-after>
+          <option value="">— at the end —</option>
+          {{range .Steps}}<option value="{{.ID}}">{{.ID}} · {{.Name}}</option>{{end}}
+        </select>
+      </label>
+      <label>How real is it?
+        <select data-bind:step-stage>
+          <option value="staging">Staging — proposed, to validate</option>
+          <option value="current">Current — this is how it works today</option>
+          <option value="future">Future — a goal for later</option>
+        </select>
+      </label>
+    </div>
+    <details class="advanced">
+      <summary>Advanced</summary>
+      <div class="row">
+        <label>Reacts to steps <input data-bind:step-sources placeholder="optional, e.g. 03, 07 (for automations)"></label>
+        <label class="check"><input type="checkbox" data-bind:step-reset> External event entering from another system</label>
+      </div>
+    </details>
+    <div class="row actions">
+      <button type="submit" class="btn btn-primary">Add step {{.NextFrameID}}</button>
+      <button type="button" class="btn" data-on:click="$addStep = false">Close</button>
+    </div>
+  </form>
+
+  <ul class="step-list">
+    {{range .Steps}}
+    <li class="step step-{{.Type}} stage-{{.Stage}} {{if .Hidden}}hidden-by-lens{{end}}" data-class:selected="$sel == '{{.ID}}'" data-on:click="$sel = '{{.ID}}'">
+      <span class="step-id">{{.ID}}</span>
+      <span class="step-type">{{.TypeLabel}}</span>
+      <span class="step-name">{{.Name}}{{if .Actor}} <em>@{{.Actor}}</em>{{end}}</span>
+      {{if ne .Stage "current"}}<span class="badge badge-{{.Stage}}">{{.Stage}}</span>{{end}}
+      {{if .Hotspots}}<span class="pill pill-red" title="open questions">{{.Hotspots}}</span>{{end}}
+    </li>
+    {{end}}
+  </ul>
+
+  {{range .Steps}}
+  <div class="inspector" data-show="$sel == '{{.ID}}'">
+    <h4>{{.ID}} · {{.TypeLabel}} · {{.Name}} {{if ne .Stage "current"}}<span class="badge badge-{{.Stage}}">{{.Stage}}</span>{{end}}</h4>
+    <dl>
+      {{if .Actor}}<dt>Actor</dt><dd>@{{.Actor}}</dd>{{end}}
+      {{if .Slice}}<dt>Slice</dt><dd>{{.Slice}}</dd>{{end}}
+      {{if .Sources}}<dt>Reacts to</dt><dd>{{.Sources}}</dd>{{end}}
+      {{if eq .Kind "resetframe"}}<dt>Boundary</dt><dd>external event entering this context</dd>{{end}}
+      {{if .Payload}}<dt>Fields</dt><dd><code>{{.Payload}}</code></dd>{{end}}
+      <dt>Scenarios</dt><dd>{{.Scenarios}}{{if and (eq .Type "cmd") (eq .Scenarios 0)}} <span class="warn">— a command with no scenario is usually not understood yet</span>{{end}}</dd>
+      <dt>Open questions</dt><dd>{{.Hotspots}}</dd>
+      {{if .Hidden}}<dt>Lens</dt><dd class="warn">hidden by the current lens</dd>{{end}}
+    </dl>
+    <div class="row actions wrap">
+      <button class="btn" data-on:click="$addStep = true; $stepAfter = '{{.ID}}'">+ Step after this</button>
+      <button class="btn" data-on:click="$panel = 'questions'; $hotFrame = '{{.ID}}'">? Ask a question</button>
+      <button class="btn" data-on:click="$panel = 'scenarios'; $scnFrame = '{{.ID}}'">+ Scenario</button>
+    </div>
+    <div class="row actions wrap">
+      <span class="muted">Mark as</span>
+      {{if ne .Stage "current"}}<button class="btn btn-ok" data-on:click="$stage = 'current'; @post('/flow/{{$.ActiveFlow}}/draft/{{$.ActiveDraftID}}/step/{{.ID}}/stage', {filterSignals: {include: /^stage$/}})">current</button>{{end}}
+      {{if ne .Stage "staging"}}<button class="btn btn-staging" data-on:click="$stage = 'staging'; @post('/flow/{{$.ActiveFlow}}/draft/{{$.ActiveDraftID}}/step/{{.ID}}/stage', {filterSignals: {include: /^stage$/}})">staging</button>{{end}}
+      {{if ne .Stage "future"}}<button class="btn btn-future" data-on:click="$stage = 'future'; @post('/flow/{{$.ActiveFlow}}/draft/{{$.ActiveDraftID}}/step/{{.ID}}/stage', {filterSignals: {include: /^stage$/}})">future</button>{{end}}
+      <button class="btn btn-danger" data-on:click="if (confirm('Remove step {{.ID}} {{.Name}} together with its notes, questions and scenarios?')) @post('/flow/{{$.ActiveFlow}}/draft/{{$.ActiveDraftID}}/step/{{.ID}}/remove', {filterSignals: {include: /^$/}})">Remove</button>
+    </div>
+  </div>
+  {{end}}
+</section>
+{{end}}
+
+{{define "panel-questions"}}
+<section class="panel" data-show="$panel == 'questions'">
+  <div class="panel-head"><h3>Open questions <small>hotspots</small></h3></div>
+  <p class="muted">Anything the room can't answer now goes here, attached to the step it's about. Resolve it by recording the decision (it becomes a note on the model) or drop it if it no longer applies.</p>
+
+  <form class="form" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/hotspot', {filterSignals: {include: /^hot/}})">
+    <div class="row">
+      <label>About step <select data-bind:hot-frame required>{{template "step-select-options" .}}</select></label>
+    </div>
+    <div class="row">
+      <label>Question <textarea data-bind:hot-text rows="2" placeholder="e.g. Who can override a sanctions hold, and within what SLA?" required></textarea></label>
+    </div>
+    <div class="row actions"><button type="submit" class="btn btn-primary">Park this question</button></div>
+  </form>
+
+  {{if not .Hotspots}}<p class="empty">No open questions. 🎉</p>{{end}}
+  <ul class="hotspot-list">
+    {{range .Hotspots}}
+    <li class="hotspot-item stage-{{.Stage}}">
+      <div class="hotspot-meta"><button class="linkish" data-on:click="$sel = '{{.FrameID}}'; $panel = 'steps'">{{.FrameID}} · {{.FrameName}}</button>{{if ne .Stage "current"}} <span class="badge badge-{{.Stage}}">{{.Stage}}</span>{{end}}</div>
+      <p class="hotspot-text">{{.Text}}</p>
+      <div class="row">
+        <textarea data-bind:resolve-text rows="2" placeholder="What did the room decide?"></textarea>
+      </div>
+      <div class="row actions">
+        <button class="btn btn-ok" data-on:click="$resolveAction = 'note'; @post('/flow/{{$.ActiveFlow}}/draft/{{$.ActiveDraftID}}/hotspot/{{.Index}}/resolve', {filterSignals: {include: /^resolve/}})">Record decision</button>
+        <button class="btn" data-on:click="$resolveAction = 'remove'; @post('/flow/{{$.ActiveFlow}}/draft/{{$.ActiveDraftID}}/hotspot/{{.Index}}/resolve', {filterSignals: {include: /^resolve/}})">Drop</button>
+      </div>
+    </li>
+    {{end}}
+  </ul>
+</section>
+{{end}}
+
+{{define "panel-scenarios"}}
+<section class="panel" data-show="$panel == 'scenarios'">
+  <div class="panel-head"><h3>Scenarios <small>given / when / then</small></h3></div>
+  <p class="muted">One line per statement: <code>event PaymentSettled { amount: 10 }</code>, <code>command SettlePayment</code>. Write the happy path first, then ask “is there any rule we didn't cover?” — three times.</p>
+  <form class="form" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/scenario', {filterSignals: {include: /^scn/}})">
+    <div class="row">
+      <label>For step <select data-bind:scn-frame required>{{template "step-select-options" .}}</select></label>
+      <label>Title <input data-bind:scn-label placeholder='e.g. reject when limit exceeded'></label>
+    </div>
+    <div class="row"><label>Given <textarea data-bind:scn-given rows="2" placeholder="event AccountOpened { accountId: &quot;a-1&quot; }"></textarea></label></div>
+    <div class="row"><label>When <textarea data-bind:scn-when rows="1" placeholder="command TopUpWallet { amount: 50 }"></textarea></label></div>
+    <div class="row"><label>Then <textarea data-bind:scn-then rows="2" placeholder="event WalletToppedUp { amount: 50 }"></textarea></label></div>
+    <div class="row actions"><button type="submit" class="btn btn-primary">Add scenario</button></div>
+  </form>
+
+  <h4>Coverage</h4>
+  <ul class="coverage">
+    {{range .Steps}}{{if eq .Type "cmd"}}
+    <li class="{{if eq .Scenarios 0}}warn{{end}}"><button class="linkish" data-on:click="$scnFrame = '{{.ID}}'">{{.ID}} · {{.Name}}</button> — {{.Scenarios}} scenario(s){{if eq .Scenarios 0}}{{if ne .Stage "future"}} · needs at least a happy path and a rejection{{end}}{{end}}</li>
+    {{end}}{{end}}
+  </ul>
+</section>
+{{end}}
+
+{{define "panel-slices"}}
+<section class="panel" data-show="$panel == 'slices'">
+  <div class="panel-head"><h3>Slices &amp; chapters</h3></div>
+  <p class="muted">A <strong>slice</strong> is one business capability (a vertical cut) with a delivery status and a stage. A <strong>chapter</strong> groups steps into a named section of the timeline.</p>
+  <form class="form" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/slice', {filterSignals: {include: /^slice/}})">
+    <div class="row">
+      <label>Kind <select data-bind:slice-kind><option value="slice">Slice</option><option value="chapter">Chapter</option></select></label>
+      <label>Name <input data-bind:slice-name placeholder="e.g. Sanctions screening" required></label>
+    </div>
+    <div class="row">
+      <label>First step <select data-bind:slice-start required>{{template "step-select-options" .}}</select></label>
+      <label>Last step <select data-bind:slice-end required>{{template "step-select-options" .}}</select></label>
+    </div>
+    <div class="row" data-show="$sliceKind == 'slice'">
+      <label>Status
+        <select data-bind:slice-status>
+          <option value="">—</option>
+          <option>Created</option><option>Planned</option><option>Assigned</option><option>InProgress</option>
+          <option>Review</option><option>Done</option><option>Blocked</option><option>Informational</option>
+        </select>
+      </label>
+      <label>Stage
+        <select data-bind:slice-stage>
+          <option value="current">Current</option><option value="staging">Staging</option><option value="future">Future</option>
+        </select>
+      </label>
+    </div>
+    <div class="row actions"><button type="submit" class="btn btn-primary">Add</button></div>
+  </form>
+
+  {{if .Chapters}}<h4>Chapters</h4>
+  <ul class="slice-list">{{range .Chapters}}<li><strong>{{.Name}}</strong> <span class="muted">{{.Start}}–{{.End}} · {{.Frames}} steps</span></li>{{end}}</ul>{{end}}
+  {{if .Slices}}<h4>Slices</h4>
+  <ul class="slice-list">{{range .Slices}}<li class="stage-{{.Stage}}"><strong>{{.Name}}</strong> <span class="muted">{{.Start}}–{{.End}} · {{.Frames}} steps</span>{{if .Status}} <span class="pill">{{.Status}}</span>{{end}}{{if and .Stage (ne .Stage "current")}} <span class="badge badge-{{.Stage}}">{{.Stage}}</span>{{end}}</li>{{end}}</ul>{{end}}
+  {{if .Actors}}<h4>Actors</h4><p>{{range .Actors}}<span class="pill">@{{.}}</span> {{end}}</p>{{end}}
+</section>
+{{end}}
+
+{{define "panel-compare"}}
+<section class="panel" data-show="$panel == 'compare'">
+  <div class="panel-head"><h3>Compare with baseline</h3></div>
+  {{if .IsNewFlow}}
+  <p class="muted">This is a new flow with no saved baseline yet. Promote a draft to create one.</p>
+  {{else if not .Diff}}
+  <p class="empty">This draft matches the saved baseline.</p>
+  {{else}}
+  <ul class="diff">
+    {{range .Diff}}<li class="diff-line diff-{{.Class}}">{{.Text}}</li>{{end}}
+  </ul>
+  {{end}}
+  <h4>Health check</h4>
+  {{if not .Lint}}<p class="empty">No findings — every command has a scenario and nothing is left open.</p>{{else}}
+  <ul class="lint">{{range .Lint}}<li>{{.}}</li>{{end}}</ul>{{end}}
+  <h4>Session log</h4>
+  <ul class="session-log">
+    {{range .Transcript}}{{if .IsSystem}}<li>{{.ContentHTML}}</li>{{end}}{{end}}
+  </ul>
+</section>
+{{end}}
+
+{{define "panel-source"}}
+<section class="panel panel-source" data-show="$panel == 'source'">
+  <div class="panel-head">
+    <h3>Source <small>.evml</small></h3>
+    <button class="btn btn-primary" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/source', {filterSignals: {include: /^source$/}})">Apply</button>
+  </div>
+  <p class="muted">For facilitators comfortable with the notation. Every change is checked before it is applied; a rejected change leaves the draft untouched.</p>
+  <textarea class="source" data-bind:source spellcheck="false">{{.Source}}</textarea>
+</section>
+{{end}}
+
+{{define "panel-chat"}}
+<section class="panel panel-chat" data-show="$panel == 'chat'">
+  {{if not .HasModels}}
+  <p class="muted">No local assistant model is available on this machine. The Steps, Questions, Scenarios and Source tabs work without one.</p>
+  {{end}}
+  {{template "chatlog" .}}
+  <form class="chat-input" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/chat', {filterSignals: {include: /^message$/}}); $message = ''">
+    <textarea data-bind:message name="message" placeholder="Describe the process in your own words, or ask for a change…" rows="3" {{if not .HasModels}}disabled{{end}}></textarea>
+    <button type="submit" {{if not .HasModels}}disabled{{end}}>Send</button>
+  </form>
+</section>
 {{end}}
 
 {{define "svg-content"}}{{.ActiveSVG}}{{end}}

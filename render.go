@@ -19,6 +19,8 @@ type boxLayout struct {
 	width       float64
 	height      float64
 	contentRows []string
+	stage       Stage
+	hotspots    int
 }
 
 type swimlaneLayout struct {
@@ -27,6 +29,15 @@ type swimlaneLayout struct {
 	height float64
 }
 
+const (
+	chapterBandHeight = 30.0
+	sliceBandHeight   = 26.0
+)
+
+// RenderSVG lays the model out left-to-right and returns a standalone SVG.
+// Every frame box carries data-frame="<id>" and a class of the form
+// box-<type> box-stage-<stage>, so a host page can wire click handlers and
+// styling without parsing the SVG.
 func RenderSVG(model *Model, opts RenderOptions) (string, error) {
 	if opts.MeasureTextWidth == nil {
 		opts.MeasureTextWidth = defaultMeasureTextWidth
@@ -35,7 +46,17 @@ func RenderSVG(model *Model, opts RenderOptions) (string, error) {
 	boxes := make([]boxLayout, 0, len(model.Frames))
 	swimlanes := orderedSwimlanes(model)
 	swimlaneByLabel := map[string]*swimlaneLayout{}
-	y := 20.0
+
+	topY := 20.0
+	if len(model.Chapters) > 0 {
+		topY += chapterBandHeight + 10
+	}
+	sliceRows := assignSliceRows(model)
+	if sliceRows > 0 {
+		topY += float64(sliceRows)*sliceBandHeight + 10
+	}
+
+	y := topY
 	for _, label := range swimlanes {
 		swimlaneByLabel[label] = &swimlaneLayout{label: label, y: y, height: 120}
 		y += 140
@@ -44,7 +65,7 @@ func RenderSVG(model *Model, opts RenderOptions) (string, error) {
 	totalWidth := 260.0
 	for _, frame := range model.Frames {
 		rows := frameContentRows(frame)
-		width, height := measureBox(rows, opts)
+		width, height := measureBox(rows, frame, opts)
 		lane := swimlaneByLabel[frame.SwimlaneLabel()]
 		if height+30 > lane.height {
 			lane.height = height + 30
@@ -56,24 +77,34 @@ func RenderSVG(model *Model, opts RenderOptions) (string, error) {
 			width:       width,
 			height:      height,
 			contentRows: rows,
+			stage:       model.FrameStage(frame),
+			hotspots:    len(model.HotspotsFor(frame.ID)),
 		})
 		x += width + 40
 		totalWidth = x + 40
 	}
 	sort.SliceStable(boxes, func(i, j int) bool { return boxes[i].frame.DeclarationIx < boxes[j].frame.DeclarationIx })
-	reflowSwimlanes(swimlaneByLabel, boxes)
+	reflowSwimlanes(swimlaneByLabel, boxes, topY)
 	var b strings.Builder
 	laneBottom := swimlaneBottom(swimlaneByLabel)
+	if laneBottom == 0 {
+		laneBottom = topY
+	}
 	noteStartY := laneBottom + 20
 	noteHeight := noteStackHeight(model.NoteEntities)
-	gwtStartY := noteStartY + noteHeight
-	if noteHeight > 0 && len(model.GWTs) > 0 {
+	hotspotStartY := noteStartY + noteHeight
+	if noteHeight > 0 && len(model.Hotspots) > 0 {
+		hotspotStartY += 20
+	}
+	hotspotHeight := hotspotStackHeight(model.Hotspots)
+	gwtStartY := hotspotStartY + hotspotHeight
+	if (noteHeight > 0 || hotspotHeight > 0) && len(model.GWTs) > 0 {
 		gwtStartY += 20
 	}
-	totalHeight := diagramHeight(laneBottom, noteHeight, gwtStackHeight(model.GWTs), len(model.GWTs) > 0)
+	totalHeight := diagramHeight(laneBottom, noteHeight+hotspotHeight, gwtStackHeight(model.GWTs), len(model.GWTs) > 0)
 	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" width="%0.f" height="%0.f" viewBox="0 0 %0.f %0.f">`, math.Ceil(totalWidth), math.Ceil(totalHeight), math.Ceil(totalWidth), math.Ceil(totalHeight))
 	b.WriteString(`<defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#444"/></marker></defs>`)
-	b.WriteString(`<style>text{font-family:sans-serif;fill:#222;font-size:12px}.box-title{font-weight:bold}.note text,.gwt text{font-size:11px}.code{font-family:monospace}.lane-label{font-weight:bold;font-size:13px}</style>`)
+	b.WriteString(`<style>text{font-family:sans-serif;fill:#222;font-size:12px}.box-title{font-weight:bold}.note text,.gwt text,.hotspot text{font-size:11px}.code{font-family:monospace}.lane-label{font-weight:bold;font-size:13px}.box-stage-staging>rect.frame{stroke-dasharray:6 3;stroke:#d97706;stroke-width:1.8}.box-stage-future>rect.frame{stroke-dasharray:2 3;stroke:#6b7280}.box-stage-future{opacity:.6}.badge{font-size:9px;font-weight:bold;text-transform:uppercase;letter-spacing:.04em}.actor{font-size:10px;font-style:italic;fill:#555}.chapter text{font-weight:bold;font-size:12px;fill:#1e3a8a}.slice text{font-size:10.5px;fill:#374151}.hotspot-dot{fill:#dc2626}.hotspot-count{fill:#fff;font-size:9px;font-weight:bold}</style>`)
 	for _, label := range swimlanes {
 		lane := swimlaneByLabel[label]
 		fmt.Fprintf(&b, `<g class="swimlane"><rect x="10" y="%0.f" width="%0.f" height="%0.f" rx="6" fill="#fafafa" stroke="#e0e0e0"/><text class="lane-label" x="24" y="%0.f">%s</text></g>`, lane.y, totalWidth-20, lane.height, lane.y+24, esc(label))
@@ -82,6 +113,8 @@ func RenderSVG(model *Model, opts RenderOptions) (string, error) {
 	for _, box := range boxes {
 		boxByID[box.frame.ID] = box
 	}
+	renderChapters(&b, model, boxByID, 20)
+	renderSlices(&b, model, boxByID, topY-10-float64(sliceRows)*sliceBandHeight)
 	for _, edge := range edges {
 		from := boxByID[edge.from.ID]
 		to := boxByID[edge.to.ID]
@@ -89,12 +122,17 @@ func RenderSVG(model *Model, opts RenderOptions) (string, error) {
 		y1 := from.y + from.height/2
 		x2 := to.x
 		y2 := to.y + to.height/2
-		fmt.Fprintf(&b, `<path d="M %.1f %.1f L %.1f %.1f" fill="none" stroke="#666" stroke-width="1.5" marker-end="url(#arrowhead)"/>`, x1, y1, x2, y2)
+		dash := ""
+		if to.stage != StageCurrent || from.stage != StageCurrent {
+			dash = ` stroke-dasharray="5 4"`
+		}
+		fmt.Fprintf(&b, `<path d="M %.1f %.1f L %.1f %.1f" fill="none" stroke="#666" stroke-width="1.5"%s marker-end="url(#arrowhead)"/>`, x1, y1, x2, y2, dash)
 	}
 	for _, box := range boxes {
 		renderBox(&b, box)
 	}
 	renderNotes(&b, model.NoteEntities, boxByID, noteStartY)
+	renderHotspots(&b, model.Hotspots, boxByID, hotspotStartY)
 	renderGWT(&b, model.GWTs, boxByID, gwtStartY)
 	b.WriteString(`</svg>`)
 	return b.String(), nil
@@ -145,9 +183,9 @@ func orderedSwimlanes(model *Model) []string {
 	return labels
 }
 
-func reflowSwimlanes(lanes map[string]*swimlaneLayout, boxes []boxLayout) {
+func reflowSwimlanes(lanes map[string]*swimlaneLayout, boxes []boxLayout, topY float64) {
 	seen := map[string]bool{}
-	y := 20.0
+	y := topY
 	for _, box := range boxes {
 		label := box.frame.SwimlaneLabel()
 		if seen[label] {
@@ -186,6 +224,14 @@ func noteStackHeight(notes []*NoteEntity) float64 {
 	total := 0.0
 	for _, note := range notes {
 		total += 26 + float64(len(dataRows(note.Value)))*16 + 12
+	}
+	return total
+}
+
+func hotspotStackHeight(hotspots []*Hotspot) float64 {
+	total := 0.0
+	for _, h := range hotspots {
+		total += 26 + float64(len(dataRows(h.Value)))*16 + 12
 	}
 	return total
 }
@@ -230,10 +276,14 @@ func dataRows(data string) []string {
 	return lines
 }
 
-func measureBox(rows []string, opts RenderOptions) (float64, float64) {
+func measureBox(rows []string, frame *Frame, opts RenderOptions) (float64, float64) {
 	width := 120.0
 	for i, row := range rows {
-		lineWidth := opts.MeasureTextWidth(strings.TrimSpace(row), i > 0)
+		text := strings.TrimSpace(row)
+		if i == 0 && frame != nil && frame.Actor != "" {
+			text += "  @" + frame.Actor
+		}
+		lineWidth := opts.MeasureTextWidth(text, i > 0)
 		if lineWidth+20 > width {
 			width = lineWidth + 20
 		}
@@ -247,12 +297,130 @@ func measureBox(rows []string, opts RenderOptions) (float64, float64) {
 
 func renderBox(b *strings.Builder, box boxLayout) {
 	fill, stroke := frameColors(box.frame.EntityType)
-	fmt.Fprintf(b, `<g class="box"><rect x="%0.f" y="%0.f" width="%0.f" height="%0.f" rx="4" fill="%s" stroke="%s"/>`, box.x, box.y, box.width, box.height, fill, stroke)
+	fmt.Fprintf(b, `<g class="box box-%s box-stage-%s" id="frame-%s" data-frame="%s" data-stage="%s"><rect class="frame" x="%0.f" y="%0.f" width="%0.f" height="%0.f" rx="4" fill="%s" stroke="%s"/>`,
+		box.frame.EntityType, box.stage, esc(box.frame.ID), esc(box.frame.ID), box.stage, box.x, box.y, box.width, box.height, fill, stroke)
 	fmt.Fprintf(b, `<text class="box-title" x="%0.f" y="%0.f">%s</text>`, box.x+12, box.y+22, esc(box.contentRows[0]))
+	if box.frame.Actor != "" {
+		fmt.Fprintf(b, `<text class="actor" x="%0.f" y="%0.f" text-anchor="end">@%s</text>`, box.x+box.width-8, box.y+22, esc(box.frame.Actor))
+	}
 	for i, row := range box.contentRows[1:] {
 		fmt.Fprintf(b, `<text class="code" x="%0.f" y="%0.f">%s</text>`, box.x+12, box.y+42+float64(i)*16, esc(row))
 	}
+	if box.stage != StageCurrent {
+		badgeFill := "#f59e0b"
+		if box.stage == StageFuture {
+			badgeFill = "#6b7280"
+		}
+		fmt.Fprintf(b, `<text class="badge" x="%0.f" y="%0.f" fill="%s">%s</text>`, box.x+12, box.y-4, badgeFill, box.stage)
+	}
+	if box.hotspots > 0 {
+		cx, cy := box.x+box.width-2, box.y-2
+		fmt.Fprintf(b, `<circle class="hotspot-dot" cx="%0.f" cy="%0.f" r="8"/><text class="hotspot-count" x="%0.f" y="%0.f" text-anchor="middle">%d</text>`, cx, cy, cx, cy+3, box.hotspots)
+	}
 	b.WriteString(`</g>`)
+}
+
+// renderChapters draws a labelled bracket spanning each chapter's frame range.
+func renderChapters(b *strings.Builder, model *Model, boxes map[string]boxLayout, y float64) {
+	for _, ch := range model.Chapters {
+		x1, x2, ok := rangeExtent(model, ch.Start, ch.End, boxes)
+		if !ok {
+			continue
+		}
+		fmt.Fprintf(b, `<g class="chapter"><rect x="%0.f" y="%0.f" width="%0.f" height="%0.f" rx="4" fill="#dbeafe" stroke="#93c5fd"/><text x="%0.f" y="%0.f">%s</text></g>`,
+			x1, y, x2-x1, chapterBandHeight-6, x1+10, y+17, esc(ch.Name))
+	}
+}
+
+// assignSliceRows returns how many stacked rows slices need so overlapping
+// slices don't draw on top of each other.
+func assignSliceRows(model *Model) int {
+	rows := 0
+	for i := range model.Slices {
+		rows = max(rows, sliceRow(model, i)+1)
+	}
+	return rows
+}
+
+func sliceRow(model *Model, idx int) int {
+	s := model.Slices[idx]
+	if s.Start == nil || s.End == nil {
+		return 0
+	}
+	row := 0
+	for j := 0; j < idx; j++ {
+		o := model.Slices[j]
+		if o.Start == nil || o.End == nil {
+			continue
+		}
+		if s.Start.DeclarationIx <= o.End.DeclarationIx && o.Start.DeclarationIx <= s.End.DeclarationIx {
+			if r := sliceRow(model, j); r >= row {
+				row = r + 1
+			}
+		}
+	}
+	return row
+}
+
+func renderSlices(b *strings.Builder, model *Model, boxes map[string]boxLayout, y float64) {
+	for i, sl := range model.Slices {
+		x1, x2, ok := rangeExtent(model, sl.Start, sl.End, boxes)
+		if !ok {
+			continue
+		}
+		rowY := y + float64(sliceRow(model, i))*sliceBandHeight
+		fill, stroke := "#f3f4f6", "#d1d5db"
+		switch sl.Stage {
+		case StageStaging:
+			fill, stroke = "#fef3c7", "#f59e0b"
+		case StageFuture:
+			fill, stroke = "#e5e7eb", "#9ca3af"
+		}
+		if sl.Status == StatusBlocked {
+			stroke = "#dc2626"
+		}
+		label := sl.Name
+		var tags []string
+		if sl.Status != "" {
+			tags = append(tags, sl.Status)
+		}
+		if sl.Stage != "" && sl.Stage != StageCurrent {
+			tags = append(tags, string(sl.Stage))
+		}
+		if len(tags) > 0 {
+			label += "  [" + strings.Join(tags, " · ") + "]"
+		}
+		fmt.Fprintf(b, `<g class="slice slice-stage-%s" data-slice="%s"><rect x="%0.f" y="%0.f" width="%0.f" height="%0.f" rx="3" fill="%s" stroke="%s"/><text x="%0.f" y="%0.f">%s</text></g>`,
+			stageOrCurrent(sl.Stage), esc(sl.Name), x1, rowY, x2-x1, sliceBandHeight-4, fill, stroke, x1+8, rowY+15, esc(label))
+	}
+}
+
+func stageOrCurrent(s Stage) Stage {
+	if s == "" {
+		return StageCurrent
+	}
+	return s
+}
+
+func rangeExtent(model *Model, start, end *Frame, boxes map[string]boxLayout) (float64, float64, bool) {
+	if start == nil || end == nil {
+		return 0, 0, false
+	}
+	x1, x2 := math.MaxFloat64, 0.0
+	found := false
+	for _, f := range model.Frames {
+		if f.DeclarationIx < start.DeclarationIx || f.DeclarationIx > end.DeclarationIx {
+			continue
+		}
+		box, ok := boxes[f.ID]
+		if !ok {
+			continue
+		}
+		found = true
+		x1 = math.Min(x1, box.x)
+		x2 = math.Max(x2, box.x+box.width)
+	}
+	return x1, x2, found
 }
 
 func renderNotes(b *strings.Builder, notes []*NoteEntity, boxes map[string]boxLayout, startY float64) {
@@ -265,6 +433,23 @@ func renderNotes(b *strings.Builder, notes []*NoteEntity, boxes map[string]boxLa
 		fmt.Fprintf(b, `<text x="%0.f" y="%0.f">Note for %s</text>`, box.x+10, y+18, esc(note.Source.Identifier))
 		for i, row := range rows {
 			fmt.Fprintf(b, `<text class="code" x="%0.f" y="%0.f">%s</text>`, box.x+10, y+36+float64(i)*16, esc(row))
+		}
+		b.WriteString(`</g>`)
+		y += height + 12
+	}
+}
+
+// renderHotspots draws each open question as a red sticky under its frame.
+func renderHotspots(b *strings.Builder, hotspots []*Hotspot, boxes map[string]boxLayout, startY float64) {
+	y := startY
+	for _, h := range hotspots {
+		box := boxes[h.Source.ID]
+		rows := dataRows(h.Value)
+		height := 26.0 + float64(len(rows))*16
+		fmt.Fprintf(b, `<g class="hotspot" data-frame="%s"><rect x="%0.f" y="%0.f" width="240" height="%0.f" rx="4" fill="#fee2e2" stroke="#dc2626"/>`, esc(h.Source.ID), box.x, y, height)
+		fmt.Fprintf(b, `<text x="%0.f" y="%0.f" fill="#991b1b" class="box-title">? Open question · %s</text>`, box.x+10, y+18, esc(h.Source.Identifier))
+		for i, row := range rows {
+			fmt.Fprintf(b, `<text x="%0.f" y="%0.f">%s</text>`, box.x+10, y+36+float64(i)*16, esc(row))
 		}
 		b.WriteString(`</g>`)
 		y += height + 12
@@ -308,7 +493,7 @@ func renderGWT(b *strings.Builder, gwts []*GWT, boxes map[string]boxLayout, star
 				lines = append(lines, statementSummary(stmt))
 			}
 			height := 30.0 + float64(len(lines))*15
-			fmt.Fprintf(b, `<g class="gwt"><rect x="%0.f" y="%0.f" width="240" height="%0.f" rx="4" fill="#f8f8f8" stroke="#bbbbbb"/>`, source.x, y, height)
+			fmt.Fprintf(b, `<g class="gwt" data-frame="%s"><rect x="%0.f" y="%0.f" width="240" height="%0.f" rx="4" fill="#f8f8f8" stroke="#bbbbbb"/>`, esc(sourceID), source.x, y, height)
 			title := "Scenario"
 			if gwt.Label != "" {
 				title = StripQuotes(gwt.Label)

@@ -38,8 +38,8 @@ type App struct {
 	models       *models.Models
 	systemPrompt string
 
-	llmMu  sync.Mutex
-	llms   map[string]*LLM // modelID -> loaded model, process-wide cache
+	llmMu sync.Mutex
+	llms  map[string]*LLM // modelID -> loaded model, process-wide cache
 }
 
 // NewApp constructs an App, loading templates and preparing (but not yet
@@ -79,6 +79,17 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("POST /flow/{flow}/draft/{id}/chat", a.handleChat)
 	mux.HandleFunc("POST /flow/{flow}/draft/{id}/new-version", a.handleNewVersion)
 	mux.HandleFunc("POST /flow/{flow}/draft/{id}/activate", a.handleActivate)
+	mux.HandleFunc("POST /lens", a.handleLens)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/source", a.handleApplySource)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/step", a.handleAddStep)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/step/{frame}/stage", a.handleSetStage)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/step/{frame}/remove", a.handleRemoveStep)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/scenario", a.handleAddScenario)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/hotspot", a.handleAddHotspot)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/hotspot/{index}/resolve", a.handleResolveHotspot)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/slice", a.handleAddSlice)
+	mux.HandleFunc("GET /flow/{flow}/draft/{id}/export.evml", a.handleExportEvml)
+	mux.HandleFunc("GET /flow/{flow}/draft/{id}/export.svg", a.handleExportSVG)
 
 	return withRequestLogging(a.log, mux)
 }
@@ -185,10 +196,32 @@ func renderEvml(source string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parse error: %w", err)
 	}
-	if errs := evml.ValidateConnections(m); len(errs) > 0 {
+	if errs := evml.Validate(m); len(errs) > 0 {
 		return "", fmt.Errorf("%s", ValidationErrorsText(errs))
 	}
 	return evml.RenderSVG(m, evml.RenderOptions{})
+}
+
+// parseEvml parses and validates source, returning one error message that
+// is safe to show a domain expert (line number + plain-language problem).
+func parseEvml(source string) (*evml.Model, error) {
+	m, err := evml.Parse(source)
+	if err != nil {
+		return nil, fmt.Errorf("parse error: %w", err)
+	}
+	if errs := evml.Validate(m); len(errs) > 0 {
+		return nil, fmt.Errorf("%s", ValidationErrorsText(errs))
+	}
+	return m, nil
+}
+
+// renderLens renders source through the session lens (stage filter).
+func renderLens(source, lens string) (string, error) {
+	m, err := parseEvml(source)
+	if err != nil {
+		return "", err
+	}
+	return evml.RenderSVG(evml.FilterStages(m, lensStages(lens)...), evml.RenderOptions{})
 }
 
 // llmFor returns the cached LLM for modelID, loading it on first use.

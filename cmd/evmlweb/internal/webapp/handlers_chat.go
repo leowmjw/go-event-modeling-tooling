@@ -35,8 +35,8 @@ func (a *App) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	modelID := s.ModelID
-	if modelID == "" {
-		http.Error(w, "no model selected", http.StatusBadRequest)
+	if modelID == "" || a.models == nil {
+		http.Error(w, "no local model is available — use the Steps, Questions and Source tabs to edit the model directly", http.StatusBadRequest)
 		return
 	}
 

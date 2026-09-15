@@ -1,0 +1,319 @@
+eventmodeling
+
+// Instant account-to-account payment — BASELINE (v1, "as it ran last quarter").
+//
+// Session 1 output (2025-04-10) with Payments product, Ledger ops and the
+// clearing-gateway team. SEPA-Inst / FPS style: the payer PSP holds funds,
+// sends a pacs.008 credit transfer to the scheme, and the scheme replies with
+// a pacs.002 status report (ACCP or RJCT). On ACCP the hold becomes a posted
+// debit; on RJCT the hold is released and the customer is told why.
+//
+// Bounded contexts (left → right):
+//   Payment Initiation → Ledger (hold) → Clearing Gateway → Ledger (settle/release) → Notifications
+//
+// Everything is stage current except a 3-frame FUTURE sketch (21-23) the
+// room stuck on the wall when nobody could answer "what if the scheme never
+// replies?" — that question is the open hotspot on frame 21.
+
+actor Customer
+
+chapter "Payment Initiation" 01-04
+chapter "Ledger: hold funds" 05-10
+chapter "Clearing Gateway" 11-23
+chapter "Ledger: settle or release" 24-30
+chapter "Notifications" 31-34
+
+slice "Initiate payment" 01-04 status Done
+slice "Hold funds" 05-09 status Done
+slice "Insufficient funds rejection" 10-10 status Done
+slice "Send credit transfer (pacs.008)" 11-14 status Done
+slice "Scheme accept or reject (pacs.002)" 15-20 status Done
+slice "Scheme timeout (sketch)" 21-23 status Created stage future
+slice "Settle or release hold" 24-30 status Done
+slice "Notify customer" 31-34 status Done
+
+// ── Payment Initiation ───────────────────────────────────────────────────────
+tf 01 ui SendMoneyScreen @Customer
+tf 02 cmd InitiatePayment { paymentId: "pay-7f3a9c", debtorAccountId: "acc-118203", creditorIban: "DE89370400440532013000", creditorName: "Anna Schmidt", amount: 250.00, currency: "EUR", remittanceInfo: "Invoice 4471", initiatedAt: "2025-06-12T09:14:03Z" }
+tf 03 evt PaymentInitiated { paymentId: "pay-7f3a9c", endToEndId: "E2E-20250612-000173", debtorAccountId: "acc-118203", creditorIban: "DE89370400440532013000", amount: 250.00, currency: "EUR", initiatedAt: "2025-06-12T09:14:03Z" }
+tf 04 rmo PaymentStatus { paymentId: "pay-7f3a9c", status: "INITIATED", amount: 250.00, currency: "EUR", lastUpdatedAt: "2025-06-12T09:14:03Z" }
+
+// ── Ledger: hold funds ───────────────────────────────────────────────────────
+rf 05 evt Payments.PaymentInitiated { paymentId: "pay-7f3a9c", debtorAccountId: "acc-118203", amount: 250.00, currency: "EUR" }
+tf 06 pcr LedgerTranslator ->> 05
+tf 07 cmd HoldFunds { paymentId: "pay-7f3a9c", accountId: "acc-118203", amount: 250.00, currency: "EUR" }
+tf 08 evt FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", accountId: "acc-118203", amount: 250.00, currency: "EUR", heldAt: "2025-06-12T09:14:03.410Z" }
+tf 09 rmo AccountBalance [[AccountBalance09]]
+tf 10 evt FundsHoldRejected ->> 07 { paymentId: "pay-7f3a9c", accountId: "acc-118203", reasonCode: "AM04", reasonText: "Insufficient funds", requested: 250.00, available: 120.35, currency: "EUR" }
+
+// ── Clearing Gateway ─────────────────────────────────────────────────────────
+rf 11 evt Ledger.FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+tf 12 pcr ClearingTranslator ->> 11
+tf 13 cmd SendCreditTransfer { paymentId: "pay-7f3a9c", messageType: "pacs.008", msgId: "MSG-NWBK-20250612-0917", endToEndId: "E2E-20250612-000173", debtorAgentBic: "NWBKGB2L", creditorAgentBic: "COBADEFF", amount: 250.00, currency: "EUR" }
+tf 14 evt CreditTransferSent { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", endToEndId: "E2E-20250612-000173", amount: 250.00, currency: "EUR", sentAt: "2025-06-12T09:14:03.620Z" }
+rf 15 evt Scheme.PaymentStatusReported { messageType: "pacs.002", originalMsgId: "MSG-NWBK-20250612-0917", originalEndToEndId: "E2E-20250612-000173", transactionStatus: "ACCP", schemeReference: "SCT-INST-9A81C2", reportedAt: "2025-06-12T09:14:05.102Z" }
+tf 16 pcr SchemeStatusTranslator ->> 15
+tf 17 cmd CompletePayment { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2", settledAt: "2025-06-12T09:14:05.102Z" }
+tf 18 evt PaymentCompleted { paymentId: "pay-7f3a9c", holdId: "hold-55a1", schemeReference: "SCT-INST-9A81C2", amount: 250.00, currency: "EUR", completedAt: "2025-06-12T09:14:05.180Z" }
+tf 19 cmd FailPayment ->> 16 { paymentId: "pay-7f3a9c", reasonCode: "AC04", reasonText: "Creditor account closed" }
+tf 20 evt PaymentFailed { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reasonCode: "AC04", reasonText: "Creditor account closed", failedAt: "2025-06-12T09:14:05.180Z" }
+
+tf 21 pcr SchemeTimeoutWatchdog ->> 14
+tf 22 cmd TimeOutPayment { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", waitedSeconds: 10 }
+tf 23 evt PaymentTimedOut { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reasonCode: "AB05", waitedSeconds: 10 }
+
+// ── Ledger: settle or release ────────────────────────────────────────────────
+rf 24 evt Payments.PaymentCompleted { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+rf 25 evt Payments.PaymentFailed { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reasonCode: "AC04" }
+tf 26 pcr LedgerSettlementTranslator ->> 24 ->> 25
+tf 27 cmd PostDebit { paymentId: "pay-7f3a9c", holdId: "hold-55a1", accountId: "acc-118203", amount: 250.00, currency: "EUR" }
+tf 28 evt DebitPosted { paymentId: "pay-7f3a9c", holdId: "hold-55a1", journalEntryId: "je-20250612-88213", accountId: "acc-118203", amount: 250.00, currency: "EUR", ledgerBalanceAfter: 1250.00, postedAt: "2025-06-12T09:14:05.230Z" }
+tf 29 cmd ReleaseHold ->> 26 { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "SCHEME_REJECTED" }
+tf 30 evt HoldReleased { paymentId: "pay-7f3a9c", holdId: "hold-55a1", accountId: "acc-118203", amount: 250.00, currency: "EUR", reason: "SCHEME_REJECTED", releasedAt: "2025-06-12T09:14:05.240Z" }
+
+// ── Notifications ────────────────────────────────────────────────────────────
+rf 31 evt Payments.PaymentCompleted { paymentId: "pay-7f3a9c", customerId: "cust-40912", creditorName: "Anna Schmidt", amount: 250.00, currency: "EUR" }
+tf 32 pcr NotificationTranslator ->> 31
+tf 33 cmd NotifyCustomer { paymentId: "pay-7f3a9c", customerId: "cust-40912", channel: "PUSH", template: "PAYMENT_COMPLETED", amount: 250.00, currency: "EUR", creditorName: "Anna Schmidt" }
+tf 34 evt CustomerNotified { paymentId: "pay-7f3a9c", customerId: "cust-40912", notificationId: "ntf-c31e", channel: "PUSH", template: "PAYMENT_COMPLETED", deliveredAt: "2025-06-12T09:14:06Z" }
+
+data AccountBalance09 {
+  accountId: "acc-118203"
+  currency: "EUR"
+  ledgerBalance: 1500.00
+  heldAmount: 250.00
+  availableBalance: 1250.00
+  holds: [
+    { holdId: "hold-55a1", paymentId: "pay-7f3a9c", amount: 250.00 }
+  ]
+  asOf: "2025-06-12T09:14:03.410Z"
+}
+
+// ── Open questions from session 1 ────────────────────────────────────────────
+
+hotspot 21 {
+  What happens if the scheme never answers the pacs.008?
+  The rulebook says a pacs.002 must arrive within 10 s (20 s end-to-end), but
+  today nothing fires - the hold just sits there until ops release it by hand.
+  Do we time out ourselves? After how long? Who reverses?
+}
+
+hotspot 33 {
+  Do we push-notify on insufficient-funds rejections, or only show them in-app?
+  Marketing objects to "negative" push messages; Ops wants the customer told immediately.
+}
+
+note 02 {
+  Scheme maximum for a single instant credit transfer is EUR 100,000 (raised
+  from 15,000 in 2020). Minimum is EUR 0.01.
+}
+
+// ── Scenarios ────────────────────────────────────────────────────────────────
+
+gwt 02 "initiate a payment within scheme limits"
+  given
+    evt AccountOpened { accountId: "acc-118203", customerId: "cust-40912", currency: "EUR" }
+  when
+    cmd InitiatePayment { paymentId: "pay-7f3a9c", debtorAccountId: "acc-118203", creditorIban: "DE89370400440532013000", amount: 250.00, currency: "EUR" }
+  then
+    evt PaymentInitiated { paymentId: "pay-7f3a9c", endToEndId: "E2E-20250612-000173", amount: 250.00, currency: "EUR" }
+
+gwt 02 "reject a payment above the scheme maximum"
+  given
+    evt AccountOpened { accountId: "acc-118203", customerId: "cust-40912", currency: "EUR" }
+  when
+    cmd InitiatePayment { paymentId: "pay-7f3aa0", debtorAccountId: "acc-118203", creditorIban: "DE89370400440532013000", amount: 120000.00, currency: "EUR" }
+  then
+    evt PaymentInitiationRejected { paymentId: "pay-7f3aa0", reasonCode: "AM02", reasonText: "Amount exceeds scheme maximum", limit: 100000.00 }
+
+gwt 02 "reject a payment to a malformed creditor IBAN"
+  given
+    evt AccountOpened { accountId: "acc-118203", customerId: "cust-40912", currency: "EUR" }
+  when
+    cmd InitiatePayment { paymentId: "pay-7f3aa1", debtorAccountId: "acc-118203", creditorIban: "DE89-NOT-AN-IBAN", amount: 250.00, currency: "EUR" }
+  then
+    evt PaymentInitiationRejected { paymentId: "pay-7f3aa1", reasonCode: "AC01", reasonText: "Incorrect account number" }
+
+gwt 07 "hold funds when available balance covers the amount"
+  given
+    evt Payments.PaymentInitiated { paymentId: "pay-7f3a9c", debtorAccountId: "acc-118203", amount: 250.00, currency: "EUR" }
+    rmo AccountBalance { accountId: "acc-118203", availableBalance: 1500.00 }
+  when
+    cmd HoldFunds { paymentId: "pay-7f3a9c", accountId: "acc-118203", amount: 250.00, currency: "EUR" }
+  then
+    evt FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+
+gwt 07 "reject the hold when available balance is insufficient"
+  given
+    evt Payments.PaymentInitiated { paymentId: "pay-7f3a9c", debtorAccountId: "acc-118203", amount: 250.00, currency: "EUR" }
+    rmo AccountBalance { accountId: "acc-118203", availableBalance: 120.35 }
+  when
+    cmd HoldFunds { paymentId: "pay-7f3a9c", accountId: "acc-118203", amount: 250.00, currency: "EUR" }
+  then
+    evt FundsHoldRejected { paymentId: "pay-7f3a9c", reasonCode: "AM04", requested: 250.00, available: 120.35 }
+
+gwt 07 "ignore a duplicate hold for the same payment"
+  given
+    evt FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+  when
+    cmd HoldFunds { paymentId: "pay-7f3a9c", accountId: "acc-118203", amount: 250.00, currency: "EUR" }
+  then
+    evt FundsHoldIgnored { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "already_held" }
+
+gwt 13 "send pacs.008 once funds are held"
+  given
+    evt Ledger.FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+  when
+    cmd SendCreditTransfer { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", endToEndId: "E2E-20250612-000173", amount: 250.00, currency: "EUR" }
+  then
+    evt CreditTransferSent { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", sentAt: "2025-06-12T09:14:03.620Z" }
+
+gwt 13 "reject a second send for the same end-to-end id"
+  given
+    evt CreditTransferSent { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", endToEndId: "E2E-20250612-000173" }
+  when
+    cmd SendCreditTransfer { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0918", endToEndId: "E2E-20250612-000173", amount: 250.00, currency: "EUR" }
+  then
+    evt CreditTransferSendRejected { paymentId: "pay-7f3a9c", reasonCode: "DUPL", reasonText: "Duplicate end-to-end id" }
+
+gwt 13 "reject sending when the creditor agent is not reachable in the scheme"
+  given
+    evt Ledger.FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+  when
+    cmd SendCreditTransfer { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917", creditorAgentBic: "XXXXGB99", amount: 250.00, currency: "EUR" }
+  then
+    evt CreditTransferSendRejected { paymentId: "pay-7f3a9c", reasonCode: "RC01", reasonText: "Creditor agent not reachable for SCT Inst" }
+
+gwt 17 "complete the payment on ACCP"
+  given
+    evt CreditTransferSent { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917" }
+    evt Scheme.PaymentStatusReported { originalMsgId: "MSG-NWBK-20250612-0917", transactionStatus: "ACCP", schemeReference: "SCT-INST-9A81C2" }
+  when
+    cmd CompletePayment { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2" }
+  then
+    evt PaymentCompleted { paymentId: "pay-7f3a9c", holdId: "hold-55a1", schemeReference: "SCT-INST-9A81C2", amount: 250.00, currency: "EUR" }
+
+gwt 17 "reject completion when the payment has already failed"
+  given
+    evt PaymentFailed { paymentId: "pay-7f3a9c", reasonCode: "AC04" }
+  when
+    cmd CompletePayment { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2" }
+  then
+    evt PaymentCompletionRejected { paymentId: "pay-7f3a9c", reason: "already_failed" }
+
+gwt 17 "ignore a duplicate ACCP for an already completed payment"
+  given
+    evt PaymentCompleted { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2" }
+  when
+    cmd CompletePayment { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2" }
+  then
+    evt PaymentCompletionIgnored { paymentId: "pay-7f3a9c", reason: "already_completed" }
+
+gwt 19 "fail the payment on RJCT with the scheme reason code"
+  given
+    evt CreditTransferSent { paymentId: "pay-7f3a9c", msgId: "MSG-NWBK-20250612-0917" }
+    evt Scheme.PaymentStatusReported { originalMsgId: "MSG-NWBK-20250612-0917", transactionStatus: "RJCT", reasonCode: "AC04" }
+  when
+    cmd FailPayment { paymentId: "pay-7f3a9c", reasonCode: "AC04", reasonText: "Creditor account closed" }
+  then
+    evt PaymentFailed { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reasonCode: "AC04" }
+
+gwt 19 "reject failing a payment that already completed"
+  given
+    evt PaymentCompleted { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2" }
+  when
+    cmd FailPayment { paymentId: "pay-7f3a9c", reasonCode: "AC04" }
+  then
+    evt PaymentFailureRejected { paymentId: "pay-7f3a9c", reason: "already_completed" }
+
+gwt 16 "SchemeStatusTranslator routes ACCP to CompletePayment"
+  given
+    evt Scheme.PaymentStatusReported { originalMsgId: "MSG-NWBK-20250612-0917", transactionStatus: "ACCP", schemeReference: "SCT-INST-9A81C2" }
+  when
+    cmd CompletePayment { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2" }
+  then
+    evt PaymentCompleted { paymentId: "pay-7f3a9c", schemeReference: "SCT-INST-9A81C2" }
+
+gwt 16 "SchemeStatusTranslator routes RJCT to FailPayment"
+  given
+    evt Scheme.PaymentStatusReported { originalMsgId: "MSG-NWBK-20250612-0917", transactionStatus: "RJCT", reasonCode: "AC04" }
+  when
+    cmd FailPayment { paymentId: "pay-7f3a9c", reasonCode: "AC04" }
+  then
+    evt PaymentFailed { paymentId: "pay-7f3a9c", reasonCode: "AC04" }
+
+gwt 27 "post the debit against the hold after completion"
+  given
+    evt FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+    evt Payments.PaymentCompleted { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+  when
+    cmd PostDebit { paymentId: "pay-7f3a9c", holdId: "hold-55a1", accountId: "acc-118203", amount: 250.00, currency: "EUR" }
+  then
+    evt DebitPosted { paymentId: "pay-7f3a9c", holdId: "hold-55a1", journalEntryId: "je-20250612-88213", amount: 250.00, ledgerBalanceAfter: 1250.00 }
+
+gwt 27 "reject posting a debit when the hold was already released"
+  given
+    evt HoldReleased { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "SCHEME_REJECTED" }
+    evt Payments.PaymentCompleted { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+  when
+    cmd PostDebit { paymentId: "pay-7f3a9c", holdId: "hold-55a1", accountId: "acc-118203", amount: 250.00, currency: "EUR" }
+  then
+    evt DebitPostingRejected { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "hold_not_active" }
+
+gwt 27 "reject posting when the amount differs from the held amount"
+  given
+    evt FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+  when
+    cmd PostDebit { paymentId: "pay-7f3a9c", holdId: "hold-55a1", accountId: "acc-118203", amount: 260.00, currency: "EUR" }
+  then
+    evt DebitPostingRejected { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "amount_mismatch", held: 250.00, requested: 260.00 }
+
+gwt 29 "release the hold when the scheme rejects the transfer"
+  given
+    evt FundsHeld { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, currency: "EUR" }
+    evt Payments.PaymentFailed { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reasonCode: "AC04" }
+  when
+    cmd ReleaseHold { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "SCHEME_REJECTED" }
+  then
+    evt HoldReleased { paymentId: "pay-7f3a9c", holdId: "hold-55a1", amount: 250.00, reason: "SCHEME_REJECTED" }
+
+gwt 29 "ignore releasing a hold that is already released"
+  given
+    evt HoldReleased { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "SCHEME_REJECTED" }
+  when
+    cmd ReleaseHold { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "SCHEME_REJECTED" }
+  then
+    evt HoldReleaseIgnored { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "already_released" }
+
+gwt 29 "reject releasing a hold whose debit has already been posted"
+  given
+    evt DebitPosted { paymentId: "pay-7f3a9c", holdId: "hold-55a1", journalEntryId: "je-20250612-88213" }
+  when
+    cmd ReleaseHold { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "SCHEME_REJECTED" }
+  then
+    evt HoldReleaseRejected { paymentId: "pay-7f3a9c", holdId: "hold-55a1", reason: "debit_already_posted" }
+
+gwt 33 "notify the customer that the payment completed"
+  given
+    evt Payments.PaymentCompleted { paymentId: "pay-7f3a9c", customerId: "cust-40912", amount: 250.00, currency: "EUR" }
+  when
+    cmd NotifyCustomer { paymentId: "pay-7f3a9c", customerId: "cust-40912", channel: "PUSH", template: "PAYMENT_COMPLETED" }
+  then
+    evt CustomerNotified { paymentId: "pay-7f3a9c", notificationId: "ntf-c31e", channel: "PUSH", template: "PAYMENT_COMPLETED" }
+
+gwt 33 "notify the customer that the scheme rejected the payment"
+  given
+    evt Payments.PaymentFailed { paymentId: "pay-7f3a9c", customerId: "cust-40912", reasonCode: "AC04", reasonText: "Creditor account closed" }
+  when
+    cmd NotifyCustomer { paymentId: "pay-7f3a9c", customerId: "cust-40912", channel: "PUSH", template: "PAYMENT_FAILED", reasonText: "Creditor account closed" }
+  then
+    evt CustomerNotified { paymentId: "pay-7f3a9c", notificationId: "ntf-c31f", channel: "PUSH", template: "PAYMENT_FAILED" }
+
+gwt 33 "fall back to in-app when the customer has push disabled"
+  given
+    evt Payments.PaymentCompleted { paymentId: "pay-7f3a9c", customerId: "cust-40912", amount: 250.00, currency: "EUR" }
+    evt PushNotificationsDisabled { customerId: "cust-40912" }
+  when
+    cmd NotifyCustomer { paymentId: "pay-7f3a9c", customerId: "cust-40912", channel: "PUSH", template: "PAYMENT_COMPLETED" }
+  then
+    evt CustomerNotified { paymentId: "pay-7f3a9c", notificationId: "ntf-c320", channel: "IN_APP", template: "PAYMENT_COMPLETED" }

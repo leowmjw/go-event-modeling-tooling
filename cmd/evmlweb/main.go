@@ -37,6 +37,7 @@ func run() error {
 		repoRoot = flag.String("repo-root", ".", "root of the go-event-modeling-tooling checkout (contains testdata/fixtures, EVENT_MODELING.md, SKILL.md)")
 		stateDir = flag.String("state-dir", "", "directory to persist in-progress draft versions (default: <evmlweb-module>/.state)")
 		logJSON  = flag.Bool("log-json", false, "emit structured logs as JSON instead of text")
+		useLLM   = flag.Bool("llm", true, "load the local Kronk model catalog for the assistant tab; set -llm=false to run a session without any local model")
 	)
 	flag.Parse()
 
@@ -57,13 +58,17 @@ func run() error {
 
 	ctx := context.Background()
 
-	if err := initKronk(ctx, log); err != nil {
-		return fmt.Errorf("initializing kronk: %w", err)
-	}
-
-	m, err := models.New()
-	if err != nil {
-		return fmt.Errorf("opening local model catalog: %w", err)
+	var m *models.Models
+	if *useLLM {
+		if err := initKronk(ctx, log); err != nil {
+			return fmt.Errorf("initializing kronk: %w", err)
+		}
+		m, err = models.New()
+		if err != nil {
+			return fmt.Errorf("opening local model catalog: %w", err)
+		}
+	} else {
+		log.Info("assistant disabled (-llm=false); editing tabs work without a model")
 	}
 
 	app, err := webapp.NewApp(webapp.Config{

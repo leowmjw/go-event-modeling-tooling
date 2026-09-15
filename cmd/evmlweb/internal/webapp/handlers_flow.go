@@ -2,16 +2,20 @@ package webapp
 
 import (
 	"bytes"
+	"encoding/json"
 	"html/template"
 	"net/http"
 	"time"
 
 	"github.com/starfederation/datastar-go/datastar"
+
+	evml "github.com/leowmjw/go-event-modeling-tooling"
 )
 
 // buildPage assembles the full WorkspacePage view model from s's current
 // state: model choices, fixture list, and (if a flow is active) its tabs,
-// active draft's SVG, and chat transcript.
+// active draft's diagram (through the session lens), steps, open
+// questions, diff vs. baseline, and chat transcript.
 func (a *App) buildPage(s *Session) (WorkspacePage, error) {
 	choices, err := ListModelChoices(a.models)
 	if err != nil {
@@ -28,11 +32,22 @@ func (a *App) buildPage(s *Session) (WorkspacePage, error) {
 		a.log.Warn("listing fixtures failed", "error", err)
 	}
 
+	s.mu.Lock()
+	lens := s.Lens
+	if lens == "" {
+		lens = "all"
+	}
+	editErr := s.LastError
+	s.mu.Unlock()
+
 	page := WorkspacePage{
 		ModelID:    s.ModelID,
 		Models:     toModelViews(choices),
+		HasModels:  len(choices) > 0,
 		Fixtures:   fixtures,
 		ActiveFlow: s.ActiveFlow,
+		Lens:       lens,
+		EditError:  editErr,
 	}
 
 	if s.ActiveFlow == "" {
@@ -44,21 +59,43 @@ func (a *App) buildPage(s *Session) (WorkspacePage, error) {
 		page.ActiveFlow = ""
 		return page, nil
 	}
+	page.IsNewFlow = fs.IsNew
 
 	for _, id := range fs.DraftOrder {
 		d := fs.Drafts[id]
-		page.Drafts = append(page.Drafts, DraftTab{ID: d.ID, Label: draftLabel(d)})
+		page.Drafts = append(page.Drafts, DraftTab{ID: d.ID, Label: draftLabel(d), Date: d.Date})
 	}
 	page.ActiveDraftID = fs.ActiveDraftID
 
-	if d, ok := fs.Drafts[fs.ActiveDraftID]; ok {
-		page.ActiveSVG = template.HTML(activeSVG(fs, d))
-		page.Transcript = toChatViews(d.Transcript)
-		page.ParseError = d.ParseError
-	} else {
+	d, ok := fs.Drafts[fs.ActiveDraftID]
+	if !ok {
 		page.ActiveSVG = template.HTML(fs.BaselineSVG)
+		return page, nil
 	}
+	page.Transcript = toChatViews(d.Transcript)
+	page.ParseError = d.ParseError
+	page.DraftDate = d.Date
+	page.Source = currentSource(fs, d)
 
+	m, err := parseEvml(page.Source)
+	if err != nil {
+		// Show the last good diagram and surface the problem.
+		page.ActiveSVG = template.HTML(activeSVG(fs, d))
+		if page.ParseError == "" {
+			page.ParseError = err.Error()
+		}
+		return page, nil
+	}
+	var baseline *evml.Model
+	if !fs.IsNew {
+		baseline, _ = evml.Parse(fs.BaselineEvml)
+	}
+	describeModel(&page, m, baseline, lens)
+	svg, err := evml.RenderSVG(evml.FilterStages(m, lensStages(lens)...), evml.RenderOptions{})
+	if err != nil {
+		svg = activeSVG(fs, d)
+	}
+	page.ActiveSVG = template.HTML(svg)
 	return page, nil
 }
 
@@ -283,6 +320,22 @@ func (a *App) patchWorkspace(w http.ResponseWriter, r *http.Request, s *Session)
 	a.patchWorkspaceSSE(sse, s)
 }
 
+// patchWorkspaceSelecting is patchWorkspace plus a signal patch that
+// selects frameID in the Steps inspector (so a just-added step is open).
+func (a *App) patchWorkspaceSelecting(w http.ResponseWriter, r *http.Request, s *Session, frameID string) {
+	if _, err := a.renderWorkspaceFragment(s); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sse := datastar.NewSSE(w, r)
+	a.patchWorkspaceSSE(sse, s)
+	if frameID != "" {
+		if b, err := json.Marshal(map[string]any{"sel": frameID, "panel": "steps"}); err == nil {
+			_ = sse.PatchSignals(b)
+		}
+	}
+}
+
 // patchWorkspaceSSE re-renders and patches the workspace shell and SVG as
 // separate elements so Datastar never morphs inline <svg> inside a large
 // HTML fragment.
@@ -310,6 +363,11 @@ func (a *App) patchWorkspaceSSE(sse *datastar.ServerSentEventGenerator, s *Sessi
 	if err := sse.PatchElements(svgFrag, datastar.WithSelectorID("svg-container"), datastar.WithModeInner()); err != nil {
 		log.Warn("patch svg failed", "error", err)
 		return
+	}
+	if page, err := a.buildPage(s); err == nil {
+		if b, err := json.Marshal(map[string]any{"source": page.Source}); err == nil {
+			_ = sse.PatchSignals(b)
+		}
 	}
 
 	s.mu.Lock()

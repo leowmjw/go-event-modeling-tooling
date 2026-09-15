@@ -134,6 +134,7 @@ func (s *DraftStore) LoadFlow(flow string) ([]*DraftVersion, error) {
 // else's in-progress state.
 type sessionSnapshot struct {
 	ModelID           string            `json:"model_id"`
+	Lens              string            `json:"lens,omitempty"`
 	ActiveFlow        string            `json:"active_flow"`
 	ActiveDraftByFlow map[string]string `json:"active_draft_by_flow"`
 }
