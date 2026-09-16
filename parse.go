@@ -2,6 +2,7 @@ package evml
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -23,22 +24,42 @@ func Parse(input string) (*Model, error) {
 }
 
 type parser struct {
-	lines []string
-	line  int
+	lines   []string
+	line    int
+	section string
+}
+
+var sectionBannerRe = regexp.MustCompile(`^\s*─+\s*(.+?)\s*─*\s*$`)
+
+func (p *parser) skipIgnorable(model *Model) {
+	for p.line < len(p.lines) && isIgnorableLine(p.lines[p.line]) {
+		trimmed := strings.TrimSpace(p.lines[p.line])
+		rest := ""
+		switch {
+		case strings.HasPrefix(trimmed, "//"):
+			rest = trimmed[2:]
+		case strings.HasPrefix(trimmed, "%%"):
+			rest = trimmed[2:]
+		}
+		if m := sectionBannerRe.FindStringSubmatch(rest); m != nil {
+			name := strings.TrimSpace(m[1])
+			model.Sections = append(model.Sections, &Section{Name: name, Line: p.line + 1})
+			p.section = name
+		}
+		p.line++
+	}
 }
 
 func (p *parser) parse() (*Model, error) {
 	model := &Model{}
-	for p.line < len(p.lines) && isIgnorableLine(p.lines[p.line]) {
-		p.line++
-	}
+	p.skipIgnorable(model)
 	if p.line >= len(p.lines) || strings.TrimSpace(p.lines[p.line]) != "eventmodeling" {
 		return nil, p.errorf("expected eventmodeling header")
 	}
 	p.line++
 	for p.line < len(p.lines) {
 		if isIgnorableLine(p.lines[p.line]) {
-			p.line++
+			p.skipIgnorable(model)
 			continue
 		}
 		trimmed := strings.TrimSpace(p.lines[p.line])
@@ -49,6 +70,8 @@ func (p *parser) parse() (*Model, error) {
 				return nil, err
 			}
 			frame.DeclarationIx = len(model.Frames)
+			frame.Line = p.line + 1
+			frame.Section = p.section
 			model.Frames = append(model.Frames, frame)
 			p.line += consumed
 		case hasKeyword(trimmed, "rf"), hasKeyword(trimmed, "resetframe"):
@@ -58,6 +81,8 @@ func (p *parser) parse() (*Model, error) {
 			}
 			frame.Kind = FrameKindReset
 			frame.DeclarationIx = len(model.Frames)
+			frame.Line = p.line + 1
+			frame.Section = p.section
 			model.Frames = append(model.Frames, frame)
 			p.line += consumed
 		case hasKeyword(trimmed, "data"):
@@ -65,6 +90,7 @@ func (p *parser) parse() (*Model, error) {
 			if err != nil {
 				return nil, err
 			}
+			entity.Line = p.line + 1
 			model.DataEntities = append(model.DataEntities, entity)
 			p.line += consumed
 		case hasKeyword(trimmed, "note"):
@@ -72,6 +98,7 @@ func (p *parser) parse() (*Model, error) {
 			if err != nil {
 				return nil, err
 			}
+			note.Line = p.line + 1
 			model.NoteEntities = append(model.NoteEntities, note)
 			p.line += consumed
 		case hasKeyword(trimmed, "gwt"):
@@ -79,6 +106,7 @@ func (p *parser) parse() (*Model, error) {
 			if err != nil {
 				return nil, err
 			}
+			gwt.Line = p.line + 1
 			model.GWTs = append(model.GWTs, gwt)
 			p.line += consumed
 		case hasKeyword(trimmed, "entity"):

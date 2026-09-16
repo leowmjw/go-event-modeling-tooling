@@ -278,6 +278,13 @@ entity Hotel.Room
 
 All comment styles are ignored by the parser.
 
+**Section banners.** A comment line of the form `// ── <Name> ──────` (one or
+more `─` U+2500 box-drawing dashes on each side of a name) is still ignored by
+the grammar, but tooling records it as a *section boundary*: `evml json` lists
+it under `sections` and tags every following frame with `section: "<Name>"`.
+The `compile-evml-rote-ir` skill uses these banners as bounded-context
+boundaries when splitting a model into per-context `pipeline.yaml` IR.
+
 > **Parser restriction:** comments are only valid at the *top level* — between
 > top-level declarations (`tf`, `rf`, `data`, `gwt`, etc.).  Do **not** place
 > a comment line between two `gwt` blocks or anywhere inside a `gwt` block body.

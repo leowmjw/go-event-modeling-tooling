@@ -2,8 +2,11 @@ package evml
 
 import (
 	"bytes"
+	"encoding/json"
 	"io/fs"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -39,6 +42,118 @@ func TestRunSVGWritesRequestedOutput(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "SVG generated successfully") {
 		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+type jsonDoc struct {
+	Schema   string `json:"schema"`
+	Source   string `json:"source"`
+	SHA256   string `json:"sha256"`
+	Sections []struct {
+		Name string `json:"name"`
+		Line int    `json:"line"`
+	} `json:"sections"`
+	Frames []struct {
+		ID        string   `json:"id"`
+		Kind      string   `json:"kind"`
+		Type      string   `json:"type"`
+		Name      string   `json:"name"`
+		Namespace string   `json:"namespace"`
+		Line      int      `json:"line"`
+		Section   string   `json:"section"`
+		Sources   []string `json:"sources"`
+	} `json:"frames"`
+	GWTs []struct {
+		Frame string `json:"frame"`
+	} `json:"gwts"`
+}
+
+func TestRunJSONBoundedContextFixture(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"json", "testdata/fixtures/bounded-context-order-fulfillment.evml"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("Run() code = %d, stderr = %s", code, stderr.String())
+	}
+	var doc jsonDoc
+	if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	if doc.Schema != "evml-model/v1" {
+		t.Fatalf("schema = %q", doc.Schema)
+	}
+	if len(doc.Sections) != 4 {
+		t.Fatalf("len(sections) = %d, want 4", len(doc.Sections))
+	}
+	if doc.Sections[0].Name != "Sales bounded context" {
+		t.Fatalf("first section = %q", doc.Sections[0].Name)
+	}
+	frames := map[string]struct {
+		Kind      string
+		Namespace string
+		Line      int
+		Section   string
+		Sources   []string
+	}{}
+	for _, f := range doc.Frames {
+		frames[f.ID] = struct {
+			Kind      string
+			Namespace string
+			Line      int
+			Section   string
+			Sources   []string
+		}{f.Kind, f.Namespace, f.Line, f.Section, f.Sources}
+	}
+	f07, ok := frames["07"]
+	if !ok {
+		t.Fatal("frame 07 missing")
+	}
+	if f07.Section != "Billing bounded context" {
+		t.Fatalf("frame 07 section = %q", f07.Section)
+	}
+	if f07.Line <= 0 {
+		t.Fatalf("frame 07 line = %d", f07.Line)
+	}
+	if len(f07.Sources) != 1 || f07.Sources[0] != "06" {
+		t.Fatalf("frame 07 sources = %v", f07.Sources)
+	}
+	f06, ok := frames["06"]
+	if !ok {
+		t.Fatal("frame 06 missing")
+	}
+	if f06.Kind != "rf" || f06.Namespace != "Sales" {
+		t.Fatalf("frame 06 kind=%q namespace=%q", f06.Kind, f06.Namespace)
+	}
+	foundGWT := false
+	for _, g := range doc.GWTs {
+		if g.Frame == "03" {
+			foundGWT = true
+		}
+	}
+	if !foundGWT {
+		t.Fatal("no gwt anchored to frame 03")
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(doc.SHA256) {
+		t.Fatalf("sha256 = %q", doc.SHA256)
+	}
+}
+
+func TestRunJSONWritesRequestedOutput(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "nested", "model.json")
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"json", "testdata/fixtures/bounded-context-order-fulfillment.evml", "-o", out}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("Run() code = %d, stderr = %s", code, stderr.String())
+	}
+	content, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	var doc jsonDoc
+	if err := json.Unmarshal(content, &doc); err != nil {
+		t.Fatalf("output file is not valid JSON: %v", err)
+	}
+	if doc.Schema != "evml-model/v1" {
+		t.Fatalf("schema = %q", doc.Schema)
 	}
 }
 

@@ -83,6 +83,44 @@ gwt 03 'cart already populated'
 	}
 }
 
+func TestParseLineAndSectionTracking(t *testing.T) {
+	model, err := Parse(`eventmodeling
+tf 01 evt Start
+
+// ── Sales ─────────────────────
+tf 02 cmd Make
+tf 03 evt Made
+
+data Payload02 {
+  a: 1
+}
+
+gwt 02 "make something"
+  given
+    evt Start
+  then
+    evt Made
+`)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if model.Frames[0].Line != 2 || model.Frames[0].Section != "" {
+		t.Fatalf("frame 01 line=%d section=%q, want line=2 section=\"\"", model.Frames[0].Line, model.Frames[0].Section)
+	}
+	if model.Frames[1].Line != 5 || model.Frames[1].Section != "Sales" {
+		t.Fatalf("frame 02 line=%d section=%q, want line=5 section=Sales", model.Frames[1].Line, model.Frames[1].Section)
+	}
+	if model.DataEntities[0].Line != 8 {
+		t.Fatalf("data line = %d, want 8", model.DataEntities[0].Line)
+	}
+	if model.GWTs[0].Line != 12 {
+		t.Fatalf("gwt line = %d, want 12", model.GWTs[0].Line)
+	}
+	if len(model.Sections) != 1 || model.Sections[0].Name != "Sales" || model.Sections[0].Line != 4 {
+		t.Fatalf("sections = %+v", model.Sections)
+	}
+}
+
 func TestParseGWTWithoutLabel(t *testing.T) {
 	model, err := Parse(`eventmodeling
 tf 01 evt Start

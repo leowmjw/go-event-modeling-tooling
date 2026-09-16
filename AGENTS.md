@@ -17,6 +17,7 @@ needing to read every source file first.
 ├── parse.go         Hand-written recursive-descent parser
 ├── render.go        SVG renderer + layout helpers
 ├── validate.go      Post-parse validation helpers
+├── json.go          ModelJSON — evml-model/v1 JSON serializer for tooling
 ├── cli.go           CLI wiring (Cobra / flag parsing)
 ├── cli_test.go
 ├── parse_test.go
@@ -43,6 +44,7 @@ needing to read every source file first.
 | Re-render changed fixture SVGs into `out/` | `mise run svg` (`-- --all` forces every fixture) |
 | Direct test run | `go test ./...` |
 | Direct build | `go build -o bin/evml ./cmd/evml` |
+| Emit model JSON (for the compile skill) | `go run ./cmd/evml json <file> [-o out]` |
 
 ---
 
@@ -135,6 +137,16 @@ needing to read every source file first.
 - Add a `//nolint` directive without a comment explaining why.
 - Commit binary output (`bin/`, `tmp/`) — they are gitignored.
 - Change the `.evml` DSL grammar without updating `EVENT_MODELING.md`.
+
+---
+
+## `.agents/skills/compile-evml-rote-ir`
+
+Skill that compiles a `.evml` model into rote IR — one
+`COMPILED/<model>/<context>/pipeline.yaml` per bounded context (section
+banner). Intake is `evml json` output (`COMPILED/<model>/model.json`);
+staleness/provenance is tracked by `scripts/evml_provenance.py`.
+`COMPILED/` is committed.
 
 ---
 
