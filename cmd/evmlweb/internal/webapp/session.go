@@ -195,8 +195,9 @@ func (ss *SessionStore) FlowFor(s *Session, name string, baselineEvml, baselineS
 }
 
 // NewDraft forks source (nil for a blank draft) into a new dated tab for
-// flow, persists it, and makes it the flow's active draft.
-func (ss *SessionStore) NewDraft(fs *FlowState, source *DraftVersion, now time.Time) (*DraftVersion, error) {
+// flow, persists it, and makes it the flow's active draft. label/intent
+// carry the expert's staging intent for the new draft ("" defaults).
+func (ss *SessionStore) NewDraft(fs *FlowState, source *DraftVersion, now time.Time, label, intent string) (*DraftVersion, error) {
 	date := now.Format("2006-01-02")
 	seq := fs.NextSeqForDate[date]
 	if seq == 0 {
@@ -209,6 +210,8 @@ func (ss *SessionStore) NewDraft(fs *FlowState, source *DraftVersion, now time.T
 		FlowName:  fs.Name,
 		Date:      date,
 		Seq:       seq,
+		Label:     label,
+		Intent:    intent,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}

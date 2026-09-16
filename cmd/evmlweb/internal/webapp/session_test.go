@@ -18,7 +18,7 @@ func TestSessionStoreFlowSwitchIsolatesState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FlowFor flow-a: %v", err)
 	}
-	draftA, err := ss.NewDraft(flowA, nil, time.Now())
+	draftA, err := ss.NewDraft(flowA, nil, time.Now(), "", "")
 	if err != nil {
 		t.Fatalf("NewDraft flow-a: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestSessionStoreFlowSwitchIsolatesState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FlowFor flow-b: %v", err)
 	}
-	draftB, err := ss.NewDraft(flowB, nil, time.Now())
+	draftB, err := ss.NewDraft(flowB, nil, time.Now(), "", "")
 	if err != nil {
 		t.Fatalf("NewDraft flow-b: %v", err)
 	}
@@ -73,13 +73,13 @@ func TestSessionStoreNewDraftForksSourceNotBaseline(t *testing.T) {
 		t.Fatalf("FlowFor: %v", err)
 	}
 
-	v1, err := ss.NewDraft(fs, nil, time.Now())
+	v1, err := ss.NewDraft(fs, nil, time.Now(), "", "")
 	if err != nil {
 		t.Fatalf("NewDraft v1: %v", err)
 	}
 	v1.EvmlSource = "eventmodeling\n// v1 edits\n"
 
-	v2, err := ss.NewDraft(fs, v1, time.Now())
+	v2, err := ss.NewDraft(fs, v1, time.Now(), "Fraud screening — Q3 plan", "future")
 	if err != nil {
 		t.Fatalf("NewDraft v2: %v", err)
 	}
@@ -88,5 +88,8 @@ func TestSessionStoreNewDraftForksSourceNotBaseline(t *testing.T) {
 	}
 	if v2.Seq != 2 {
 		t.Fatalf("forked draft seq = %d, want 2", v2.Seq)
+	}
+	if v2.Label != "Fraud screening — Q3 plan" || v2.Intent != "future" {
+		t.Fatalf("forked draft label/intent = %q/%q, want them preserved", v2.Label, v2.Intent)
 	}
 }

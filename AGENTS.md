@@ -11,11 +11,13 @@ needing to read every source file first.
 ```
 .
 ├── cmd/evml/        CLI entry-point (main package)
+├── cmd/evmlweb/     Local web app (nested module — see its section below)
 ├── testdata/
 │   └── fixtures/    *.evml sample files used by render_test.go
 ├── model.go         Domain types (Model, Frame, DataEntity, …)
 ├── parse.go         Hand-written recursive-descent parser
 ├── render.go        SVG renderer + layout helpers
+├── diff.go          Structural model diff (Diff, FrameDiffState, ModelDiff)
 ├── validate.go      Post-parse validation helpers
 ├── cli.go           CLI wiring (Cobra / flag parsing)
 ├── cli_test.go
@@ -83,11 +85,37 @@ needing to read every source file first.
 
 ### SVG rendering colours (do not change without updating this file)
 
+Entity-type colours:
+
 | Entity type | Fill | Stroke |
 |---|---|---|
 | `ui` / `pcr` | `#f8d4bc` | `#d38e5f` |
 | `cmd` / `rmo` | `#bcd6fe` | `#679ac3` |
 | `evt` | `#d3f1a2` | `#84af49` |
+
+Diff/selection highlight overrides (via `RenderOptions.Highlight`, keyed by frame ID):
+
+| State | Fill | Stroke | Stroke width |
+|---|---|---|---|
+| `added` | `#e6f4e6` | `#2e7d32` | default |
+| `changed` | `#fff3d6` | `#b8860b` | default |
+| `removed` | `#fdecea` | `#c62828` | default |
+| `selected` | entity fill | `#1565c0` | 3 |
+
+### Library helpers for tools (editors, diffs)
+
+- Every declaration (`Frame`, `DataEntity`, `NoteEntity`, `GWT`) carries
+  `Line`/`EndLine` (1-indexed, inclusive) recorded at parse time — line-surgery
+  editors key off these. A `gwt`'s `EndLine` includes trailing blank lines.
+- `Diff(baseline, next *Model) ModelDiff` classifies frames by ID as
+  `added`/`removed`/`changed`/`unchanged` (changed = type, kind, identifier,
+  source set, data ref, or payload differs; source order is ignored).
+- `RenderOptions{Interactive, FrameClickExpr, Highlight}` makes frame groups
+  clickable (`data-frame-id` attributes, `{id}`-templated `data-on:click`
+  expression) and diff/selection-coloured — the webapp uses this for its
+  click-to-edit panel and compare view. The library stays UI-agnostic.
+- `CanConnect(from, to EntityType) bool` exposes the wiring matrix behind
+  `ValidateConnections` for editors deciding whether to auto-wire a new frame.
 
 ### String helpers
 - `StripOuterBraces(s)` — removes wrapping `{ }` from data payloads.
@@ -142,18 +170,60 @@ needing to read every source file first.
 
 `cmd/evmlweb` is a standalone local web app (Go + [Datastar](https://data-star.dev) +
 the [Kronk](https://www.kronkai.com) SDK for local LLM inference) that lets non-technical
-domain experts build and iterate on `.evml` event models conversationally. It has its
+domain experts build and iterate on `.evml` event models. It has its
 **own `go.mod`** (`github.com/leowmjw/go-event-modeling-tooling/cmd/evmlweb`, with a
 `replace` pointing at the repo root) specifically so it can depend on
 `github.com/ardanlabs/kronk` and `github.com/starfederation/datastar-go` without
 pulling either into the root module's dependency graph — `go get
 github.com/leowmjw/go-event-modeling-tooling` (the `evml` library) stays zero-dependency.
 The "no third-party packages" rule above applies to the root module only; `cmd/evmlweb`
-manages its own dependencies via its own `go.mod`/`go.sum`.
+manages its own dependencies via its own `go.mod`/`go.sum`. **No Node/npm tooling
+whatsoever** — the UI is pure Go templates + the vendored `datastar.js`, and behaviour
+is tested through Go handler tests, not browser automation.
 
 Build/run it independently of the root toolchain: `cd cmd/evmlweb && go run .`. It reuses
 `evml.Parse` / `evml.ValidateConnections` / `evml.RenderSVG` unchanged and writes activated
 drafts straight into `testdata/fixtures/`, so it never needs to modify the core library.
+
+### Staging model (learned 2026-09)
+
+The app is a *staging studio* for domain experts, built around three concepts:
+
+- **Baseline** = the committed fixture (`testdata/fixtures/<flow>.evml`) — "today's reality".
+- **Drafts** = staged what-ifs per flow. Each draft has a scenario `Label`
+  ("Fraud screening — Q3 plan") and an `Intent` chip (`exploring` / `future` / `ready`).
+- **Activate** = promote a draft to the fixture (blocked while the draft has a parse
+  error or wiring issues).
+
+Hand edits work alongside the chat: every frame box in the SVG is clickable
+(`RenderOptions.Interactive` + `FrameClickExpr`), opening a detail panel with
+rename / payload / rewire / add-after / move / delete. All panel edits go through
+`internal/webapp/sourceedit.go` — **line surgery anchored on the parser's
+`Line`/`EndLine` tracking, never a whole-document reformat** — so comments and
+formatting survive, and each edit appends a one-line system note to the transcript
+so the LLM knows what changed by hand. Frame declarations are always single-line
+(the parser only accepts single-line frame payloads), which is what makes the
+surgery tractable; data blocks are rewritten as a line range.
+
+Other pieces:
+
+- **Compare view** (`/frame/compare` with mode `baseline`|`prev`) renders the SVG with
+  `RenderOptions.Highlight` from `evml.Diff`; removed frames are listed in an amber
+  strip, not ghost-drawn.
+- **Seed drafts**: `cmd/evmlweb/seed/<flow>/` (committed) holds example drafts in
+  DraftStore layout; `ensureDraft` copies them into `.state` on a flow's first open —
+  never overwriting existing drafts. `fintech-payment-lifecycle` ships v2
+  "Fraud screening" and v3 "Disputes & refunds" seeds.
+- **Chat auto-repair**: a broken or mis-wired `.evml` block is fed back to the LLM with
+  its errors (up to `maxRepairAttempts = 2`) before anything surfaces as an error.
+- **Validation split**: parse errors block the render (`ParseError`); wiring violations
+  are non-blocking (`ValidationIssues`, amber strip) but block activation.
+- **Chat seam**: `App.chatFn` (type `chatFunc`) defaults to the Kronk path and is
+  stubbed in tests — chat-loop tests never load a real model.
+- **Kronk init is non-fatal**: if the llama.cpp runtime can't load on the host OS,
+  the app logs a warning and stays up; only chat is disabled.
+- **New-flow templates**: `handleSelectFlow` accepts a `templateFlow` signal so a new
+  flow can start as a copy of any existing fixture.
 
 ### Datastar (client + server)
 
@@ -205,21 +275,26 @@ Per-browser state (model, active flow, active draft per flow) is keyed by the
 (draft content is saved separately by `DraftStore.Save`).
 
 `handleSelectFlow` must read **both** `model` and `flow` from signals (Open is the atomic
-commit). `resumeActiveFlow` must call `NewDraft` when `DraftOrder == 0`, same as Open.
+commit). `resumeActiveFlow` must guarantee a draft when `DraftOrder == 0` via
+`ensureDraft` (which seeds from `cmd/evmlweb/seed/` when available), same as Open.
 
 #### Debugging client ↔ server
 
 - **Browser:** append `?debug=1` to enable `static/debug.js` (logs fetch bodies and Datastar
   events as `[evmlweb:debug]`).
 - **Server:** structured logs include `session=<token>` — grep the token from either side.
-  Key lines: `action: flow select requested`, `action: flow opened`, `action: workspace patched`.
+  Key lines: `action: flow select requested`, `action: flow opened`, `action: workspace patched`,
+  `action: draft edited`, `action: frame selected`.
 
 #### Tests
 
 ```bash
 cd cmd/evmlweb && go test ./...
-# UI regression (evmlweb must be running on :8080 — start with `mise run webapp`):
-mise run test:ui-model-flow-selection
 ```
 
-Browser debug logging: append `?debug=1` to the URL.
+Everything is Go handler tests (`internal/webapp`): sourceedit line-surgery round-trips,
+frame panel routes, compare mode, draft meta, seeding, and the chat repair loop via the
+`chatFn` seam. No browser automation — the UI contract is the SSE patch bodies.
+
+NOTE: GLM - command-code --resume 2ff428d7-b525-4f3c-b9f3-004643c72cf3
+

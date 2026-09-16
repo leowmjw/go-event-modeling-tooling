@@ -25,6 +25,18 @@ type Model struct {
 	Entities     []string
 }
 
+// FramesByID indexes the model's frames by ID for quick lookup.
+func (m *Model) FramesByID() map[string]*Frame {
+	out := make(map[string]*Frame, len(m.Frames))
+	for _, f := range m.Frames {
+		out[f.ID] = f
+	}
+	return out
+}
+
+// Frame is one timeline declaration (tf or rf). Line and EndLine are the
+// 1-indexed inclusive source positions of the declaration, recorded at
+// parse time so callers can perform line-based edits on the source text.
 type Frame struct {
 	Kind          FrameKind
 	ID            string
@@ -37,12 +49,16 @@ type Frame struct {
 	DataType      string
 	Data          string
 	DeclarationIx int
+	Line          int
+	EndLine       int
 }
 
 type DataEntity struct {
 	Name     string
 	DataType string
 	Value    string
+	Line     int
+	EndLine  int
 }
 
 type NoteEntity struct {
@@ -50,6 +66,8 @@ type NoteEntity struct {
 	Source   *Frame
 	DataType string
 	Value    string
+	Line     int
+	EndLine  int
 }
 
 type GWT struct {
@@ -59,6 +77,8 @@ type GWT struct {
 	Given    []Statement
 	When     []Statement
 	Then     []Statement
+	Line     int
+	EndLine  int
 }
 
 type Statement struct {

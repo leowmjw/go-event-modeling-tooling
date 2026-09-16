@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -15,6 +16,16 @@ func (a *App) handleNewVersion(w http.ResponseWriter, r *http.Request) {
 	flow := r.PathValue("flow")
 	sourceID := r.PathValue("id")
 
+	var signals struct {
+		Label  string `json:"label"`
+		Intent string `json:"intent"`
+	}
+	if err := datastar.ReadSignals(r, &signals); err != nil {
+		// No body / unreadable signals is fine — the plain button posts
+		// nothing and gets an unnamed what-if.
+		signals.Label, signals.Intent = "", ""
+	}
+
 	s.mu.Lock()
 	fs, ok := s.Flows[flow]
 	s.mu.Unlock()
@@ -23,20 +34,29 @@ func (a *App) handleNewVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	switch signals.Intent {
+	case "", "exploring", "future", "ready":
+	default:
+		http.Error(w, "unknown intent", http.StatusBadRequest)
+		return
+	}
+
 	source := fs.Drafts[sourceID] // nil is fine — NewDraft falls back to the baseline
-	newDraft, err := a.sessions.NewDraft(fs, source, time.Now())
+	newDraft, err := a.sessions.NewDraft(fs, source, time.Now(), strings.TrimSpace(signals.Label), signals.Intent)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	a.sessions.PersistSelection(s)
-	a.sessionLog(s).Info("action: new version created", "flow", flow, "source_draft", sourceID, "new_draft", newDraft.ID)
+	a.sessionLog(s).Info("action: new what-if created", "flow", flow, "source_draft", sourceID, "new_draft", newDraft.ID, "label", newDraft.Label, "intent", newDraft.Intent)
 	a.patchWorkspace(w, r, s)
 }
 
 // handleActivate drops draftID's date/version suffix and writes it into
 // testdata/fixtures/<flow>.evml, promoting it to the flow's new baseline.
+// It refuses while the draft has a parse error or unresolved wiring
+// issues — activation is the "commit" step of staging.
 func (a *App) handleActivate(w http.ResponseWriter, r *http.Request) {
 	s := a.sessions.ForRequest(w, r)
 	flow := r.PathValue("flow")
@@ -56,6 +76,10 @@ func (a *App) handleActivate(w http.ResponseWriter, r *http.Request) {
 	}
 	if d.EvmlSource == "" || d.ParseError != "" {
 		http.Error(w, "draft has no valid .evml to activate yet", http.StatusConflict)
+		return
+	}
+	if d.ValidationIssues != "" {
+		http.Error(w, "resolve the wiring issues before activating this draft", http.StatusConflict)
 		return
 	}
 

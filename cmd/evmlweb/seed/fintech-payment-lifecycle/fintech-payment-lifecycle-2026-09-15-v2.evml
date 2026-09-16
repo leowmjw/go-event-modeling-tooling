@@ -1,0 +1,117 @@
+eventmodeling
+
+// FinTech instant payments — staged what-if v2: "Fraud screening (Q3 plan)".
+//
+// Forked from the v1 baseline ("today's reality"). Before a payment is
+// executed, an automated screener checks payment velocity against the
+// last 24 hours of activity. Suspicious payments are held for a fraud
+// analyst, who can release or cancel them.
+//
+// Bounded contexts:
+//   Payments  — owns the payment lifecycle
+//   Funds     — owns balances and the ledger
+//   Rails     — the external instant-payment rail (reset boundary)
+//   Risk      — fraud screening and the analyst queue (new in this version)
+//   Notify    — outbound customer notifications
+
+entity InstantPayment
+
+tf 01 ui Payments.SendMoneyScreen
+tf 02 cmd Payments.InitiatePayment ->> 01 { paymentId: "pay-881", amount: 25.00, currency: "USD", payee: "acct-4471" }
+tf 03 evt Payments.PaymentInitiated ->> 02 { paymentId: "pay-881", amount: 25.00, currency: "USD", payee: "acct-4471" }
+
+rf 04 evt Funds.LedgerUpdated { accountId: "acct-9213", availableFunds: 152.75, asOf: "2026-09-14T10:02:00Z" }
+tf 05 rmo Funds.AvailableFunds [[AvailableFunds05]] ->> 04
+tf 06 pcr Payments.PaymentAuthorizer ->> 03 ->> 05 { policy: "funds_and_velocity" }
+
+tf 07 cmd Payments.ExecutePayment ->> 06 { paymentId: "pay-881" }
+tf 08 evt Payments.PaymentSubmittedToRail ->> 07 { paymentId: "pay-881", rail: "instant", submittedAt: "2026-09-14T10:02:01Z" }
+
+rf 09 evt Rails.SettlementConfirmed { paymentId: "pay-881", railReference: "R-2026-8891", settledAmount: 25.00 }
+tf 10 pcr Payments.SettlementWatcher ->> 09
+tf 11 cmd Payments.MarkSettled ->> 10 { paymentId: "pay-881" }
+tf 12 evt Payments.PaymentSettled ->> 11 { paymentId: "pay-881", settledAt: "2026-09-14T10:02:04Z" }
+
+tf 13 cmd Funds.PostLedgerDebit ->> 10 { accountId: "acct-9213", amount: 25.00 }
+tf 14 evt Funds.LedgerDebited ->> 13 { accountId: "acct-9213", amount: 25.00, newAvailableFunds: 127.75 }
+
+tf 15 cmd Payments.RejectPayment ->> 06 { paymentId: "pay-882", reason: "insufficient_funds" }
+tf 16 evt Payments.PaymentRejected ->> 15 { paymentId: "pay-882", reason: "insufficient_funds", rejectedAt: "2026-09-14T10:02:02Z" }
+
+tf 17 rmo Payments.PaymentHistory [[PaymentHistory17]] ->> 03 ->> 08 ->> 12 ->> 16 ->> 25 ->> 29 ->> 31
+tf 18 ui Payments.PaymentStatusScreen ->> 17
+
+tf 19 pcr Notify.SettlementNotifier ->> 12
+tf 20 cmd Notify.SendPaymentNotification ->> 19 { paymentId: "pay-881", channel: "push" }
+tf 21 evt Notify.PaymentNotificationSent ->> 20 { paymentId: "pay-881", channel: "push" }
+
+// --- Fraud screening (new in this what-if) ---
+
+tf 22 rmo Risk.PaymentVelocity [[PaymentVelocity22]] ->> 03
+tf 23 pcr Risk.PaymentScreener ->> 03 ->> 22
+tf 24 cmd Risk.HoldPayment ->> 23 { paymentId: "pay-884", reason: "velocity_exceeded" }
+tf 25 evt Risk.PaymentHeld ->> 24 { paymentId: "pay-884", reason: "velocity_exceeded", heldAt: "2026-09-14T10:02:03Z" }
+
+tf 26 rmo Risk.AnalystQueue [[AnalystQueue26]] ->> 25
+tf 27 ui Risk.AnalystReviewScreen ->> 26
+tf 28 cmd Risk.ReleasePayment ->> 27 { paymentId: "pay-884" }
+tf 29 evt Risk.PaymentReleased ->> 28 { paymentId: "pay-884", releasedAt: "2026-09-14T10:12:00Z" }
+tf 30 cmd Risk.CancelPayment ->> 27 { paymentId: "pay-885", reason: "confirmed_fraud" }
+tf 31 evt Risk.PaymentCancelled ->> 30 { paymentId: "pay-885", reason: "confirmed_fraud", cancelledAt: "2026-09-14T10:14:00Z" }
+
+data AvailableFunds05 `json` {
+  accountId: "acct-9213",
+  availableFunds: 152.75,
+  asOf: "2026-09-14T10:02:00Z"
+}
+
+data PaymentHistory17 `json` {
+  paymentId: "pay-881",
+  status: "submitted_to_rail",
+  amount: 25.00,
+  currency: "USD",
+  updatedAt: "2026-09-14T10:02:01Z"
+}
+
+data PaymentVelocity22 `json` {
+  accountId: "acct-9213",
+  paymentsLast24h: 14,
+  amountLast24h: 3120.00,
+  asOf: "2026-09-14T10:02:00Z"
+}
+
+data AnalystQueue26 `json` {
+  paymentId: "pay-884",
+  reason: "velocity_exceeded",
+  waitingSince: "2026-09-14T10:02:03Z",
+  slaMinutes: 30
+}
+
+note 23 { policy: hold when paymentsLast24h exceeds 10 or amountLast24h exceeds 2500.00 }
+note 06 { changed from baseline: authoriser policy now includes velocity screening }
+
+gwt 24 "velocity spike — payment held for review"
+  given
+    evt Payments.PaymentInitiated { paymentId: "pay-884", amount: 25.00 }
+    evt Risk.PaymentVelocity { paymentsLast24h: 14 }
+  when
+    cmd Risk.HoldPayment { paymentId: "pay-884", reason: "velocity_exceeded" }
+  then
+    evt Risk.PaymentHeld { paymentId: "pay-884" }
+
+gwt 28 "analyst clears the held payment"
+  given
+    evt Risk.PaymentHeld { paymentId: "pay-884" }
+  when
+    cmd Risk.ReleasePayment { paymentId: "pay-884" }
+  then
+    evt Risk.PaymentReleased { paymentId: "pay-884" }
+    evt Payments.PaymentSubmittedToRail { paymentId: "pay-884" }
+
+gwt 30 "analyst confirms fraud — payment cancelled"
+  given
+    evt Risk.PaymentHeld { paymentId: "pay-885" }
+  when
+    cmd Risk.CancelPayment { paymentId: "pay-885", reason: "confirmed_fraud" }
+  then
+    evt Risk.PaymentCancelled { paymentId: "pay-885" }

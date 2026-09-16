@@ -1,0 +1,108 @@
+eventmodeling
+
+// FinTech debit-card issuance and lifecycle.
+//
+// An existing KYC-approved customer (see fintech-kyc-onboarding) orders a
+// card; the card is personalised by an external embossing vendor, shipped,
+// and activated. The customer manages spend controls, and the card reacts
+// to external fraud blocks with a reissue loop. PIN attempts that fail
+// three times lock the card.
+//
+// Bounded contexts:
+//   Cards  — card ordering, activation, spend controls, PIN
+//   Vendor — external embossing-and-shipping vendor (reset boundary)
+//   Fraud  — external fraud monitoring (reset boundary)
+
+entity CardAccount
+
+tf 01 ui Cards.OrderCardScreen
+tf 02 cmd Cards.OrderCard ->> 01 { cardId: "card-7701", accountId: "acct-9213", product: "debit-premium" }
+tf 03 evt Cards.CardOrdered ->> 02 { cardId: "card-7701", product: "debit-premium" }
+
+tf 04 pcr Cards.OrderRouter ->> 03
+tf 05 cmd Cards.RequestEmboss ->> 04 { cardId: "card-7701", embossBatch: "eb-2026-09" }
+tf 06 evt Cards.EmbossRequested ->> 05 { cardId: "card-7701", embossBatch: "eb-2026-09" }
+
+rf 07 evt Vendor.CardEmbossed { cardId: "card-7701", vendorRef: "ven-5521", embossedAt: "2026-09-14T15:00:00Z" }
+rf 08 evt Vendor.EmbossFailed { cardId: "card-7705", vendorRef: "ven-5521", reason: "printer_jam" }
+
+tf 09 pcr Cards.EmbossWatcher ->> 07 ->> 08
+tf 10 cmd Cards.ShipCard ->> 09 { cardId: "card-7701", carrier: "usps" }
+tf 11 evt Cards.CardShipped ->> 10 { cardId: "card-7701", carrier: "usps", trackingNo: "9400-11-02" }
+
+tf 12 cmd Cards.RetryOrder ->> 09 { cardId: "card-7705", reason: "printer_jam" }
+tf 13 evt Cards.OrderRetried ->> 12 { cardId: "card-7705", retriedAt: "2026-09-15T08:00:00Z" }
+
+tf 14 ui Cards.ActivateCardScreen
+tf 15 cmd Cards.ActivateCard ->> 14 { cardId: "card-7701" }
+tf 16 evt Cards.CardActivated ->> 15 { cardId: "card-7701", activatedAt: "2026-09-16T09:00:00Z" }
+
+tf 17 ui Cards.SpendControlScreen ->> 20
+tf 18 cmd Cards.UpdateSpendLimit ->> 17 { cardId: "card-7701", perDay: 500.00, perTxn: 200.00 }
+tf 19 evt Cards.SpendLimitUpdated ->> 18 { cardId: "card-7701", perDay: 500.00, perTxn: 200.00 }
+
+tf 20 rmo Cards.SpendControls [[SpendControls20]] ->> 16 ->> 19
+
+tf 21 ui Cards.PinPadScreen
+tf 22 cmd Cards.VerifyPin ->> 21 { cardId: "card-7701", attemptNo: 1 }
+tf 23 evt Cards.PinIncorrect ->> 22 { cardId: "card-7701", attemptNo: 1, strikes: 1 }
+
+rf 24 evt Fraud.CardBlocked { cardId: "card-7701", reason: "suspicious_activity", blockedAt: "2026-09-20T21:30:00Z" }
+
+tf 25 rmo Cards.CardStatus [[CardStatus25]] ->> 24 ->> 16 ->> 28
+tf 26 ui Cards.ReissuePrompt ->> 25
+tf 27 cmd Cards.ReissueCard ->> 26 { replaces: "card-7701", reason: "suspicious_activity" }
+tf 28 evt Cards.CardReissued ->> 27 { cardId: "card-7708", replaces: "card-7701" }
+
+data SpendControls20 `json` {
+  cardId: "card-7701",
+  perDayLimit: 500.00,
+  perTxnLimit: 200.00,
+  updatedAt: "2026-09-16T10:00:00Z"
+}
+
+data CardStatus25 `json` {
+  cardId: "card-7701",
+  status: "blocked",
+  reason: "suspicious_activity",
+  replacementOrdered: false
+}
+
+note 23 { policy: three incorrect PIN attempts lock the card — lock event not modelled yet, open question }
+note 01 { assumption: customer already passed KYC (see fintech-kyc-onboarding fixture) }
+
+gwt 15 "happy path — order, emboss, ship, activate"
+  given
+    evt Cards.CardOrdered { cardId: "card-7701" }
+    evt Vendor.CardEmbossed { cardId: "card-7701" }
+    evt Cards.CardShipped { cardId: "card-7701" }
+  when
+    cmd Cards.ActivateCard { cardId: "card-7701" }
+  then
+    evt Cards.CardActivated { cardId: "card-7701" }
+
+gwt 12 "emboss failure — order retried"
+  given
+    evt Cards.EmbossRequested { cardId: "card-7705" }
+    evt Vendor.EmbossFailed { cardId: "card-7705", reason: "printer_jam" }
+  when
+    cmd Cards.RetryOrder { cardId: "card-7705", reason: "printer_jam" }
+  then
+    evt Cards.OrderRetried { cardId: "card-7705" }
+
+gwt 27 "fraud block — customer reissues card"
+  given
+    evt Cards.CardActivated { cardId: "card-7701" }
+    evt Fraud.CardBlocked { cardId: "card-7701", reason: "suspicious_activity" }
+  when
+    cmd Cards.ReissueCard { replaces: "card-7701", reason: "suspicious_activity" }
+  then
+    evt Cards.CardReissued { cardId: "card-7708", replaces: "card-7701" }
+
+gwt 17 "customer tightens spend limit"
+  given
+    evt Cards.CardActivated { cardId: "card-7701" }
+  when
+    cmd Cards.UpdateSpendLimit { cardId: "card-7701", perDay: 500.00, perTxn: 200.00 }
+  then
+    evt Cards.SpendLimitUpdated { cardId: "card-7701", perDay: 500.00 }

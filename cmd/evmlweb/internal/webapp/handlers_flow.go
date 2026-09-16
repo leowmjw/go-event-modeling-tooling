@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"html/template"
 	"net/http"
-	"time"
 
 	"github.com/starfederation/datastar-go/datastar"
+
+	evml "github.com/leowmjw/go-event-modeling-tooling"
 )
 
 // buildPage assembles the full WorkspacePage view model from s's current
@@ -47,19 +48,87 @@ func (a *App) buildPage(s *Session) (WorkspacePage, error) {
 
 	for _, id := range fs.DraftOrder {
 		d := fs.Drafts[id]
-		page.Drafts = append(page.Drafts, DraftTab{ID: d.ID, Label: draftLabel(d)})
+		page.Drafts = append(page.Drafts, DraftTab{ID: d.ID, Label: draftLabel(d), Intent: d.Intent})
 	}
 	page.ActiveDraftID = fs.ActiveDraftID
+	page.CompareMode = fs.CompareMode
+	page.PromptChips = defaultPromptChips
 
 	if d, ok := fs.Drafts[fs.ActiveDraftID]; ok {
-		page.ActiveSVG = template.HTML(activeSVG(fs, d))
+		page.ActiveSVG = template.HTML(a.displaySVG(fs, d))
 		page.Transcript = toChatViews(d.Transcript)
 		page.ParseError = d.ParseError
+		page.ValidationIssues = d.ValidationIssues
+		page.DraftLabel = d.Label
+		page.DraftIntent = d.Intent
+		page.FramePanel = buildFramePanel(fs, d)
+		page.DiffLegend, page.RemovedFrames = compareViews(fs, d)
 	} else {
 		page.ActiveSVG = template.HTML(fs.BaselineSVG)
 	}
 
 	return page, nil
+}
+
+// defaultPromptChips seeds the chat input with the questions domain
+// experts ask most, so a blank textarea never stares back at them.
+// (Keep the text free of apostrophes — chips are interpolated into
+// single-quoted JS expressions in the template.)
+var defaultPromptChips = []string{
+	"What happens when a payment fails?",
+	"Add a step for handling disputes",
+	"Which read model would tell me how many payments happened today?",
+	"Explain this flow in plain language",
+}
+
+// compareViews derives the diff legend and removed-frame list for the
+// active compare mode (empty when comparing is off).
+func compareViews(fs *FlowState, d *DraftVersion) ([]DiffLegendView, []RemovedFrameView) {
+	if fs.CompareMode == "" {
+		return nil, nil
+	}
+	var base *evml.Model
+	switch fs.CompareMode {
+	case "baseline":
+		if bm, err := evml.Parse(fs.BaselineEvml); err == nil {
+			base = bm
+		}
+	case "prev":
+		if p := previousDraft(fs, d); p != nil {
+			if pm, err := evml.Parse(p.EvmlSource); err == nil {
+				base = pm
+			}
+		}
+	}
+	if base == nil {
+		return nil, nil
+	}
+	next, err := evml.Parse(d.EvmlSource)
+	if err != nil {
+		return nil, nil
+	}
+	diff := evml.Diff(base, next)
+
+	counts := map[string]int{}
+	var removed []RemovedFrameView
+	for id, state := range diff.Frames {
+		switch state {
+		case evml.DiffAdded, evml.DiffChanged, evml.DiffRemoved:
+			counts[string(state)]++
+		}
+		if state == evml.DiffRemoved {
+			if bf := base.FramesByID()[id]; bf != nil {
+				removed = append(removed, RemovedFrameView{ID: id, Identifier: bf.Identifier})
+			}
+		}
+	}
+	var legend []DiffLegendView
+	for _, state := range []string{"added", "changed", "removed"} {
+		if counts[state] > 0 {
+			legend = append(legend, DiffLegendView{State: state, Count: counts[state]})
+		}
+	}
+	return legend, removed
 }
 
 // activeSVG returns the best available rendered diagram for a draft,
@@ -98,11 +167,9 @@ func (a *App) resumeActiveFlow(s *Session) {
 		a.log.Warn("resuming active flow failed", "flow", name, "error", err)
 		return
 	}
-	if len(fs.DraftOrder) == 0 {
-		if _, err := a.sessions.NewDraft(fs, nil, time.Now()); err != nil {
-			a.log.Warn("resuming active flow failed", "flow", name, "error", err)
-			return
-		}
+	if err := a.ensureDraft(fs); err != nil {
+		a.log.Warn("resuming active flow failed", "flow", name, "error", err)
+		return
 	}
 
 	s.mu.Lock()
@@ -187,9 +254,10 @@ func (a *App) handleSelectFlow(w http.ResponseWriter, r *http.Request) {
 	log := a.sessionLog(s)
 
 	var signals struct {
-		Model       string `json:"model"`
-		Flow        string `json:"flow"`
-		NewFlowName string `json:"newFlowName"`
+		Model        string `json:"model"`
+		Flow         string `json:"flow"`
+		NewFlowName  string `json:"newFlowName"`
+		TemplateFlow string `json:"templateFlow"`
 	}
 	if err := datastar.ReadSignals(r, &signals); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -219,6 +287,16 @@ func (a *App) handleSelectFlow(w http.ResponseWriter, r *http.Request) {
 		}
 		isNew = true
 		baselineEvml = "eventmodeling\n"
+		// A domain expert starting a brand-new flow can begin from a copy
+		// of an existing example rather than a blank page.
+		if signals.TemplateFlow != "" && signals.TemplateFlow != "blank" {
+			src, svg, err := a.readFixture(signals.TemplateFlow)
+			if err != nil {
+				http.Error(w, "couldn't read the template flow: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			baselineEvml, baselineSVG = src, svg
+		}
 	} else {
 		name = signals.Flow
 		var err error
@@ -239,15 +317,13 @@ func (a *App) handleSelectFlow(w http.ResponseWriter, r *http.Request) {
 	s.ActiveFlow = name
 	s.mu.Unlock()
 
-	if len(fs.DraftOrder) == 0 {
-		if _, err := a.sessions.NewDraft(fs, nil, time.Now()); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	if err := a.ensureDraft(fs); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	a.sessions.PersistSelection(s)
-	log.Info("action: flow opened", "flow", name, "model_id", s.ModelID, "is_new", isNew, "active_draft", fs.ActiveDraftID)
+	log.Info("action: flow opened", "flow", name, "model_id", s.ModelID, "is_new", isNew, "template", signals.TemplateFlow, "active_draft", fs.ActiveDraftID)
 	a.patchWorkspace(w, r, s)
 }
 

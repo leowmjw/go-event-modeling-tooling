@@ -18,6 +18,15 @@ func ValidateConnections(model *Model) []error {
 	return errs
 }
 
+// CanConnect reports whether an explicit edge from a frame of entity type
+// from to a frame of entity type to is allowed by the wiring rules. It
+// backs ValidateConnections but is exported for tools (e.g. editors) that
+// need to decide whether a proposed connection would be legal.
+func CanConnect(from, to EntityType) bool {
+	allowed, _, _ := allowedSources(to)
+	return allowed[from]
+}
+
 func allowedSources(target EntityType) (map[EntityType]bool, string, string) {
 	switch target {
 	case EntityCommand:

@@ -45,4 +45,6 @@ cmd/evmlweb/.state/
 cmd/evmlweb/cmd/
 cmd/evmlweb/bin/
 cmd/evmlweb/tmp/
-cmd/evmlweb/node_modules/
+
+# Ignore CommandCode
+.commandcode

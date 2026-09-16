@@ -22,8 +22,49 @@ type ChatMessageView struct {
 
 // DraftTab is one entry in the draft-version tab strip.
 type DraftTab struct {
-	ID    string
-	Label string // e.g. "v1", "v2"
+	ID     string
+	Label  string // scenario label when set, else "v1", "v2", …
+	Intent string // "", "exploring", "future", or "ready"
+}
+
+// FrameChoice is one frame in the connect picker of the frame panel.
+type FrameChoice struct {
+	ID          string
+	Identifier  string
+	EntityType  string
+	IsConnected bool
+}
+
+// FramePanelView feeds the frame detail panel: everything the expert
+// needs to inspect and tweak one frame of the active draft.
+type FramePanelView struct {
+	FlowName string
+	DraftID  string
+
+	ID          string
+	Kind        string // "timeframe" or "resetframe"
+	EntityType  string
+	Identifier  string
+	Namespace   string
+	SourceIDs   []string
+	DataRefName string
+	Payload     string // inner payload content (no outer braces)
+	GWTLabels   []string
+	Choices     []FrameChoice // every frame, for the connect picker
+	EditError   string
+}
+
+// RemovedFrameView lists a frame that exists in the compare baseline but
+// not in the active draft (removed frames are listed, not ghost-drawn).
+type RemovedFrameView struct {
+	ID         string
+	Identifier string
+}
+
+// DiffLegendView describes one diff highlight state for the legend.
+type DiffLegendView struct {
+	State string // "added" | "changed" | "removed"
+	Count int
 }
 
 // WorkspacePage is the full view model for both the initial page render
@@ -38,6 +79,17 @@ type WorkspacePage struct {
 	ActiveSVG     template.HTML
 	Transcript    []ChatMessageView
 	ParseError    string
+
+	// Staging state for the active draft.
+	DraftLabel       string
+	DraftIntent      string
+	ValidationIssues string
+	FramePanel       *FramePanelView
+	CompareMode      string
+	DiffLegend       []DiffLegendView
+	RemovedFrames    []RemovedFrameView
+	PromptChips      []string
+
 	// PatchSVG is true when rendering the workspace fragment for an SSE
 	// patch. The SVG is sent in a separate patch to #svg-container so
 	// Datastar never morphs a large HTML tree containing inline <svg>.
@@ -76,5 +128,8 @@ func toChatViews(msgs []ChatMessage) []ChatMessageView {
 }
 
 func draftLabel(d *DraftVersion) string {
+	if d.Label != "" {
+		return d.Label
+	}
 	return fmt.Sprintf("v%d", d.Seq)
 }

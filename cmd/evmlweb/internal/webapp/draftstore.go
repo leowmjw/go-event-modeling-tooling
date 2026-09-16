@@ -24,13 +24,16 @@ type DraftStore struct {
 // the .evml source itself, which is stored alongside as plain text so it
 // stays diffable/readable on its own).
 type draftMeta struct {
-	FlowName   string        `json:"flow_name"`
-	Date       string        `json:"date"`
-	Seq        int           `json:"seq"`
-	ParseError string        `json:"parse_error,omitempty"`
-	Transcript []ChatMessage `json:"transcript"`
-	CreatedAt  string        `json:"created_at"`
-	UpdatedAt  string        `json:"updated_at"`
+	FlowName         string        `json:"flow_name"`
+	Date             string        `json:"date"`
+	Seq              int           `json:"seq"`
+	ParseError       string        `json:"parse_error,omitempty"`
+	ValidationIssues string        `json:"validation_issues,omitempty"`
+	Label            string        `json:"label,omitempty"`
+	Intent           string        `json:"intent,omitempty"`
+	Transcript       []ChatMessage `json:"transcript"`
+	CreatedAt        string        `json:"created_at"`
+	UpdatedAt        string        `json:"updated_at"`
 }
 
 // NewDraftStore creates a store rooted at root, creating the directory if
@@ -70,13 +73,16 @@ func (s *DraftStore) Save(d *DraftVersion) error {
 	}
 
 	meta := draftMeta{
-		FlowName:   d.FlowName,
-		Date:       d.Date,
-		Seq:        d.Seq,
-		ParseError: d.ParseError,
-		Transcript: d.Transcript,
-		CreatedAt:  d.CreatedAt.Format(timeLayout),
-		UpdatedAt:  d.UpdatedAt.Format(timeLayout),
+		FlowName:         d.FlowName,
+		Date:             d.Date,
+		Seq:              d.Seq,
+		ParseError:       d.ParseError,
+		ValidationIssues: d.ValidationIssues,
+		Label:            d.Label,
+		Intent:           d.Intent,
+		Transcript:       d.Transcript,
+		CreatedAt:        d.CreatedAt.Format(timeLayout),
+		UpdatedAt:        d.UpdatedAt.Format(timeLayout),
 	}
 	b, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
@@ -198,13 +204,16 @@ func (s *DraftStore) load(flow, draftID string) (*DraftVersion, error) {
 	}
 
 	d := &DraftVersion{
-		ID:         draftID,
-		FlowName:   meta.FlowName,
-		Date:       meta.Date,
-		Seq:        meta.Seq,
-		EvmlSource: string(evml),
-		ParseError: meta.ParseError,
-		Transcript: meta.Transcript,
+		ID:               draftID,
+		FlowName:         meta.FlowName,
+		Date:             meta.Date,
+		Seq:              meta.Seq,
+		EvmlSource:       string(evml),
+		ParseError:       meta.ParseError,
+		ValidationIssues: meta.ValidationIssues,
+		Label:            meta.Label,
+		Intent:           meta.Intent,
+		Transcript:       meta.Transcript,
 	}
 	d.CreatedAt, _ = parseTime(meta.CreatedAt)
 	d.UpdatedAt, _ = parseTime(meta.UpdatedAt)
@@ -212,14 +221,19 @@ func (s *DraftStore) load(flow, draftID string) (*DraftVersion, error) {
 	// The rendered SVG is never persisted (it's fully derived from
 	// EvmlSource) — recompute it here so a freshly loaded draft (new
 	// session, or the process having restarted) has something to show
-	// without waiting for the next chat turn.
+	// without waiting for the next chat turn. Parse errors block the
+	// render; wiring issues don't (the diagram still draws, flagged).
 	if d.EvmlSource != "" {
-		if svg, err := renderEvml(d.EvmlSource); err != nil {
+		svg, parseErr, issues := evaluateEvml(d.EvmlSource)
+		if parseErr != "" {
 			if d.ParseError == "" {
-				d.ParseError = err.Error()
+				d.ParseError = parseErr
 			}
 		} else {
 			d.SVG = svg
+			if d.ValidationIssues == "" && len(issues) > 0 {
+				d.ValidationIssues = ValidationErrorsText(issues)
+			}
 		}
 	}
 	return d, nil

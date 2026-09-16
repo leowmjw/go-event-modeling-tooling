@@ -57,8 +57,11 @@ func run() error {
 
 	ctx := context.Background()
 
+	// Non-fatal: the staging UI (diagram, drafts, compare, activation) works
+	// without the LLM; chat surfaces a load error instead. This keeps the
+	// tool usable when the llama.cpp runtime for this OS isn't available.
 	if err := initKronk(ctx, log); err != nil {
-		return fmt.Errorf("initializing kronk: %w", err)
+		log.Warn("kronk init failed — chat disabled, staging UI still available", "error", err)
 	}
 
 	m, err := models.New()
@@ -72,6 +75,7 @@ func run() error {
 		StateDir:    *stateDir,
 		StaticDir:   filepath.Join(mustSourceDir(), "static"),
 		TemplateDir: filepath.Join(mustSourceDir(), "internal", "webapp", "templates"),
+		SeedDir:     filepath.Join(mustSourceDir(), "seed"),
 	}, log, m)
 	if err != nil {
 		return fmt.Errorf("building app: %w", err)

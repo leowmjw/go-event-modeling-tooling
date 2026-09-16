@@ -31,7 +31,17 @@ type DraftVersion struct {
 	Seq        int
 	EvmlSource string
 	SVG        string
-	ParseError string // non-empty when EvmlSource fails to parse/validate
+	ParseError string // non-empty when EvmlSource fails to parse
+	// ValidationIssues holds non-blocking wiring problems (from
+	// evml.ValidateConnections) as joined text. The diagram still renders
+	// with issues; activation is blocked until they're resolved.
+	ValidationIssues string
+	// Label is the expert-given scenario name ("Fraud screening — Q3
+	// plan"), shown on the draft tab instead of v<seq> when set.
+	Label string
+	// Intent records where this draft sits on the staging spectrum:
+	// "exploring" (default), "future", or "ready".
+	Intent     string
 	Transcript []ChatMessage
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
@@ -49,4 +59,15 @@ type FlowState struct {
 	DraftOrder     []string // stable tab order, oldest first
 	ActiveDraftID  string
 	NextSeqForDate map[string]int // date -> next sequence number
+
+	// SelectedFrame is the frame (by ID) whose detail panel is open.
+	// Ephemeral view state — never persisted.
+	SelectedFrame string
+	// CompareMode is "" (off), "baseline", or "prev": whether the SVG is
+	// rendered with diff highlighting against the flow baseline or the
+	// previous draft. Ephemeral view state — never persisted.
+	CompareMode string
+	// PanelError carries the last frame-edit failure into the detail
+	// panel so the expert sees what went wrong. Ephemeral.
+	PanelError string
 }

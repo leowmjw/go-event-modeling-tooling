@@ -21,7 +21,7 @@
       </select>
     </label>
 
-    <form class="picker" data-on:submit__prevent="@post('/flow/select', {payload: {model: $model, flow: $flow, newFlowName: $newFlowName}})">
+    <form class="picker" data-on:submit__prevent="@post('/flow/select', {payload: {model: $model, flow: $flow, newFlowName: $newFlowName, templateFlow: $templateFlow}})">
       <label>
         <span>Flow</span>
         <select data-bind:flow>
@@ -33,6 +33,15 @@
         </select>
       </label>
       <input data-show="$flow == '__new__'" data-bind:new-flow-name placeholder="new-flow-name">
+      <label class="template-picker" data-show="$flow == '__new__'">
+        <span>Start from a copy of</span>
+        <select data-bind:template-flow>
+          <option value="blank">a blank page</option>
+          {{range .Fixtures}}
+          <option value="{{.}}">{{.}}</option>
+          {{end}}
+        </select>
+      </label>
       <button type="submit">Open</button>
     </form>
   </header>

@@ -1,0 +1,90 @@
+eventmodeling
+
+// FinTech instant payments — v1 baseline, "today's reality".
+//
+// A customer sends money from the app; the payment is authorised against
+// available funds, submitted to the external instant-payment rail,
+// settled, and posted to the ledger. This is the model the team runs in
+// production today. Staged what-if versions (fraud screening, disputes)
+// live as draft scenarios in the Event Modeling Studio.
+//
+// Bounded contexts:
+//   Payments  — owns the payment lifecycle
+//   Funds     — owns balances and the ledger
+//   Rails     — the external instant-payment rail (reset boundary)
+//   Notify    — outbound customer notifications
+
+entity InstantPayment
+
+tf 01 ui Payments.SendMoneyScreen
+tf 02 cmd Payments.InitiatePayment ->> 01 { paymentId: "pay-881", amount: 25.00, currency: "USD", payee: "acct-4471" }
+tf 03 evt Payments.PaymentInitiated ->> 02 { paymentId: "pay-881", amount: 25.00, currency: "USD", payee: "acct-4471" }
+
+rf 04 evt Funds.LedgerUpdated { accountId: "acct-9213", availableFunds: 152.75, asOf: "2026-09-14T10:02:00Z" }
+tf 05 rmo Funds.AvailableFunds [[AvailableFunds05]] ->> 04
+tf 06 pcr Payments.PaymentAuthorizer ->> 03 ->> 05
+
+tf 07 cmd Payments.ExecutePayment ->> 06 { paymentId: "pay-881" }
+tf 08 evt Payments.PaymentSubmittedToRail ->> 07 { paymentId: "pay-881", rail: "instant", submittedAt: "2026-09-14T10:02:01Z" }
+
+rf 09 evt Rails.SettlementConfirmed { paymentId: "pay-881", railReference: "R-2026-8891", settledAmount: 25.00 }
+tf 10 pcr Payments.SettlementWatcher ->> 09
+tf 11 cmd Payments.MarkSettled ->> 10 { paymentId: "pay-881" }
+tf 12 evt Payments.PaymentSettled ->> 11 { paymentId: "pay-881", settledAt: "2026-09-14T10:02:04Z" }
+
+tf 13 cmd Funds.PostLedgerDebit ->> 10 { accountId: "acct-9213", amount: 25.00 }
+tf 14 evt Funds.LedgerDebited ->> 13 { accountId: "acct-9213", amount: 25.00, newAvailableFunds: 127.75 }
+
+tf 15 cmd Payments.RejectPayment ->> 06 { paymentId: "pay-882", reason: "insufficient_funds" }
+tf 16 evt Payments.PaymentRejected ->> 15 { paymentId: "pay-882", reason: "insufficient_funds", rejectedAt: "2026-09-14T10:02:02Z" }
+
+tf 17 rmo Payments.PaymentHistory [[PaymentHistory17]] ->> 03 ->> 08 ->> 12 ->> 16
+tf 18 ui Payments.PaymentStatusScreen ->> 17
+
+tf 19 pcr Notify.SettlementNotifier ->> 12
+tf 20 cmd Notify.SendPaymentNotification ->> 19 { paymentId: "pay-881", channel: "push" }
+tf 21 evt Notify.PaymentNotificationSent ->> 20 { paymentId: "pay-881", channel: "push" }
+
+data AvailableFunds05 `json` {
+  accountId: "acct-9213",
+  availableFunds: 152.75,
+  asOf: "2026-09-14T10:02:00Z"
+}
+
+data PaymentHistory17 `json` {
+  paymentId: "pay-881",
+  status: "submitted_to_rail",
+  amount: 25.00,
+  currency: "USD",
+  updatedAt: "2026-09-14T10:02:01Z"
+}
+
+note 06 { open question: should the authoriser also check per-account velocity limits? (see staged fraud-screening draft) }
+
+gwt 02 "happy path — funds available"
+  given
+    evt Funds.LedgerUpdated { accountId: "acct-9213", availableFunds: 152.75 }
+  when
+    cmd Payments.InitiatePayment { paymentId: "pay-881", amount: 25.00 }
+  then
+    evt Payments.PaymentSubmittedToRail { paymentId: "pay-881" }
+    evt Payments.PaymentSettled { paymentId: "pay-881" }
+    evt Funds.LedgerDebited { accountId: "acct-9213", amount: 25.00 }
+
+gwt 15 "insufficient funds — payment rejected"
+  given
+    evt Payments.PaymentInitiated { paymentId: "pay-882", amount: 25.00 }
+    evt Funds.LedgerUpdated { accountId: "acct-9213", availableFunds: 4.00 }
+  when
+    cmd Payments.RejectPayment { paymentId: "pay-882", reason: "insufficient_funds" }
+  then
+    evt Payments.PaymentRejected { paymentId: "pay-882", reason: "insufficient_funds" }
+
+gwt 11 "rail settles late — out of order after rejection"
+  given
+    evt Payments.PaymentRejected { paymentId: "pay-883" }
+    evt Rails.SettlementConfirmed { paymentId: "pay-883", settledAmount: 25.00 }
+  when
+    cmd Payments.MarkSettled { paymentId: "pay-883" }
+  then
+    evt Payments.PaymentSettled { paymentId: "pay-883" }

@@ -25,6 +25,10 @@ type Config struct {
 	StateDir    string // where in-progress drafts are persisted
 	StaticDir   string // cmd/evmlweb/static
 	TemplateDir string // cmd/evmlweb/internal/webapp/templates
+	// SeedDir holds committed example drafts (cmd/evmlweb/seed/<flow>/…)
+	// copied into StateDir the first time a seeded flow is opened. Empty
+	// disables seeding.
+	SeedDir string
 }
 
 // App wires together the HTTP server, session/draft state, the local
@@ -35,12 +39,19 @@ type App struct {
 	tmpl         *template.Template
 	sessions     *SessionStore
 	store        *DraftStore
+	seedStore    *DraftStore // committed example drafts; nil when seeding is off
 	models       *models.Models
 	systemPrompt string
 
 	llmMu  sync.Mutex
 	llms   map[string]*LLM // modelID -> loaded model, process-wide cache
+	chatFn chatFunc        // overridable for tests; defaults to llmFor + StreamChat
 }
+
+// chatFunc is the seam through which handlers drive the LLM. Tests stub
+// it to exercise the chat loop (including the auto-repair loop) without
+// loading a real model.
+type chatFunc func(ctx context.Context, modelID, systemPrompt string, transcript []ChatMessage, onDelta func(delta string) error) (string, error)
 
 // NewApp constructs an App, loading templates and preparing (but not yet
 // loading) the local model catalog.
@@ -55,7 +66,7 @@ func NewApp(cfg Config, log *slog.Logger, m *models.Models) (*App, error) {
 		return nil, err
 	}
 
-	return &App{
+	app := &App{
 		cfg:          cfg,
 		log:          log,
 		tmpl:         tmpl,
@@ -64,7 +75,27 @@ func NewApp(cfg Config, log *slog.Logger, m *models.Models) (*App, error) {
 		models:       m,
 		systemPrompt: BuildSystemPrompt(cfg.RepoRoot),
 		llms:         make(map[string]*LLM),
-	}, nil
+	}
+	app.chatFn = app.defaultChat
+
+	if cfg.SeedDir != "" {
+		seedStore, err := NewDraftStore(cfg.SeedDir, log)
+		if err != nil {
+			return nil, err
+		}
+		app.seedStore = seedStore
+	}
+	return app, nil
+}
+
+// defaultChat is the production chatFunc: lazy-load the model, stream the
+// response, calling onDelta per token batch.
+func (a *App) defaultChat(ctx context.Context, modelID, systemPrompt string, transcript []ChatMessage, onDelta func(delta string) error) (string, error) {
+	llm, err := a.llmFor(ctx, modelID)
+	if err != nil {
+		return "", err
+	}
+	return llm.StreamChat(ctx, systemPrompt, transcript, onDelta)
 }
 
 // Routes builds the HTTP handler for the app.
@@ -79,6 +110,17 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("POST /flow/{flow}/draft/{id}/chat", a.handleChat)
 	mux.HandleFunc("POST /flow/{flow}/draft/{id}/new-version", a.handleNewVersion)
 	mux.HandleFunc("POST /flow/{flow}/draft/{id}/activate", a.handleActivate)
+
+	// Staging: frame inspection + direct manipulation.
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/frame/select", a.handleFrameSelect)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/frame/deselect", a.handleFrameDeselect)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/frame/update", a.handleFrameUpdate)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/frame/add", a.handleFrameAdd)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/frame/sources", a.handleFrameSources)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/frame/delete", a.handleFrameDelete)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/frame/move", a.handleFrameMove)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/compare", a.handleCompare)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/meta", a.handleDraftMeta)
 
 	return withRequestLogging(a.log, mux)
 }
@@ -181,14 +223,97 @@ func (a *App) readFixture(flow string) (source, svg string, err error) {
 // error message (not a Go error) so callers can show it in the chat
 // transcript instead of failing the request.
 func renderEvml(source string) (string, error) {
+	svg, parseErr, issues := evaluateEvml(source)
+	if parseErr != "" {
+		return "", fmt.Errorf("%s", parseErr)
+	}
+	if len(issues) > 0 {
+		return "", fmt.Errorf("%s", ValidationErrorsText(issues))
+	}
+	return svg, nil
+}
+
+// evaluateEvml splits "can we draw this at all" from "is the wiring
+// tidy": a parse error blocks the render (parseErr non-empty), while
+// connection-rule violations still render the diagram and come back as
+// issues for the UI to surface as warnings.
+func evaluateEvml(source string) (svg, parseErr string, issues []error) {
 	m, err := evml.Parse(source)
 	if err != nil {
-		return "", fmt.Errorf("parse error: %w", err)
+		return "", "parse error: " + err.Error(), nil
 	}
-	if errs := evml.ValidateConnections(m); len(errs) > 0 {
-		return "", fmt.Errorf("%s", ValidationErrorsText(errs))
+	issues = evml.ValidateConnections(m)
+	svg, _ = evml.RenderSVG(m, evml.RenderOptions{})
+	return svg, "", issues
+}
+
+// displaySVG renders the SVG the expert actually sees: interactive (every
+// frame box clickable, wired to the current flow/draft's select route),
+// with diff highlighting when a compare mode is active, and the selected
+// frame outlined. It falls back to the cached SVG when the draft's source
+// no longer parses (the parse error is surfaced elsewhere).
+func (a *App) displaySVG(fs *FlowState, d *DraftVersion) string {
+	fallback := activeSVG(fs, d)
+	m, err := evml.Parse(d.EvmlSource)
+	if err != nil {
+		return fallback
 	}
-	return evml.RenderSVG(m, evml.RenderOptions{})
+
+	highlight := map[string]string{}
+	if mode := fs.CompareMode; mode != "" {
+		var base *evml.Model
+		switch mode {
+		case "baseline":
+			if bm, err := evml.Parse(fs.BaselineEvml); err == nil {
+				base = bm
+			}
+		case "prev":
+			if p := previousDraft(fs, d); p != nil {
+				if pm, err := evml.Parse(p.EvmlSource); err == nil {
+					base = pm
+				}
+			}
+		}
+		if base != nil {
+			diff := evml.Diff(base, m)
+			for id, state := range diff.Frames {
+				if state != evml.DiffUnchanged {
+					highlight[id] = string(state)
+				}
+			}
+		}
+	}
+	if fs.SelectedFrame != "" {
+		highlight[fs.SelectedFrame] = "selected"
+	}
+
+	opts := evml.RenderOptions{
+		Interactive: true,
+		FrameClickExpr: fmt.Sprintf(
+			"@post('/flow/%s/draft/%s/frame/select', {payload:{frame:'{id}'}})",
+			fs.Name, d.ID),
+		Highlight: highlight,
+	}
+	svg, err := evml.RenderSVG(m, opts)
+	if err != nil {
+		return fallback
+	}
+	return svg
+}
+
+// previousDraft returns the draft immediately before d in tab order, or
+// nil when d is the oldest.
+func previousDraft(fs *FlowState, d *DraftVersion) *DraftVersion {
+	var prev *DraftVersion
+	for _, id := range fs.DraftOrder {
+		if id == d.ID {
+			return prev
+		}
+		if cand, ok := fs.Drafts[id]; ok {
+			prev = cand
+		}
+	}
+	return nil
 }
 
 // llmFor returns the cached LLM for modelID, loading it on first use.

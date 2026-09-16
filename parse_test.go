@@ -269,3 +269,39 @@ rf 04 rmo ReadModel02 ->> 01 ->> 02
 		t.Fatalf("len(Sources) = %d, want 2", got)
 	}
 }
+
+func TestParseTracksDeclarationLines(t *testing.T) {
+	model, err := Parse("eventmodeling\n" +
+		"// banner comment\n" +
+		"tf 01 cmd UpdateCart\n" +
+		"tf 02 evt CartUpdated ->> 01 { a: { b: true } }\n" +
+		"data CartItems {\n" +
+		"  a: b\n" +
+		"}\n" +
+		"note 02 {\n" +
+		"  open question\n" +
+		"}\n" +
+		"gwt 01 \"happy path\"\n" +
+		"  given\n" +
+		"    evt CartUpdated\n" +
+		"  then\n" +
+		"    evt CartUpdated\n")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if model.Frames[0].Line != 3 || model.Frames[0].EndLine != 3 {
+		t.Fatalf("frame 01 lines = %d-%d, want 3-3", model.Frames[0].Line, model.Frames[0].EndLine)
+	}
+	if model.Frames[1].Line != 4 || model.Frames[1].EndLine != 4 {
+		t.Fatalf("frame 02 lines = %d-%d, want 4-4", model.Frames[1].Line, model.Frames[1].EndLine)
+	}
+	if model.DataEntities[0].Line != 5 || model.DataEntities[0].EndLine != 7 {
+		t.Fatalf("data lines = %d-%d, want 5-7", model.DataEntities[0].Line, model.DataEntities[0].EndLine)
+	}
+	if model.NoteEntities[0].Line != 8 || model.NoteEntities[0].EndLine != 10 {
+		t.Fatalf("note lines = %d-%d, want 8-10", model.NoteEntities[0].Line, model.NoteEntities[0].EndLine)
+	}
+	if model.GWTs[0].Line != 11 || model.GWTs[0].EndLine != 16 {
+		t.Fatalf("gwt lines = %d-%d, want 11-16 (trailing blank line included)", model.GWTs[0].Line, model.GWTs[0].EndLine)
+	}
+}

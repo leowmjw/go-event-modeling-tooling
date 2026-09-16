@@ -1,0 +1,154 @@
+eventmodeling
+
+// FinTech instant payments — staged what-if v3: "Disputes & refunds (stretch goal)".
+//
+// Forked from v2 (fraud screening). Adds the customer dispute journey:
+// a cardholder disputes a settled payment, the lender issues a
+// provisional credit, the rail's representment process decides the
+// outcome, and refunds (including failed-refund retries) round out the
+// money-back paths.
+//
+// Bounded contexts:
+//   Payments  — owns the payment lifecycle
+//   Funds     — owns balances and the ledger
+//   Rails     — the external instant-payment rail (reset boundary)
+//   Risk      — fraud screening and the analyst queue
+//   Disputes  — chargeback/representment handling (new in this version)
+//   Notify    — outbound customer notifications
+
+entity InstantPayment
+
+tf 01 ui Payments.SendMoneyScreen
+tf 02 cmd Payments.InitiatePayment ->> 01 { paymentId: "pay-881", amount: 25.00, currency: "USD", payee: "acct-4471" }
+tf 03 evt Payments.PaymentInitiated ->> 02 { paymentId: "pay-881", amount: 25.00, currency: "USD", payee: "acct-4471" }
+
+rf 04 evt Funds.LedgerUpdated { accountId: "acct-9213", availableFunds: 152.75, asOf: "2026-09-14T10:02:00Z" }
+tf 05 rmo Funds.AvailableFunds [[AvailableFunds05]] ->> 04
+tf 06 pcr Payments.PaymentAuthorizer ->> 03 ->> 05 { policy: "funds_and_velocity" }
+
+tf 07 cmd Payments.ExecutePayment ->> 06 { paymentId: "pay-881" }
+tf 08 evt Payments.PaymentSubmittedToRail ->> 07 { paymentId: "pay-881", rail: "instant", submittedAt: "2026-09-14T10:02:01Z" }
+
+rf 09 evt Rails.SettlementConfirmed { paymentId: "pay-881", railReference: "R-2026-8891", settledAmount: 25.00 }
+tf 10 pcr Payments.SettlementWatcher ->> 09
+tf 11 cmd Payments.MarkSettled ->> 10 { paymentId: "pay-881" }
+tf 12 evt Payments.PaymentSettled ->> 11 { paymentId: "pay-881", settledAt: "2026-09-14T10:02:04Z" }
+
+tf 13 cmd Funds.PostLedgerDebit ->> 10 { accountId: "acct-9213", amount: 25.00 }
+tf 14 evt Funds.LedgerDebited ->> 13 { accountId: "acct-9213", amount: 25.00, newAvailableFunds: 127.75 }
+
+tf 15 cmd Payments.RejectPayment ->> 06 { paymentId: "pay-882", reason: "insufficient_funds" }
+tf 16 evt Payments.PaymentRejected ->> 15 { paymentId: "pay-882", reason: "insufficient_funds", rejectedAt: "2026-09-14T10:02:02Z" }
+
+tf 17 rmo Payments.PaymentHistory [[PaymentHistory17]] ->> 03 ->> 08 ->> 12 ->> 16 ->> 25 ->> 29 ->> 31 ->> 34 ->> 42
+tf 18 ui Payments.PaymentStatusScreen ->> 17
+
+tf 19 pcr Notify.SettlementNotifier ->> 12
+tf 20 cmd Notify.SendPaymentNotification ->> 19 { paymentId: "pay-881", channel: "push" }
+tf 21 evt Notify.PaymentNotificationSent ->> 20 { paymentId: "pay-881", channel: "push" }
+
+// --- Fraud screening (from v2) ---
+
+tf 22 rmo Risk.PaymentVelocity [[PaymentVelocity22]] ->> 03
+tf 23 pcr Risk.PaymentScreener ->> 03 ->> 22
+tf 24 cmd Risk.HoldPayment ->> 23 { paymentId: "pay-884", reason: "velocity_exceeded" }
+tf 25 evt Risk.PaymentHeld ->> 24 { paymentId: "pay-884", reason: "velocity_exceeded", heldAt: "2026-09-14T10:02:03Z" }
+
+tf 26 rmo Risk.AnalystQueue [[AnalystQueue26]] ->> 25
+tf 27 ui Risk.AnalystReviewScreen ->> 26
+tf 28 cmd Risk.ReleasePayment ->> 27 { paymentId: "pay-884" }
+tf 29 evt Risk.PaymentReleased ->> 28 { paymentId: "pay-884", releasedAt: "2026-09-14T10:12:00Z" }
+tf 30 cmd Risk.CancelPayment ->> 27 { paymentId: "pay-885", reason: "confirmed_fraud" }
+tf 31 evt Risk.PaymentCancelled ->> 30 { paymentId: "pay-885", reason: "confirmed_fraud", cancelledAt: "2026-09-14T10:14:00Z" }
+
+// --- Disputes & refunds (new in this what-if) ---
+
+tf 32 ui Payments.FileDisputeScreen
+tf 33 cmd Payments.OpenDispute ->> 32 { paymentId: "pay-881", reason: "goods_not_received" }
+tf 34 evt Payments.DisputeOpened ->> 33 { disputeId: "dis-501", paymentId: "pay-881", reason: "goods_not_received" }
+
+tf 35 rmo Payments.OpenDisputes [[OpenDisputes35]] ->> 34
+tf 36 pcr Payments.DisputeHandler ->> 34
+tf 37 cmd Funds.IssueProvisionalCredit ->> 36 { disputeId: "dis-501", paymentId: "pay-881", amount: 25.00 }
+tf 38 evt Funds.ProvisionalCreditIssued ->> 37 { disputeId: "dis-501", amount: 25.00, creditedAt: "2026-09-20T09:00:00Z" }
+
+rf 39 evt Rails.RepresentmentOutcome { disputeId: "dis-501", outcome: "upheld", railReference: "R-2026-8891" }
+tf 40 pcr Payments.RepresentmentWatcher ->> 39
+tf 41 cmd Payments.CloseDispute ->> 40 { disputeId: "dis-501", outcome: "upheld" }
+tf 42 evt Payments.DisputeClosed ->> 41 { disputeId: "dis-501", outcome: "upheld", closedAt: "2026-09-28T15:00:00Z" }
+
+tf 43 pcr Payments.RefundCoordinator ->> 42
+tf 44 cmd Payments.IssueRefund ->> 43 { paymentId: "pay-881", amount: 25.00 }
+tf 45 evt Payments.RefundIssued ->> 44 { refundId: "ref-77", paymentId: "pay-881", amount: 25.00 }
+
+rf 46 evt Rails.RefundFailed { refundId: "ref-77", reason: "account_closed", failedAt: "2026-09-29T08:00:00Z" }
+tf 47 pcr Payments.RefundRetryHandler ->> 46
+tf 48 cmd Payments.RetryRefund ->> 47 { refundId: "ref-77", channel: "check" }
+tf 49 evt Payments.RefundRetried ->> 48 { refundId: "ref-77", channel: "check", retriedAt: "2026-09-29T10:00:00Z" }
+
+data AvailableFunds05 `json` {
+  accountId: "acct-9213",
+  availableFunds: 152.75,
+  asOf: "2026-09-14T10:02:00Z"
+}
+
+data PaymentHistory17 `json` {
+  paymentId: "pay-881",
+  status: "disputed",
+  amount: 25.00,
+  currency: "USD",
+  updatedAt: "2026-09-20T09:00:00Z"
+}
+
+data PaymentVelocity22 `json` {
+  accountId: "acct-9213",
+  paymentsLast24h: 14,
+  amountLast24h: 3120.00,
+  asOf: "2026-09-14T10:02:00Z"
+}
+
+data AnalystQueue26 `json` {
+  paymentId: "pay-884",
+  reason: "velocity_exceeded",
+  waitingSince: "2026-09-14T10:02:03Z",
+  slaMinutes: 30
+}
+
+data OpenDisputes35 `json` {
+  disputeId: "dis-501",
+  paymentId: "pay-881",
+  reason: "goods_not_received",
+  provisionalCredit: true,
+  openedAt: "2026-09-18T14:00:00Z"
+}
+
+note 36 { policy: provisional credit only for disputes older than 3 business days and under 200.00 }
+note 43 { open question: who owns clawback when a dispute is lost? (Funds or Payments) }
+
+gwt 33 "customer disputes a settled payment"
+  given
+    evt Payments.PaymentSettled { paymentId: "pay-881" }
+  when
+    cmd Payments.OpenDispute { paymentId: "pay-881", reason: "goods_not_received" }
+  then
+    evt Payments.DisputeOpened { disputeId: "dis-501", paymentId: "pay-881" }
+    evt Funds.ProvisionalCreditIssued { disputeId: "dis-501", amount: 25.00 }
+
+gwt 41 "dispute upheld — closed and refunded"
+  given
+    evt Payments.DisputeOpened { disputeId: "dis-501", paymentId: "pay-881" }
+    evt Rails.RepresentmentOutcome { disputeId: "dis-501", outcome: "upheld" }
+  when
+    cmd Payments.CloseDispute { disputeId: "dis-501", outcome: "upheld" }
+  then
+    evt Payments.DisputeClosed { disputeId: "dis-501", outcome: "upheld" }
+    evt Payments.RefundIssued { refundId: "ref-77", paymentId: "pay-881" }
+
+gwt 48 "refund bounces — retried on a different rail"
+  given
+    evt Payments.RefundIssued { refundId: "ref-77", paymentId: "pay-881" }
+    evt Rails.RefundFailed { refundId: "ref-77", reason: "account_closed" }
+  when
+    cmd Payments.RetryRefund { refundId: "ref-77", channel: "check" }
+  then
+    evt Payments.RefundRetried { refundId: "ref-77", channel: "check" }

@@ -10,6 +10,15 @@ import (
 
 type RenderOptions struct {
 	MeasureTextWidth func(text string, monospace bool) float64
+	// Interactive adds id/data-frame-id attributes and a pointer cursor to
+	// each frame group so the SVG can drive selection in an embedding UI.
+	Interactive bool
+	// FrameClickExpr, when non-empty, is emitted as a data-on:click
+	// attribute on every frame group, with "{id}" replaced by the frame ID.
+	FrameClickExpr string
+	// Highlight maps frame IDs to a diff/selection state ("added",
+	// "changed", "removed", "selected") that overrides box colours.
+	Highlight map[string]string
 }
 
 type boxLayout struct {
@@ -92,7 +101,7 @@ func RenderSVG(model *Model, opts RenderOptions) (string, error) {
 		fmt.Fprintf(&b, `<path d="M %.1f %.1f L %.1f %.1f" fill="none" stroke="#666" stroke-width="1.5" marker-end="url(#arrowhead)"/>`, x1, y1, x2, y2)
 	}
 	for _, box := range boxes {
-		renderBox(&b, box)
+		renderBox(&b, box, opts)
 	}
 	renderNotes(&b, model.NoteEntities, boxByID, noteStartY)
 	renderGWT(&b, model.GWTs, boxByID, gwtStartY)
@@ -245,14 +254,47 @@ func measureBox(rows []string, opts RenderOptions) (float64, float64) {
 	return width, height
 }
 
-func renderBox(b *strings.Builder, box boxLayout) {
+func renderBox(b *strings.Builder, box boxLayout, opts RenderOptions) {
 	fill, stroke := frameColors(box.frame.EntityType)
-	fmt.Fprintf(b, `<g class="box"><rect x="%0.f" y="%0.f" width="%0.f" height="%0.f" rx="4" fill="%s" stroke="%s"/>`, box.x, box.y, box.width, box.height, fill, stroke)
+	strokeWidth := ""
+	if state, ok := opts.Highlight[box.frame.ID]; ok {
+		var width float64
+		fill, stroke, width = highlightColors(fill, stroke, state)
+		if width != 0 {
+			strokeWidth = fmt.Sprintf(` stroke-width="%0.f"`, width)
+		}
+	}
+	attrs := ` class="box"`
+	if opts.Interactive {
+		attrs = fmt.Sprintf(` id="frame-%s" data-frame-id="%s" class="box evml-frame" style="cursor:pointer"`, esc(box.frame.ID), esc(box.frame.ID))
+	}
+	if opts.FrameClickExpr != "" {
+		expr := strings.ReplaceAll(opts.FrameClickExpr, "{id}", box.frame.ID)
+		attrs += fmt.Sprintf(` data-on:click="%s"`, esc(expr))
+	}
+	fmt.Fprintf(b, `<g%s><rect x="%0.f" y="%0.f" width="%0.f" height="%0.f" rx="4" fill="%s" stroke="%s"%s/>`, attrs, box.x, box.y, box.width, box.height, fill, stroke, strokeWidth)
 	fmt.Fprintf(b, `<text class="box-title" x="%0.f" y="%0.f">%s</text>`, box.x+12, box.y+22, esc(box.contentRows[0]))
 	for i, row := range box.contentRows[1:] {
 		fmt.Fprintf(b, `<text class="code" x="%0.f" y="%0.f">%s</text>`, box.x+12, box.y+42+float64(i)*16, esc(row))
 	}
 	b.WriteString(`</g>`)
+}
+
+// highlightColors overrides a box's fill/stroke for a diff or selection
+// state. The returned stroke width of 0 keeps the renderer default.
+func highlightColors(fill, stroke, state string) (string, string, float64) {
+	switch state {
+	case "added":
+		return "#e6f4e6", "#2e7d32", 0
+	case "changed":
+		return "#fff3d6", "#b8860b", 0
+	case "removed":
+		return "#fdecea", "#c62828", 0
+	case "selected":
+		return fill, "#1565c0", 3
+	default:
+		return fill, stroke, 0
+	}
 }
 
 func renderNotes(b *strings.Builder, notes []*NoteEntity, boxes map[string]boxLayout, startY float64) {

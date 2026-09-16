@@ -42,6 +42,7 @@ func (p *parser) parse() (*Model, error) {
 			continue
 		}
 		trimmed := strings.TrimSpace(p.lines[p.line])
+		start := p.line
 		switch {
 		case hasKeyword(trimmed, "tf"), hasKeyword(trimmed, "timeframe"):
 			frame, consumed, err := p.parseFrame(trimmed)
@@ -49,6 +50,7 @@ func (p *parser) parse() (*Model, error) {
 				return nil, err
 			}
 			frame.DeclarationIx = len(model.Frames)
+			frame.Line, frame.EndLine = start+1, start+consumed
 			model.Frames = append(model.Frames, frame)
 			p.line += consumed
 		case hasKeyword(trimmed, "rf"), hasKeyword(trimmed, "resetframe"):
@@ -58,6 +60,7 @@ func (p *parser) parse() (*Model, error) {
 			}
 			frame.Kind = FrameKindReset
 			frame.DeclarationIx = len(model.Frames)
+			frame.Line, frame.EndLine = start+1, start+consumed
 			model.Frames = append(model.Frames, frame)
 			p.line += consumed
 		case hasKeyword(trimmed, "data"):
@@ -65,6 +68,7 @@ func (p *parser) parse() (*Model, error) {
 			if err != nil {
 				return nil, err
 			}
+			entity.Line, entity.EndLine = start+1, start+consumed
 			model.DataEntities = append(model.DataEntities, entity)
 			p.line += consumed
 		case hasKeyword(trimmed, "note"):
@@ -72,6 +76,7 @@ func (p *parser) parse() (*Model, error) {
 			if err != nil {
 				return nil, err
 			}
+			note.Line, note.EndLine = start+1, start+consumed
 			model.NoteEntities = append(model.NoteEntities, note)
 			p.line += consumed
 		case hasKeyword(trimmed, "gwt"):
@@ -79,6 +84,7 @@ func (p *parser) parse() (*Model, error) {
 			if err != nil {
 				return nil, err
 			}
+			gwt.Line, gwt.EndLine = start+1, start+consumed
 			model.GWTs = append(model.GWTs, gwt)
 			p.line += consumed
 		case hasKeyword(trimmed, "entity"):

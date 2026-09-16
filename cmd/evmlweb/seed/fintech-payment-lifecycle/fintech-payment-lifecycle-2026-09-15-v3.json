@@ -1,0 +1,16 @@
+{
+  "flow_name": "fintech-payment-lifecycle",
+  "date": "2026-09-15",
+  "seq": 3,
+  "label": "Disputes & refunds (stretch goal)",
+  "intent": "future",
+  "transcript": [
+    {
+      "Role": "system",
+      "Content": "This what-if adds the full customer dispute journey on top of the fraud-screening plan: a cardholder disputes a settled payment, a provisional credit is issued, the rail's representment process decides the outcome, and refunds retry on a different rail when they bounce. Turn on 'Compare to previous' to see what this version adds over the fraud-screening draft.",
+      "At": "2026-09-15T09:30:00Z"
+    }
+  ],
+  "created_at": "2026-09-15T09:30:00Z",
+  "updated_at": "2026-09-15T09:30:00Z"
+}

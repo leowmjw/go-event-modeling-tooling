@@ -1,0 +1,16 @@
+{
+  "flow_name": "fintech-payment-lifecycle",
+  "date": "2026-09-15",
+  "seq": 2,
+  "label": "Fraud screening (Q3 plan)",
+  "intent": "future",
+  "transcript": [
+    {
+      "Role": "system",
+      "Content": "This what-if stages the Q3 fraud-screening plan on top of the current baseline: every payment is screened against the last 24 hours of activity before it executes, suspicious payments are held for a fraud analyst, and the analyst can release or cancel them. Turn on 'Compare to baseline' to see exactly what would change.",
+      "At": "2026-09-15T09:00:00Z"
+    }
+  ],
+  "created_at": "2026-09-15T09:00:00Z",
+  "updated_at": "2026-09-15T09:00:00Z"
+}

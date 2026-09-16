@@ -1,0 +1,123 @@
+eventmodeling
+
+// FinTech unsecured personal-loan origination.
+//
+// A borrower applies for a loan; the lender pulls an external credit
+// bureau report, checks affordability, issues an offer, and on acceptance
+// disburses the money and creates the repayment schedule. Servicing then
+// watches for missed payments and early settlement.
+//
+// Bounded contexts:
+//   Lending       — application, offers, decisions
+//   Bureau        — external credit bureau (reset boundary)
+//   Disbursement  — money movement to the borrower
+//   Servicing     — repayment schedule and delinquency
+
+entity LoanApplication
+
+tf 01 ui Lending.LoanCalculatorScreen
+tf 02 cmd Lending.ApplyForLoan ->> 01 { applicationId: "loan-5501", amount: 12000.00, termMonths: 36 }
+tf 03 evt Lending.LoanApplied ->> 02 { applicationId: "loan-5501", amount: 12000.00, termMonths: 36 }
+
+tf 04 rmo Lending.AffordabilitySnapshot [[AffordabilitySnapshot04]] ->> 03
+
+rf 05 evt Bureau.CreditReportPulled { applicationId: "loan-5501", bureauRef: "exp-77120", score: 712, riskGrade: "B" }
+rf 06 evt Bureau.BureauUnavailable { applicationId: "loan-5502", reason: "thin_file_timeout" }
+
+tf 07 pcr Lending.OfferGenerator ->> 05 ->> 06 ->> 04
+tf 08 cmd Lending.IssueOffer ->> 07 { applicationId: "loan-5501", apr: 9.4 }
+tf 09 evt Lending.OfferIssued ->> 08 { offerId: "off-3301", apr: 9.4, monthlyPayment: 384.20 }
+
+tf 10 rmo Lending.ActiveOffers [[ActiveOffers10]] ->> 09
+tf 11 ui Lending.OfferScreen ->> 10
+
+tf 12 cmd Lending.AcceptOffer ->> 11 { offerId: "off-3301" }
+tf 13 evt Lending.OfferAccepted ->> 12 { offerId: "off-3301", acceptedAt: "2026-09-14T11:00:00Z" }
+
+tf 14 cmd Lending.DeclineApplication ->> 07 { applicationId: "loan-5502", reason: "thin_file" }
+tf 15 evt Lending.ApplicationDeclined ->> 14 { applicationId: "loan-5502", reason: "thin_file" }
+
+tf 16 pcr Disbursement.DisbursementPlanner ->> 13
+tf 17 cmd Disbursement.SendDisbursement ->> 16 { loanId: "loan-5501", amount: 12000.00, rail: "ach" }
+tf 18 evt Disbursement.DisbursementSent ->> 17 { loanId: "loan-5501", rail: "ach" }
+
+rf 19 evt Disbursement.RailConfirmed { loanId: "loan-5501", railRef: "ach-99310", confirmedAmount: 12000.00 }
+
+tf 20 pcr Disbursement.RailWatcher ->> 19
+tf 21 cmd Disbursement.BookLoan ->> 20 { loanId: "loan-5501" }
+tf 22 evt Lending.LoanDisbursed ->> 21 { loanId: "loan-5501", disbursedAt: "2026-09-14T11:30:00Z" }
+
+tf 23 cmd Servicing.CreateRepaymentSchedule ->> 20 { loanId: "loan-5501", installments: 36 }
+tf 24 evt Servicing.RepaymentScheduleCreated ->> 23 { loanId: "loan-5501", firstPaymentDue: "2026-10-15" }
+
+tf 25 rmo Servicing.UpcomingPayments [[UpcomingPayments25]] ->> 24
+tf 26 ui Servicing.PaymentCalendar ->> 25
+
+rf 27 evt Servicing.PaymentMissed { loanId: "loan-5509", missedInstallment: 3, dueDate: "2026-10-15" }
+tf 28 pcr Servicing.DelinquencyDetector ->> 27
+tf 29 cmd Servicing.FlagDelinquency ->> 28 { loanId: "loan-5509", stage: "early" }
+tf 30 evt Servicing.DelinquencyFlagged ->> 29 { loanId: "loan-5509", stage: "early" }
+
+tf 31 cmd Lending.SettleEarly ->> 26 { loanId: "loan-5501", payoffAmount: 11890.00 }
+tf 32 evt Lending.LoanSettled ->> 31 { loanId: "loan-5501", settledAt: "2026-12-01T09:00:00Z" }
+
+data AffordabilitySnapshot04 `json` {
+  applicationId: "loan-5501",
+  monthlyIncome: 5400.00,
+  requestedMonthlyPayment: 384.20,
+  debtToIncomeAfterLoan: 0.31,
+  affordable: true
+}
+
+data ActiveOffers10 `json` {
+  offerId: "off-3301",
+  applicationId: "loan-5501",
+  apr: 9.4,
+  monthlyPayment: 384.20,
+  expiresAt: "2026-09-21T00:00:00Z"
+}
+
+data UpcomingPayments25 `json` {
+  loanId: "loan-5501",
+  nextPaymentDue: "2026-10-15",
+  nextPaymentAmount: 384.20,
+  installmentsRemaining: 36
+}
+
+note 07 { policy: offer requires score >= 640 and debt-to-income <= 0.43 after the new payment }
+note 27 { open question: how many missed installments before we hand over to collections? }
+
+gwt 08 "happy path — offer issued and accepted"
+  given
+    evt Lending.LoanApplied { applicationId: "loan-5501", amount: 12000.00 }
+    evt Bureau.CreditReportPulled { applicationId: "loan-5501", score: 712 }
+  when
+    cmd Lending.IssueOffer { applicationId: "loan-5501", apr: 9.4 }
+  then
+    evt Lending.OfferIssued { offerId: "off-3301" }
+    evt Lending.OfferAccepted { offerId: "off-3301" }
+
+gwt 14 "thin credit file — bureau unavailable"
+  given
+    evt Lending.LoanApplied { applicationId: "loan-5502", amount: 12000.00 }
+    evt Bureau.BureauUnavailable { applicationId: "loan-5502", reason: "thin_file_timeout" }
+  when
+    cmd Lending.DeclineApplication { applicationId: "loan-5502", reason: "thin_file" }
+  then
+    evt Lending.ApplicationDeclined { applicationId: "loan-5502", reason: "thin_file" }
+
+gwt 29 "missed payment — delinquency flagged"
+  given
+    evt Servicing.PaymentMissed { loanId: "loan-5509", missedInstallment: 3 }
+  when
+    cmd Servicing.FlagDelinquency { loanId: "loan-5509", stage: "early" }
+  then
+    evt Servicing.DelinquencyFlagged { loanId: "loan-5509", stage: "early" }
+
+gwt 31 "borrower settles early"
+  given
+    evt Servicing.RepaymentScheduleCreated { loanId: "loan-5501", installments: 36 }
+  when
+    cmd Lending.SettleEarly { loanId: "loan-5501", payoffAmount: 11890.00 }
+  then
+    evt Lending.LoanSettled { loanId: "loan-5501" }

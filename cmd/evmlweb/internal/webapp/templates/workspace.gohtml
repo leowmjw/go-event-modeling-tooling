@@ -2,19 +2,36 @@
 <div id="workspace-inner">
 {{if not .ActiveFlow}}
   <p class="empty-hint">Pick an existing flow to see its current diagram, or generate a new one to start describing a process from scratch.</p>
+  {{template "help-card" .}}
 {{else}}
   <nav class="draft-tabs">
     {{range .Drafts}}
-    <button class="tab {{if eq .ID $.ActiveDraftID}}active{{end}}"
+    <button class="tab {{if eq .ID $.ActiveDraftID}}active{{end}} intent-{{or .Intent "exploring"}}"
+            title="{{if .Intent}}{{.Intent}}{{else}}exploring{{end}}"
             data-on:click="@get('/flow/{{$.ActiveFlow}}/draft/{{.ID}}')">
-      {{.Label}}
+      <span class="intent-dot"></span>{{.Label}}
     </button>
     {{end}}
-    <button class="tab tab-new" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/new-version')">+ New version</button>
+    <button class="tab tab-new" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/new-version', {payload: {label: $newWhatIfLabel || '', intent: $newWhatIfIntent || 'exploring'}})">+ New what-if</button>
     {{if .ActiveDraftID}}
     <button class="tab tab-activate" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/activate')">Activate</button>
     {{end}}
   </nav>
+
+  {{template "help-card" .}}
+
+  {{if .ActiveDraftID}}
+  <form class="what-if-form" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/new-version', {payload: {label: $newWhatIfLabel, intent: $newWhatIfIntent}})">
+    <span>Start a new what-if from this version:</span>
+    <input data-bind:new-what-if-label placeholder="scenario name, e.g. Fraud screening — Q3 plan">
+    <select data-bind:new-what-if-intent>
+      <option value="exploring">exploring</option>
+      <option value="future">future goal</option>
+      <option value="ready">ready to activate</option>
+    </select>
+    <button type="submit">Create</button>
+  </form>
+  {{end}}
 
   <div class="workspace-grid">
     <section class="svg-pane"
@@ -25,16 +42,60 @@
       data-on:mouseup__window="$panning = false"
       data-on:mousemove__window="if ($panning) { $svgX = $panOrigX + (evt.clientX - $panStartX); $svgY = $panOrigY + (evt.clientY - $panStartY) }">
       <div class="svg-toolbar">
+        <span class="compare-group">
+          <span class="hint">Compare:</span>
+          <button class="{{if eq .CompareMode ""}}active{{end}}" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/compare', {payload: {mode: ''}})">off</button>
+          <button class="{{if eq .CompareMode "baseline"}}active{{end}}" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/compare', {payload: {mode: 'baseline'}})">to baseline</button>
+          <button class="{{if eq .CompareMode "prev"}}active{{end}}" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/compare', {payload: {mode: 'prev'}})">to previous</button>
+        </span>
+        {{if .DiffLegend}}
+        <span class="diff-legend">
+          {{range .DiffLegend}}<span class="legend-chip legend-{{.State}}">{{.State}} ×{{.Count}}</span>{{end}}
+        </span>
+        {{end}}
         <button data-on:click="$svgScale = 1; $svgX = 0; $svgY = 0">Reset view</button>
-        <span class="hint">scroll to zoom, drag to pan</span>
+        <span class="hint">scroll to zoom, drag to pan, click a box to inspect</span>
       </div>
+      {{if .RemovedFrames}}
+      <div class="removed-strip">
+        <strong>Removed in this version:</strong>
+        {{range .RemovedFrames}}<span class="removed-chip">{{.Identifier}} ({{.ID}})</span>{{end}}
+      </div>
+      {{end}}
       <div id="svg-container" data-attr:style="`transform: translate(${$svgX}px, ${$svgY}px) scale(${$svgScale})`">
         {{if not .PatchSVG}}{{.ActiveSVG}}{{end}}
       </div>
+      {{if .FramePanel}}{{template "frame-panel" .FramePanel}}{{end}}
     </section>
 
     <section class="chat-pane">
+      {{if .ActiveDraftID}}
+      <form class="draft-meta" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/meta', {payload: {label: $draftLabel, intent: $draftIntent}})"
+            data-signals:draft-label="'{{.DraftLabel}}'" data-signals:draft-intent="'{{.DraftIntent}}'">
+        <span class="meta-title">This version:</span>
+        <input data-bind:draft-label placeholder="name this scenario…" value="{{.DraftLabel}}">
+        <select data-bind:draft-intent>
+          <option value="exploring" {{if eq .DraftIntent "exploring"}}selected{{end}}>exploring</option>
+          <option value="future" {{if eq .DraftIntent "future"}}selected{{end}}>future goal</option>
+          <option value="ready" {{if eq .DraftIntent "ready"}}selected{{end}}>ready to activate</option>
+        </select>
+        <button type="submit">Save</button>
+      </form>
+      {{end}}
       {{template "chatlog" .}}
+      {{if .ValidationIssues}}
+      <div class="issues-strip">
+        <strong>Modeling issues</strong> (the diagram still draws — resolve these before activating):
+        <pre>{{.ValidationIssues}}</pre>
+      </div>
+      {{end}}
+      {{if .PromptChips}}
+      <div class="prompt-chips">
+        {{range .PromptChips}}
+        <button type="button" data-on:click="$message = '{{.}}'">{{.}}</button>
+        {{end}}
+      </div>
+      {{end}}
       <form class="chat-input" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/chat')">
         <textarea data-bind:message name="message" placeholder="Describe the process, or ask for a change…" rows="3"></textarea>
         <button type="submit">Send</button>
@@ -46,6 +107,80 @@
 {{end}}
 
 {{define "svg-content"}}{{.ActiveSVG}}{{end}}
+
+{{define "help-card"}}
+<details class="help-card">
+  <summary>How this studio works</summary>
+  <p><strong>Baseline</strong> is today's reality — the committed model of how the process runs now.
+  <strong>Drafts</strong> are staged what-ifs: tweak the diagram by hand or describe a change in chat, compare it against the baseline, and keep as many versions as you like.
+  <strong>Activate</strong> commits a draft as the flow's new baseline.</p>
+  <p>Click any box in the diagram to rename it, change its data, add a step after it, rewire its inputs, or delete it. Colours: <span class="legend-chip legend-added">added</span> <span class="legend-chip legend-changed">changed</span> <span class="legend-chip legend-removed">removed</span> when comparing.</p>
+</details>
+{{end}}
+
+{{define "frame-panel"}}
+<div id="frame-panel" class="frame-panel" data-on:mousedown__stop>
+  <header>
+    <strong>Step {{.ID}}</strong>
+    <span class="panel-kind">{{.Kind}} · {{.EntityType}}{{if .Namespace}} · {{.Namespace}}{{end}}</span>
+    <button class="panel-close" data-on:click="@post('/flow/{{.FlowName}}/draft/{{.DraftID}}/frame/deselect')">×</button>
+  </header>
+
+  {{if .EditError}}
+  <div class="panel-error">{{.EditError}}</div>
+  {{end}}
+
+  {{if not .EditError}}
+  <form data-on:submit__prevent="@post('/flow/{{.FlowName}}/draft/{{.DraftID}}/frame/update', {payload: {name: $frameName, payload: $framePayload}})">
+    <label>Name
+      <input data-bind:frame-name value="{{.Identifier}}">
+    </label>
+    <label>Data (what this step carries)
+      <textarea data-bind:frame-payload rows="4">{{.Payload}}</textarea>
+    </label>
+    <button type="submit">Save changes</button>
+  </form>
+
+  <form data-on:submit__prevent="@post('/flow/{{.FlowName}}/draft/{{.DraftID}}/frame/sources', {payload: {sources: $frameSources}})">
+    <label>Receives input from (frame IDs)
+      <input data-bind:frame-sources value="{{range .SourceIDs}}{{.}} {{end}}" placeholder="e.g. 03 07">
+    </label>
+    <div class="panel-hint">Pick from: {{range .Choices}}<span class="choice-chip {{if .IsConnected}}on{{end}}" title="{{.EntityType}}">{{.ID}} {{.Identifier}}</span> {{end}}</div>
+    <button type="submit">Rewire</button>
+  </form>
+
+  <form data-on:submit__prevent="@post('/flow/{{.FlowName}}/draft/{{.DraftID}}/frame/add', {payload: {type: $newStepType, name: $newStepName, after: '{{.ID}}'}})">
+    <label>Add a step after this one
+      <select data-bind:new-step-type>
+        <option value="evt">event (something that happened)</option>
+        <option value="cmd">command (someone's intention)</option>
+        <option value="ui">screen</option>
+        <option value="rmo">read model (answers a question)</option>
+        <option value="pcr">automation</option>
+      </select>
+    </label>
+    <input data-bind:new-step-name placeholder="e.g. Payments.PaymentDisputed">
+    <button type="submit">Add step</button>
+  </form>
+
+  <div class="panel-row">
+    <button data-on:click="@post('/flow/{{.FlowName}}/draft/{{.DraftID}}/frame/move', {payload: {dir: 'earlier'}})">← earlier</button>
+    <button data-on:click="@post('/flow/{{.FlowName}}/draft/{{.DraftID}}/frame/move', {payload: {dir: 'later'}})">later →</button>
+    <button class="panel-delete" data-on:click="@post('/flow/{{.FlowName}}/draft/{{.DraftID}}/frame/delete')">Delete step</button>
+  </div>
+
+  {{if .GWTLabels}}
+  <div class="panel-scenarios">
+    <strong>Scenarios:</strong>
+    {{range .GWTLabels}}<span class="scenario-chip">{{.}}</span>{{end}}
+  </div>
+  {{end}}
+  {{if .DataRefName}}
+  <div class="panel-hint">Data lives in the shared block <code>{{.DataRefName}}</code>.</div>
+  {{end}}
+  {{end}}
+</div>
+{{end}}
 
 {{define "chatlog"}}
 <div id="chat-log" class="chat-log">

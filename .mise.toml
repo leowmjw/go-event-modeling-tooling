@@ -20,21 +20,6 @@ description = "Start the evmlweb local event-modeling web app with hot reload (D
 run = "air -c .air.toml"
 dir = "cmd/evmlweb"
 
-[tasks."test:ui-model-flow-selection"]
-description = "Playwright regression: change model, open flow, assert SVG, reload restores selection (requires webapp on :8080)"
-dir = "cmd/evmlweb"
-run = '''
-#!/usr/bin/env bash
-set -euo pipefail
-if ! curl -sf http://localhost:8080/ >/dev/null; then
-  echo "evmlweb is not running — start it first: mise run webapp" >&2
-  exit 1
-fi
-npm install --no-fund --no-audit
-npx playwright install chromium
-node browser_test.mjs
-'''
-
 [tasks.svg]
 description = "Re-render SVGs for fixtures that changed since their last render (out/); pass --all to force every fixture"
 depends = ["build"]

@@ -1,0 +1,94 @@
+eventmodeling
+
+// FinTech KYC/AML customer onboarding.
+//
+// A digital bank onboards a new customer: application, document upload,
+// external identity verification (Idv), external sanctions/PEP screening,
+// then either auto-approval or a compliance analyst's manual decision.
+//
+// Bounded contexts:
+//   Onboarding — the applicant journey
+//   Idv        — external identity-verification vendor (reset boundary)
+//   Screening  — external sanctions/PEP screening (reset boundary)
+//   Compliance — internal analysts working the review queue
+//   Comms      — outbound messages to the customer
+
+entity CustomerApplication
+
+tf 01 ui Onboarding.ApplyScreen
+tf 02 cmd Onboarding.SubmitApplication ->> 01 { applicationId: "app-2201", fullName: "Dana Smith", country: "US" }
+tf 03 evt Onboarding.ApplicationSubmitted ->> 02 { applicationId: "app-2201", submittedAt: "2026-09-14T09:00:00Z" }
+
+tf 04 cmd Onboarding.UploadDocument ->> 01 { applicationId: "app-2201", docType: "passport" }
+tf 05 evt Onboarding.DocumentUploaded ->> 04 { applicationId: "app-2201", docType: "passport" }
+
+tf 06 rmo Onboarding.DocumentChecklist [[DocumentChecklist06]] ->> 03 ->> 05
+tf 07 ui Onboarding.ChecklistProgress ->> 06
+
+rf 08 evt Idv.IdentityVerified { applicationId: "app-2201", vendorRef: "idv-9902", method: "document+liveness" }
+rf 09 evt Idv.IdentityRejected { applicationId: "app-2204", vendorRef: "idv-9908", reason: "document_mismatch" }
+
+rf 10 evt Screening.ScreeningClear { applicationId: "app-2201", checkedLists: ["sanctions", "pep"] }
+rf 11 evt Screening.SanctionsHit { applicationId: "app-2207", matchedName: "D. Smith", list: "ofac_sdn" }
+
+tf 12 pcr Onboarding.AutoApprover ->> 08 ->> 10 ->> 06
+tf 13 cmd Onboarding.ApproveApplication ->> 12 { applicationId: "app-2201" }
+tf 14 evt Onboarding.ApplicationApproved ->> 13 { applicationId: "app-2201", approvedAt: "2026-09-14T09:05:00Z" }
+
+tf 15 rmo Compliance.ReviewQueue [[ReviewQueue15]] ->> 09 ->> 11
+tf 16 ui Compliance.AnalystQueue ->> 15
+
+tf 17 cmd Compliance.RejectApplication ->> 16 { applicationId: "app-2207", reason: "sanctions_hit" }
+tf 18 evt Onboarding.ApplicationRejected ->> 17 { applicationId: "app-2207", reason: "sanctions_hit", rejectedAt: "2026-09-14T09:20:00Z" }
+
+tf 19 cmd Compliance.EscalateApplication ->> 16 { applicationId: "app-2209", reason: "name_close_match" }
+tf 20 evt Compliance.ApplicationEscalated ->> 19 { applicationId: "app-2209", escalatedTo: "senior_analyst" }
+
+tf 21 pcr Onboarding.WelcomeMessenger ->> 14
+tf 22 cmd Comms.SendWelcome ->> 21 { applicationId: "app-2201", channel: "email" }
+tf 23 evt Comms.WelcomeSent ->> 22 { applicationId: "app-2201", channel: "email", sentAt: "2026-09-14T09:06:00Z" }
+
+data DocumentChecklist06 `json` {
+  applicationId: "app-2201",
+  required: ["passport", "proof_of_address"],
+  received: ["passport"],
+  missing: ["proof_of_address"]
+}
+
+data ReviewQueue15 `json` {
+  applicationId: "app-2207",
+  reason: "sanctions_hit",
+  waitingSince: "2026-09-14T09:12:00Z",
+  slaHours: 24
+}
+
+note 12 { policy: auto-approve requires identity verified + screening clear + all documents received }
+note 19 { open question: who clears escalations today — senior analyst or MLRO? }
+
+gwt 13 "happy path — auto-approved"
+  given
+    evt Idv.IdentityVerified { applicationId: "app-2201" }
+    evt Screening.ScreeningClear { applicationId: "app-2201" }
+    evt Onboarding.DocumentUploaded { applicationId: "app-2201", docType: "proof_of_address" }
+  when
+    cmd Onboarding.ApproveApplication { applicationId: "app-2201" }
+  then
+    evt Onboarding.ApplicationApproved { applicationId: "app-2201" }
+    evt Comms.WelcomeSent { applicationId: "app-2201" }
+
+gwt 17 "sanctions hit — analyst rejects"
+  given
+    evt Onboarding.ApplicationSubmitted { applicationId: "app-2207" }
+    evt Screening.SanctionsHit { applicationId: "app-2207", list: "ofac_sdn" }
+  when
+    cmd Compliance.RejectApplication { applicationId: "app-2207", reason: "sanctions_hit" }
+  then
+    evt Onboarding.ApplicationRejected { applicationId: "app-2207", reason: "sanctions_hit" }
+
+gwt 19 "identity document mismatch — escalated for review"
+  given
+    evt Idv.IdentityRejected { applicationId: "app-2204", reason: "document_mismatch" }
+  when
+    cmd Compliance.EscalateApplication { applicationId: "app-2204", reason: "document_mismatch" }
+  then
+    evt Compliance.ApplicationEscalated { applicationId: "app-2204", escalatedTo: "senior_analyst" }
