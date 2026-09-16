@@ -22,6 +22,26 @@ type ChatMessage struct {
 	At      time.Time
 }
 
+// Horizon is a draft's staging lane: what the business agrees is true
+// now, what is being tried out next, and what is a future goal.
+type Horizon string
+
+const (
+	HorizonNow    Horizon = "now"
+	HorizonNext   Horizon = "next"
+	HorizonFuture Horizon = "future"
+)
+
+// DraftStatus tracks whether a staged variation is still being tried,
+// has been agreed, or is parked for later.
+type DraftStatus string
+
+const (
+	StatusStaging  DraftStatus = "staging"
+	StatusAccepted DraftStatus = "accepted"
+	StatusParked   DraftStatus = "parked"
+)
+
 // DraftVersion is one dated, numbered iteration of a flow's event model.
 // Its ID has the form "<flow>-<date>-v<seq>", e.g. "hotel-booking-2026-08-10-v2".
 type DraftVersion struct {
@@ -29,6 +49,9 @@ type DraftVersion struct {
 	FlowName   string
 	Date       string // YYYY-MM-DD, the date this draft was created
 	Seq        int
+	Title      string // plain-language label, e.g. "Fraud hold step-up"
+	Horizon    Horizon
+	Status     DraftStatus
 	EvmlSource string
 	SVG        string
 	ParseError string // non-empty when EvmlSource fails to parse/validate

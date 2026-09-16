@@ -209,12 +209,18 @@ func (ss *SessionStore) NewDraft(fs *FlowState, source *DraftVersion, now time.T
 		FlowName:  fs.Name,
 		Date:      date,
 		Seq:       seq,
+		Horizon:   HorizonNext,
+		Status:    StatusStaging,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
 	if source != nil {
 		d.EvmlSource = source.EvmlSource
 		d.SVG = source.SVG
+		d.Horizon = source.Horizon
+		if d.Horizon == "" {
+			d.Horizon = HorizonNext
+		}
 		d.Transcript = append([]ChatMessage(nil), source.Transcript...)
 	} else {
 		d.EvmlSource = fs.BaselineEvml

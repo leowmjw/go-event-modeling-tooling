@@ -29,10 +29,11 @@ func (a *App) buildPage(s *Session) (WorkspacePage, error) {
 	}
 
 	page := WorkspacePage{
-		ModelID:    s.ModelID,
-		Models:     toModelViews(choices),
-		Fixtures:   fixtures,
-		ActiveFlow: s.ActiveFlow,
+		ModelID:      s.ModelID,
+		Models:       toModelViews(choices),
+		Fixtures:     fixtures,
+		FixtureNames: fixtureDisplayNames(fixtures),
+		ActiveFlow:   s.ActiveFlow,
 	}
 
 	if s.ActiveFlow == "" {
@@ -47,19 +48,47 @@ func (a *App) buildPage(s *Session) (WorkspacePage, error) {
 
 	for _, id := range fs.DraftOrder {
 		d := fs.Drafts[id]
-		page.Drafts = append(page.Drafts, DraftTab{ID: d.ID, Label: draftLabel(d)})
+		tab := DraftTab{ID: d.ID, Label: draftLabel(d), Horizon: d.Horizon, Status: d.Status}
+		page.Drafts = append(page.Drafts, tab)
+		switch d.Horizon {
+		case HorizonNow:
+			page.NowDrafts = append(page.NowDrafts, tab)
+		case HorizonFuture:
+			page.FutureDrafts = append(page.FutureDrafts, tab)
+		default:
+			page.NextDrafts = append(page.NextDrafts, tab)
+		}
 	}
 	page.ActiveDraftID = fs.ActiveDraftID
+	page.ActiveFlowNic = friendlyFlowName(s.ActiveFlow)
+	page.Prompts = starterPrompts(s.ActiveFlow)
 
 	if d, ok := fs.Drafts[fs.ActiveDraftID]; ok {
 		page.ActiveSVG = template.HTML(activeSVG(fs, d))
 		page.Transcript = toChatViews(d.Transcript)
-		page.ParseError = d.ParseError
+		page.ParseError = friendlyParseError(d.ParseError)
 	} else {
 		page.ActiveSVG = template.HTML(fs.BaselineSVG)
 	}
 
 	return page, nil
+}
+
+func fixtureDisplayNames(fixtures []string) map[string]string {
+	names := make(map[string]string, len(fixtures))
+	for _, f := range fixtures {
+		names[f] = friendlyFlowName(f)
+	}
+	return names
+}
+
+// friendlyParseError rewrites raw parser output into plain language with
+// a next step, so domain experts see guidance instead of jargon.
+func friendlyParseError(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	return "The proposed diagram needs a tweak before it can be shown (" + raw + "). Tell the Studio what you meant in plain words and it will try again."
 }
 
 // activeSVG returns the best available rendered diagram for a draft,

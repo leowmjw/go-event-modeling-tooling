@@ -1,20 +1,57 @@
 {{define "workspace"}}
 <div id="workspace-inner">
 {{if not .ActiveFlow}}
-  <p class="empty-hint">Pick an existing flow to see its current diagram, or generate a new one to start describing a process from scratch.</p>
+  <div class="onboarding">
+    <h2>Describe how work really happens</h2>
+    <p>Pick a flow above, or start a new one. Three questions get us going:</p>
+    <ol>
+      <li>What is this part of the business trying to do?</li>
+      <li>Who is involved, and what do they ask for?</li>
+      <li>What facts must be true afterwards?</li>
+    </ol>
+    <p class="empty-hint">Variations you are only trying out live in the <strong>Next</strong> lane. Ideas for later live in <strong>Future</strong>. Only the agreed <strong>Now</strong> lane can be published.</p>
+  </div>
 {{else}}
-  <nav class="draft-tabs">
-    {{range .Drafts}}
-    <button class="tab {{if eq .ID $.ActiveDraftID}}active{{end}}"
-            data-on:click="@get('/flow/{{$.ActiveFlow}}/draft/{{.ID}}')">
-      {{.Label}}
-    </button>
-    {{end}}
-    <button class="tab tab-new" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/new-version')">+ New version</button>
-    {{if .ActiveDraftID}}
-    <button class="tab tab-activate" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/activate')">Activate</button>
-    {{end}}
+  <div class="flow-head">
+    <h2>{{.ActiveFlowNic}}</h2>
+    <p class="lane-explainer"><strong>Now</strong> = what we agree is true · <strong>Next</strong> = trying out, does it fit reality? · <strong>Future</strong> = goals for later</p>
+  </div>
+  <div class="lanes">
+    <section class="lane lane-now">
+      <h3>Now <span class="lane-sub">agreed reality</span></h3>
+      {{range .NowDrafts}}
+      <button class="tab {{if eq .ID $.ActiveDraftID}}active{{end}}"
+              data-on:click="@get('/flow/{{$.ActiveFlow}}/draft/{{.ID}}')">{{.Label}}</button>
+      {{else}}<p class="lane-empty">Nothing agreed yet.</p>{{end}}
+    </section>
+    <section class="lane lane-next">
+      <h3>Next <span class="lane-sub">staging — does it fit?</span></h3>
+      {{range .NextDrafts}}
+      <button class="tab {{if eq .ID $.ActiveDraftID}}active{{end}}"
+              data-on:click="@get('/flow/{{$.ActiveFlow}}/draft/{{.ID}}')">{{.Label}}</button>
+      {{else}}<p class="lane-empty">No variations staged.</p>{{end}}
+    </section>
+    <section class="lane lane-future">
+      <h3>Future <span class="lane-sub">goals</span></h3>
+      {{range .FutureDrafts}}
+      <button class="tab {{if eq .ID $.ActiveDraftID}}active{{end}}"
+              data-on:click="@get('/flow/{{$.ActiveFlow}}/draft/{{.ID}}')">{{.Label}}</button>
+      {{else}}<p class="lane-empty">No future goals yet.</p>{{end}}
+    </section>
+  </div>
+
+  {{if .ActiveDraftID}}
+  <nav class="draft-actions">
+    <button class="tab tab-new" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/new-version')">Try a variation</button>
+    <button class="tab" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/horizon', {payload: {horizon: 'now'}})">Move to Now</button>
+    <button class="tab" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/horizon', {payload: {horizon: 'next'}})">Move to Next</button>
+    <button class="tab" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/horizon', {payload: {horizon: 'future'}})">Move to Future</button>
+    <button class="tab" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/promote', {payload: {horizon: 'now'}})">Promote to Now</button>
+    <button class="tab" data-on:click="@get('/flow/{{.ActiveFlow}}/diff?from=baseline&to={{.ActiveDraftID}}')">Compare with Now</button>
+    <button class="tab tab-publish" data-on:click="if (confirm('Publish this agreed version? The previous version is backed up first.')) { @post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/activate') }">Publish</button>
   </nav>
+  <div id="diff-panel"></div>
+  {{end}}
 
   <div class="workspace-grid">
     <section class="svg-pane"
@@ -27,16 +64,31 @@
       <div class="svg-toolbar">
         <button data-on:click="$svgScale = 1; $svgX = 0; $svgY = 0">Reset view</button>
         <span class="hint">scroll to zoom, drag to pan</span>
+        {{if .ActiveDraftID}}
+        <a class="dl" href="/static/../testdata/fixtures/{{.ActiveFlow}}.evml" download>Download .evml</a>
+        {{end}}
       </div>
       <div id="svg-container" data-attr:style="`transform: translate(${$svgX}px, ${$svgY}px) scale(${$svgScale})`">
         {{if not .PatchSVG}}{{.ActiveSVG}}{{end}}
+      </div>
+      <div class="legend">
+        <span class="lg lg-ui">Screen</span>
+        <span class="lg lg-cmd">Request</span>
+        <span class="lg lg-evt">Fact</span>
+        <span class="lg lg-rmo">View</span>
+        <span class="lg lg-pcr">Automation</span>
       </div>
     </section>
 
     <section class="chat-pane">
       {{template "chatlog" .}}
+      <div class="starter-prompts">
+        {{range .Prompts}}
+        <button class="chip" data-on:click="$message = '{{.}}'">{{.}}</button>
+        {{end}}
+      </div>
       <form class="chat-input" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/chat')">
-        <textarea data-bind:message name="message" placeholder="Describe the process, or ask for a change…" rows="3"></textarea>
+        <textarea data-bind:message name="message" placeholder="Say it in your own words, e.g. “what if the payment is late?”…" rows="3"></textarea>
         <button type="submit">Send</button>
       </form>
     </section>
@@ -47,18 +99,29 @@
 
 {{define "svg-content"}}{{.ActiveSVG}}{{end}}
 
+{{define "diff"}}
+<div id="diff-panel" class="diff-panel">
+  <h4>What changed: {{.DiffFrom}} → {{.DiffTo}}</h4>
+  <ul class="diff-list">
+    {{range .DiffRows}}
+    <li class="diff-{{.Kind}}">{{.Text}}</li>
+    {{end}}
+  </ul>
+</div>
+{{end}}
+
 {{define "chatlog"}}
 <div id="chat-log" class="chat-log">
   {{range .Transcript}}
   <div class="chat-msg chat-{{.Role}}">
-    <span class="chat-role">{{.Role}}</span>
+    <span class="chat-role">{{if eq .Role "user"}}You{{else if eq .Role "assistant"}}Studio{{else}}Note{{end}}</span>
     <div class="chat-content">{{.ContentHTML}}</div>
   </div>
   {{end}}
   {{if .ParseError}}
   <div class="chat-msg chat-system chat-error">
-    <span class="chat-role">system</span>
-    <div class="chat-content">The proposed model didn't validate:<br>{{.ParseError}}</div>
+    <span class="chat-role">Note</span>
+    <div class="chat-content">{{.ParseError}}</div>
   </div>
   {{end}}
 </div>

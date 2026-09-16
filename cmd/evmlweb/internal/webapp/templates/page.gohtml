@@ -10,29 +10,32 @@
 </head>
 <body>
   <header class="topbar" data-signals:model="'{{.ModelID}}'"{{if .ActiveFlow}} data-signals:flow="'{{.ActiveFlow}}'"{{end}}>
-    <div class="brand">Event Modeling Studio</div>
+    <div class="brand">Event Modeling Studio <span class="brand-sub">tweak the flow together</span></div>
 
-    <label class="picker">
-      <span>Current model</span>
-      <select data-on:change="@post('/model')" data-bind:model>
-        {{range .Models}}
-        <option value="{{.ID}}" {{if eq .ID $.ModelID}}selected{{end}}>{{.ID}} ({{.SizeHuman}})</option>
-        {{end}}
-      </select>
-    </label>
+    <details class="advanced">
+      <summary>Advanced: AI model</summary>
+      <label class="picker">
+        <span>Model</span>
+        <select data-on:change="@post('/model')" data-bind:model>
+          {{range .Models}}
+          <option value="{{.ID}}" {{if eq .ID $.ModelID}}selected{{end}}>{{.ID}} ({{.SizeHuman}})</option>
+          {{end}}
+        </select>
+      </label>
+    </details>
 
     <form class="picker" data-on:submit__prevent="@post('/flow/select', {payload: {model: $model, flow: $flow, newFlowName: $newFlowName}})">
       <label>
-        <span>Flow</span>
+        <span>Business flow</span>
         <select data-bind:flow>
-          <option value="">Select a flow…</option>
+          <option value="">Pick a flow…</option>
           {{range .Fixtures}}
-          <option value="{{.}}" {{if eq . $.ActiveFlow}}selected{{end}}>{{.}}</option>
+          <option value="{{.}}" {{if eq . $.ActiveFlow}}selected{{end}}>{{index $.FixtureNames .}}</option>
           {{end}}
-          <option value="__new__">+ Generate new…</option>
+          <option value="__new__">+ Start a new flow…</option>
         </select>
       </label>
-      <input data-show="$flow == '__new__'" data-bind:new-flow-name placeholder="new-flow-name">
+      <input data-show="$flow == '__new__'" data-bind:new-flow-name placeholder="e.g. refunds process">
       <button type="submit">Open</button>
     </form>
   </header>

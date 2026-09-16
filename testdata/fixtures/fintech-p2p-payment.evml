@@ -1,0 +1,84 @@
+eventmodeling
+
+// Instant P2P payment: sender moves money now (v1, single currency,
+// same-bank ledger). NEXT: idempotency keys on retry. FUTURE: multi-rail
+// routing + FX quote.
+tf 01 ui TransferScreen
+tf 02 rmo AccountBalance [[Balance02]]
+tf 03 cmd InitiateTransfer { fromAccount: "acc-1", toAccount: "acc-2", amountMinor: 5000, currency: "USD", idempotencyKey: "idem-100" }
+tf 04 evt TransferInitiated { transferId: "t-100", amountMinor: 5000, currency: "USD", idempotencyKey: "idem-100" }
+tf 05 pcr FundsGuard ->> 04
+tf 06 cmd ReserveFunds { transferId: "t-100", amountMinor: 5000 }
+tf 07 evt FundsReserved { transferId: "t-100", amountMinor: 5000 }
+tf 08 rmo TransferStatus { transferId: "t-100", status: "reserved" }
+tf 09 pcr RailDispatcher ->> 07
+tf 10 cmd AuthorizeTransfer { transferId: "t-100", rail: "same-bank" }
+tf 11 evt TransferSettled { transferId: "t-100", settledAt: "2026-09-15T10:00:00Z" }
+tf 12 rmo TransactionHistory [[History12]]
+
+rf 13 evt Rail.TransferFailed { transferId: "t-100", reason: "rail_cutoff" }
+tf 14 pcr FailureRecovery ->> 13
+tf 15 cmd RetryFailedTransfer { transferId: "t-100", idempotencyKey: "idem-100" }
+tf 16 evt TransferReversed { transferId: "t-100", reason: "rail_cutoff" }
+
+data Balance02 {
+  accountId: "acc-1"
+  availableMinor: 12000
+  currency: "USD"
+}
+
+data History12 {
+  transferId: "t-100"
+  status: "settled"
+}
+
+note 05 { NEXT: duplicate submits with the same idempotency key return the existing transfer instead of reserving twice. }
+note 10 { FUTURE: route across rails (same-bank, instant, ACH) with an FX quote step for cross-currency. }
+
+gwt 03 "initiate a transfer with enough balance"
+  given
+    evt BalanceChecked { accountId: "acc-1", availableMinor: 12000 }
+  when
+    cmd InitiateTransfer { fromAccount: "acc-1", toAccount: "acc-2", amountMinor: 5000, currency: "USD", idempotencyKey: "idem-100" }
+  then
+    evt TransferInitiated { transferId: "t-100", amountMinor: 5000, currency: "USD", idempotencyKey: "idem-100" }
+
+gwt 03 "reject a transfer when funds are insufficient"
+  given
+    evt BalanceChecked { accountId: "acc-1", availableMinor: 1000 }
+  when
+    cmd InitiateTransfer { fromAccount: "acc-1", toAccount: "acc-2", amountMinor: 5000, currency: "USD", idempotencyKey: "idem-100" }
+  then
+    evt TransferInitiationRejected { accountId: "acc-1", reason: "insufficient_funds" }
+
+gwt 06 "reserve funds once the transfer is initiated"
+  given
+    evt TransferInitiated { transferId: "t-100", amountMinor: 5000, currency: "USD", idempotencyKey: "idem-100" }
+  when
+    cmd ReserveFunds { transferId: "t-100", amountMinor: 5000 }
+  then
+    evt FundsReserved { transferId: "t-100", amountMinor: 5000 }
+
+gwt 06 "fail the reservation when the balance moved"
+  given
+    evt TransferInitiated { transferId: "t-100", amountMinor: 5000, currency: "USD", idempotencyKey: "idem-100" }
+  when
+    cmd ReserveFunds { transferId: "t-100", amountMinor: 5000 }
+  then
+    evt FundsReservationFailed { transferId: "t-100", reason: "insufficient_funds" }
+
+gwt 10 "settle through the same-bank rail"
+  given
+    evt FundsReserved { transferId: "t-100", amountMinor: 5000 }
+  when
+    cmd AuthorizeTransfer { transferId: "t-100", rail: "same-bank" }
+  then
+    evt TransferSettled { transferId: "t-100", settledAt: "2026-09-15T10:00:00Z" }
+
+gwt 15 "retry after a rail cutoff without double-settling"
+  given
+    evt Rail.TransferFailed { transferId: "t-100", reason: "rail_cutoff" }
+  when
+    cmd RetryFailedTransfer { transferId: "t-100", idempotencyKey: "idem-100" }
+  then
+    evt TransferReversed { transferId: "t-100", reason: "rail_cutoff" }

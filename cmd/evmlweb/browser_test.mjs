@@ -8,7 +8,7 @@ const page = await browser.newPage();
 await page.goto(url, { waitUntil: 'networkidle' });
 await page.waitForFunction(() => document.querySelector('form.picker select'));
 
-const modelSelect = page.locator('header select').first();
+const modelSelect = page.locator('details.advanced select');
 const defaultModel = await modelSelect.inputValue();
 const options = await modelSelect.locator('option').all();
 let chosenModel = defaultModel;
@@ -36,23 +36,26 @@ if (!targetFlow) throw new Error('no fixture flow found');
 
 await flowSelect.selectOption(targetFlow);
 await page.locator('form.picker button[type=submit]').click();
-await page.waitForSelector('.draft-tabs', { timeout: 10000 });
+await page.waitForSelector('.lanes', { timeout: 10000 });
 await page.waitForTimeout(1000);
 
 const svgCount = await page.locator('#svg-container svg').count();
-const draftTabs = await page.locator('.draft-tabs .tab').count();
+const draftTabs = await page.locator('.lanes .tab').count();
+const laneCount = await page.locator('.lanes .lane').count();
+const publishCount = await page.locator('.tab-publish').count();
+const compareCount = await page.locator('.draft-actions .tab').count();
 
 // Phase 1: model + flow survive reload
 await page.reload({ waitUntil: 'networkidle' });
 const modelAfter = await modelSelect.inputValue();
 const flowAfter = await flowSelect.inputValue();
-const tabsAfter = await page.locator('.draft-tabs .tab').count();
+const tabsAfter = await page.locator('.lanes .tab').count();
 const svgAfter = await page.locator('#svg-container svg').count();
 
 const result = {
   chosenModel,
   targetFlow,
-  beforeReload: { svgCount, draftTabs },
+  beforeReload: { svgCount, draftTabs, laneCount, publishCount, compareCount },
   afterReload: { modelAfter, flowAfter, tabsAfter, svgAfter },
 };
 
@@ -65,6 +68,9 @@ const ok =
   modelAfter === chosenModel &&
   flowAfter === targetFlow &&
   tabsAfter > 0 &&
-  svgAfter > 0;
+  svgAfter > 0 &&
+  laneCount === 3 &&
+  publishCount > 0 &&
+  compareCount > 0;
 
 process.exit(ok ? 0 : 1);

@@ -79,6 +79,9 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("POST /flow/{flow}/draft/{id}/chat", a.handleChat)
 	mux.HandleFunc("POST /flow/{flow}/draft/{id}/new-version", a.handleNewVersion)
 	mux.HandleFunc("POST /flow/{flow}/draft/{id}/activate", a.handleActivate)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/horizon", a.handleHorizon)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/promote", a.handlePromote)
+	mux.HandleFunc("GET /flow/{flow}/diff", a.handleDiff)
 
 	return withRequestLogging(a.log, mux)
 }

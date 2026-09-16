@@ -152,8 +152,58 @@ The "no third-party packages" rule above applies to the root module only; `cmd/e
 manages its own dependencies via its own `go.mod`/`go.sum`.
 
 Build/run it independently of the root toolchain: `cd cmd/evmlweb && go run .`. It reuses
-`evml.Parse` / `evml.ValidateConnections` / `evml.RenderSVG` unchanged and writes activated
-drafts straight into `testdata/fixtures/`, so it never needs to modify the core library.
+`evml.Parse` / `evml.ValidateConnections` / `evml.RenderSVG` unchanged and publishes
+accepted Now-lane drafts into `testdata/fixtures/` (with a timestamped backup under
+`testdata/fixtures/.backups/`), so it never needs to modify the core library.
+
+### Staging model — Now / Next / Future (learned 2026-09)
+
+Live sessions with domain experts separate three horizons, all backed by
+`DraftVersion` metadata (`types.go`), **not** by new DSL keywords:
+
+| Lane | Meaning | UI |
+|---|---|---|
+| `now` | What the group agrees is true | Green lane, only lane publishable |
+| `next` | Variations being tried — "does this fit reality?" | Blue lane, default for new drafts |
+| `future` | Goals for later | Purple lane |
+
+- Fields: `DraftVersion{Title, Horizon, Status}`; `Status` is
+  `staging|accepted|parked`. Missing horizon/status on old sidecars loads as
+  `next`/`staging` (backward compatible in `draftstore.go:load`).
+- Forking (`NewDraft`) inherits the source horizon; publishing
+  (`handleActivate`, now labelled **Publish**) requires
+  `Horizon==now && Status==accepted`, shows a confirm step, and backs up the
+  previous fixture before overwriting.
+- Promoting (`handlePromote`) copies a draft's diagram into a **new** version
+  in the target lane — it never overwrites the source variation.
+- `GET /flow/{flow}/diff?from=&to=` renders a frame-aware line diff
+  (`diffEvml` in `handlers_draft.go`) into the `#diff-panel` template.
+- Stage `NEXT:` / `FUTURE:` ideas inside fixtures with `note` frames — do not
+  invent new keywords for them (§12 sketches stay sketches).
+
+### FinTech enterprise fixtures (2026-09)
+
+Six end-to-end flows, each with happy + reject `gwt` per command and
+`note NEXT:` / `FUTURE:` markers for the staging story:
+
+| Fixture | Flow |
+|---|---|
+| `fintech-p2p-payment.evml` | Instant transfer → reserve → rail → settled/reversed; idempotency; FUTURE multi-rail + FX |
+| `fintech-kyc-onboarding.evml` | Application → IDV → sanctions → risk → approve/reject/EDD; FUTURE KYB + event-driven refresh |
+| `fintech-lending-origination.evml` | Application → bureau → decision → offer → disburse → repay/fee/write-off; FUTURE tranches |
+| `fintech-fraud-scoring.evml` | Score → flag → case → step-up → freeze → SAR; FUTURE ML hybrid |
+| `fintech-ledger-settlement.evml` | Balanced journal → EOD batch → match/break → reverse; FUTURE multi-currency |
+| `fintech-openbanking-consent.evml` | Consent → SCA → grant → initiate → poll → confirmed/revoked; FUTURE recurring consent |
+
+### Domain-expert UX rules
+
+- Speak business vocabulary everywhere: friendly flow names
+  (`friendlyFlowName`), lane explainers, starter prompt chips
+  (`starterPrompts`), `You`/`Studio`/`Note` chat labels, collapsed
+  ` ```evml ` blocks (`chatContentHTML`), plain-language parse errors
+  (`friendlyParseError`), `Publish` instead of `Activate`.
+- Keep the Datastar colon syntax and the two-step SSE patch split above —
+  the new lane buttons, diff panel, and chat form all follow the same pattern.
 
 ### Datastar (client + server)
 
@@ -223,3 +273,6 @@ mise run test:ui-model-flow-selection
 ```
 
 Browser debug logging: append `?debug=1` to the URL.
+
+NOTE: Muse Spark - command-code --resume 31c66c7a-1617-450e-a300-2bd50fefdf05
+

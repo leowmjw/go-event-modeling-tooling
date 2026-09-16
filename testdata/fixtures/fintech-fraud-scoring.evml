@@ -1,0 +1,98 @@
+eventmodeling
+
+// Real-time fraud scoring: every transaction is scored, risky ones step up
+// or block, analysts work a case queue, confirmed fraud freezes the account
+// and files a report. NEXT: travel notices suppress the geo rule. FUTURE:
+// ML score + device fingerprint hybrid.
+tf 01 pcr TransactionStream ->> 02
+rf 02 evt Payments.TransactionAuthorized { transactionId: "txn-500", amountMinor: 90000, country: "DE" }
+tf 03 cmd ScoreTransaction { transactionId: "txn-500" }
+tf 04 evt TransactionScored { transactionId: "txn-500", score: 82 }
+tf 05 rmo RiskScoreTimeline [[Timeline05]]
+tf 06 pcr RuleEngine ->> 04
+tf 07 cmd FlagSuspiciousTransaction { transactionId: "txn-500", rule: "geo_mismatch" }
+tf 08 evt RuleTriggered { transactionId: "txn-500", rule: "geo_mismatch" }
+tf 09 pcr CaseOpener ->> 08
+tf 10 cmd OpenFraudCase { transactionId: "txn-500", priority: "high" }
+tf 11 evt FraudCaseOpened { caseId: "fraud-60", transactionId: "txn-500" }
+tf 12 rmo FraudQueue [[Queue12]]
+tf 13 pcr StepUpOrchestrator ->> 11
+tf 14 cmd RequestStepUpAuth { caseId: "fraud-60", channel: "push" }
+tf 15 evt StepUpFailed { caseId: "fraud-60" }
+tf 16 pcr FreezeGuard ->> 15
+tf 17 cmd BlockAccount { accountId: "acc-1", caseId: "fraud-60" }
+tf 18 evt AccountFrozen { accountId: "acc-1", caseId: "fraud-60" }
+tf 19 cmd ConfirmFraud { caseId: "fraud-60", verdict: "fraud" }
+tf 20 evt FraudConfirmed { caseId: "fraud-60" }
+tf 21 pcr Reporter ->> 20
+tf 22 cmd FileSAR { caseId: "fraud-60", jurisdiction: "US" }
+tf 23 evt SARFiled { caseId: "fraud-60" }
+
+data Timeline05 {
+  transactionId: "txn-500"
+  score: 82
+}
+
+data Queue12 {
+  caseId: "fraud-60"
+  priority: "high"
+}
+
+note 07 { NEXT: an active travel notice suppresses the geo-mismatch rule to monitor-only. }
+note 22 { FUTURE: hybrid ML score with device fingerprint and analyst-label feedback loop. }
+
+gwt 03 "score an incoming transaction"
+  given
+    evt Payments.TransactionAuthorized { transactionId: "txn-500", amountMinor: 90000, country: "DE" }
+  when
+    cmd ScoreTransaction { transactionId: "txn-500" }
+  then
+    evt TransactionScored { transactionId: "txn-500", score: 82 }
+
+gwt 07 "flag a geo-mismatched transaction"
+  given
+    evt TransactionScored { transactionId: "txn-500", score: 82 }
+  when
+    cmd FlagSuspiciousTransaction { transactionId: "txn-500", rule: "geo_mismatch" }
+  then
+    evt RuleTriggered { transactionId: "txn-500", rule: "geo_mismatch" }
+
+gwt 07 "let a low-score transaction pass silently"
+  given
+    evt TransactionScored { transactionId: "txn-500", score: 12 }
+  when
+    cmd FlagSuspiciousTransaction { transactionId: "txn-500", rule: "geo_mismatch" }
+  then
+    evt AlertDismissed { transactionId: "txn-500", reason: "low_score" }
+
+gwt 10 "open a case for a triggered rule"
+  given
+    evt RuleTriggered { transactionId: "txn-500", rule: "geo_mismatch" }
+  when
+    cmd OpenFraudCase { transactionId: "txn-500", priority: "high" }
+  then
+    evt FraudCaseOpened { caseId: "fraud-60", transactionId: "txn-500" }
+
+gwt 17 "freeze the account when step-up fails"
+  given
+    evt StepUpFailed { caseId: "fraud-60" }
+  when
+    cmd BlockAccount { accountId: "acc-1", caseId: "fraud-60" }
+  then
+    evt AccountFrozen { accountId: "acc-1", caseId: "fraud-60" }
+
+gwt 19 "confirm fraud from an open case"
+  given
+    evt AccountFrozen { accountId: "acc-1", caseId: "fraud-60" }
+  when
+    cmd ConfirmFraud { caseId: "fraud-60", verdict: "fraud" }
+  then
+    evt FraudConfirmed { caseId: "fraud-60" }
+
+gwt 22 "file a report after confirmation"
+  given
+    evt FraudConfirmed { caseId: "fraud-60" }
+  when
+    cmd FileSAR { caseId: "fraud-60", jurisdiction: "US" }
+  then
+    evt SARFiled { caseId: "fraud-60" }

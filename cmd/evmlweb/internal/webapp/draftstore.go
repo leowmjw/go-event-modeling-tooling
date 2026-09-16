@@ -27,6 +27,9 @@ type draftMeta struct {
 	FlowName   string        `json:"flow_name"`
 	Date       string        `json:"date"`
 	Seq        int           `json:"seq"`
+	Title      string        `json:"title,omitempty"`
+	Horizon    Horizon       `json:"horizon,omitempty"`
+	Status     DraftStatus   `json:"status,omitempty"`
 	ParseError string        `json:"parse_error,omitempty"`
 	Transcript []ChatMessage `json:"transcript"`
 	CreatedAt  string        `json:"created_at"`
@@ -73,6 +76,9 @@ func (s *DraftStore) Save(d *DraftVersion) error {
 		FlowName:   d.FlowName,
 		Date:       d.Date,
 		Seq:        d.Seq,
+		Title:      d.Title,
+		Horizon:    d.Horizon,
+		Status:     d.Status,
 		ParseError: d.ParseError,
 		Transcript: d.Transcript,
 		CreatedAt:  d.CreatedAt.Format(timeLayout),
@@ -202,9 +208,18 @@ func (s *DraftStore) load(flow, draftID string) (*DraftVersion, error) {
 		FlowName:   meta.FlowName,
 		Date:       meta.Date,
 		Seq:        meta.Seq,
+		Title:      meta.Title,
+		Horizon:    meta.Horizon,
+		Status:     meta.Status,
 		EvmlSource: string(evml),
 		ParseError: meta.ParseError,
 		Transcript: meta.Transcript,
+	}
+	if d.Horizon == "" {
+		d.Horizon = HorizonNext
+	}
+	if d.Status == "" {
+		d.Status = StatusStaging
 	}
 	d.CreatedAt, _ = parseTime(meta.CreatedAt)
 	d.UpdatedAt, _ = parseTime(meta.UpdatedAt)

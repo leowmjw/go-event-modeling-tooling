@@ -20,6 +20,8 @@
 10. [Payload rules](#10-payload-rules)
 11. [Full formal grammar (BNF-style)](#11-full-formal-grammar-bnf-style)
 12. [Proposed future extensions (not yet implemented)](#12-proposed-future-extensions-not-yet-implemented)
+13. [Staging with Now / Next / Future (studio workflow)](#13-staging-with-now--next--future-studio-workflow)
+14. [FinTech enterprise fixtures](#14-fintech-enterprise-fixtures)
 
 ---
 
@@ -519,3 +521,46 @@ claim" 36-39 status InProgress` — turns the model into a live progress view:
 which slices are shipped, which are in review, which are blocked. This
 closes the gap between "the diagram" and "the sprint board" instead of
 requiring both to be maintained separately and kept in sync by hand.
+
+---
+
+## 13. Staging with Now / Next / Future (studio workflow)
+
+No new keywords. Staging lives in the Studio's draft metadata
+(`DraftVersion{Title, Horizon, Status}`), never in the grammar — §12
+sketches stay sketches.
+
+| Lane | Meaning |
+|---|---|
+| `now` | What the group agrees is true. Only lane that can be published. |
+| `next` | Variations being tried — "does this fit reality?" Default for new drafts. |
+| `future` | Goals for later. |
+
+Mark staged ideas inside a fixture with `note` frames so they survive
+rendering and review:
+
+```evml
+note 05 { NEXT: duplicate submits with the same idempotency key return the existing transfer. }
+note 10 { FUTURE: route across rails with an FX quote step for cross-currency. }
+```
+
+Workflow: fork a variation (`Try a variation`) → tweak in plain language →
+`Compare with Now` → `Promote to Now` (copies into a new version, never
+overwrites) → `Publish` (requires Now lane + accepted status, backs up the
+previous fixture under `testdata/fixtures/.backups/`).
+
+---
+
+## 14. FinTech enterprise fixtures
+
+Six end-to-end flows under `testdata/fixtures/fintech-*.evml`, each with
+happy + reject `gwt` per command and `NEXT:` / `FUTURE:` notes:
+
+| Fixture | Flow |
+|---|---|
+| `fintech-p2p-payment.evml` | Instant transfer → reserve → rail → settled/reversed; idempotency; FUTURE multi-rail + FX |
+| `fintech-kyc-onboarding.evml` | Application → IDV → sanctions → risk → approve/reject/EDD; FUTURE KYB + event-driven refresh |
+| `fintech-lending-origination.evml` | Application → bureau → decision → offer → disburse → repay/fee/write-off; FUTURE tranches |
+| `fintech-fraud-scoring.evml` | Score → flag → case → step-up → freeze → SAR; FUTURE ML hybrid |
+| `fintech-ledger-settlement.evml` | Balanced journal → EOD batch → match/break → reverse; FUTURE multi-currency |
+| `fintech-openbanking-consent.evml` | Consent → SCA → grant → initiate → poll → confirmed/revoked; FUTURE recurring consent |

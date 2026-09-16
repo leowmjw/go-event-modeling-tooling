@@ -1,0 +1,106 @@
+eventmodeling
+
+// Term-loan origination and servicing: application, bureau pull, decision,
+// offer, disbursement, then repayments, late fees, or write-off. NEXT: a
+// counter-offer path for borderline files. FUTURE: tranches +
+// re-amortisation on overpayments.
+tf 01 ui LoanApplicationScreen
+tf 02 cmd SubmitLoanApplication { applicationId: "loan-30", customerId: "cust-9", amountMinor: 500000, termMonths: 36 }
+tf 03 evt LoanApplicationSubmitted { applicationId: "loan-30", amountMinor: 500000 }
+tf 04 pcr BureauFetcher ->> 03
+tf 05 cmd PullCreditBureauReport { applicationId: "loan-30", bureau: "bureau-a" }
+tf 06 evt BureauReportReceived { applicationId: "loan-30", score: 720 }
+tf 07 pcr CreditDecider ->> 06
+tf 08 cmd MakeCreditDecision { applicationId: "loan-30", decision: "approve" }
+tf 09 evt LoanApproved { applicationId: "loan-30", limitMinor: 500000 }
+tf 10 pcr OfferEngine ->> 09
+tf 11 cmd GenerateLoanOffer { applicationId: "loan-30", rateBps: 895, termMonths: 36 }
+tf 12 evt OfferAccepted { applicationId: "loan-30", loanId: "ln-300" }
+tf 13 pcr Disburser ->> 12
+tf 14 cmd DisburseLoan { loanId: "ln-300", amountMinor: 500000 }
+tf 15 evt LoanDisbursed { loanId: "ln-300", amountMinor: 500000 }
+tf 16 rmo LoanAccountStatement [[Statement16]]
+tf 17 pcr RepaymentPoster ->> 15
+tf 18 cmd PostRepayment { loanId: "ln-300", amountMinor: 16000 }
+tf 19 evt RepaymentPosted { loanId: "ln-300", amountMinor: 16000 }
+tf 20 rmo DelinquencyBucket { loanId: "ln-300", bucket: "current" }
+
+rf 21 evt Servicing.PaymentMissed { loanId: "ln-300", dueDate: "2026-08-01" }
+tf 22 pcr CollectionsRouter ->> 21
+tf 23 cmd ApplyLateFee { loanId: "ln-300", amountMinor: 500 }
+tf 24 evt LateFeeApplied { loanId: "ln-300", amountMinor: 500 }
+tf 25 cmd WriteOffLoan { loanId: "ln-300", reason: "uncollectible" }
+tf 26 evt LoanWrittenOff { loanId: "ln-300", reason: "uncollectible" }
+
+data Statement16 {
+  loanId: "ln-300"
+  outstandingMinor: 500000
+  status: "active"
+}
+
+note 08 { NEXT: borderline files get a counter-offer (lower amount) instead of a flat decline. }
+note 23 { FUTURE: partial and overpayments re-amortise the schedule; corrections post as reversal + corrected entry. }
+
+gwt 02 "submit a loan application"
+  given
+    evt CustomerVerified { customerId: "cust-9" }
+  when
+    cmd SubmitLoanApplication { applicationId: "loan-30", customerId: "cust-9", amountMinor: 500000, termMonths: 36 }
+  then
+    evt LoanApplicationSubmitted { applicationId: "loan-30", amountMinor: 500000 }
+
+gwt 05 "pull the bureau report after application"
+  given
+    evt LoanApplicationSubmitted { applicationId: "loan-30", amountMinor: 500000 }
+  when
+    cmd PullCreditBureauReport { applicationId: "loan-30", bureau: "bureau-a" }
+  then
+    evt BureauReportReceived { applicationId: "loan-30", score: 720 }
+
+gwt 08 "approve a strong bureau file"
+  given
+    evt BureauReportReceived { applicationId: "loan-30", score: 720 }
+  when
+    cmd MakeCreditDecision { applicationId: "loan-30", decision: "approve" }
+  then
+    evt LoanApproved { applicationId: "loan-30", limitMinor: 500000 }
+
+gwt 08 "decline a weak bureau file"
+  given
+    evt BureauReportReceived { applicationId: "loan-30", score: 520 }
+  when
+    cmd MakeCreditDecision { applicationId: "loan-30", decision: "approve" }
+  then
+    evt LoanDeclined { applicationId: "loan-30", reason: "low_score" }
+
+gwt 14 "disburse once the offer is accepted"
+  given
+    evt OfferAccepted { applicationId: "loan-30", loanId: "ln-300" }
+  when
+    cmd DisburseLoan { loanId: "ln-300", amountMinor: 500000 }
+  then
+    evt LoanDisbursed { loanId: "ln-300", amountMinor: 500000 }
+
+gwt 18 "post a scheduled repayment"
+  given
+    evt LoanDisbursed { loanId: "ln-300", amountMinor: 500000 }
+  when
+    cmd PostRepayment { loanId: "ln-300", amountMinor: 16000 }
+  then
+    evt RepaymentPosted { loanId: "ln-300", amountMinor: 16000 }
+
+gwt 23 "apply a late fee after a missed payment"
+  given
+    evt Servicing.PaymentMissed { loanId: "ln-300", dueDate: "2026-08-01" }
+  when
+    cmd ApplyLateFee { loanId: "ln-300", amountMinor: 500 }
+  then
+    evt LateFeeApplied { loanId: "ln-300", amountMinor: 500 }
+
+gwt 25 "write off an uncollectible loan"
+  given
+    evt LateFeeApplied { loanId: "ln-300", amountMinor: 500 }
+  when
+    cmd WriteOffLoan { loanId: "ln-300", reason: "uncollectible" }
+  then
+    evt LoanWrittenOff { loanId: "ln-300", reason: "uncollectible" }

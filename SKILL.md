@@ -777,3 +777,32 @@ Add these checks after the standard checklist in Step 7:
 - [ ] **Partial failure `rf`:** if a context processes a batch, a named `rf` handles partial rejection back to the source context.
 - [ ] **Actor-response terminals:** every `*Sent` event has corresponding `*Accepted` / `*Declined` (or equivalent) outcome events and GWT scenarios.
 - [ ] **Async integration failures:** every external-rails payout/send frame has a failure `rf` path covering reversal and reissuance.
+
+---
+
+## Facilitating a live session (Studio staging script)
+
+Run the room in four moves. Keep everything in business vocabulary.
+
+1. **Open** — pick the flow, read the Now lane aloud: "This is what we agree
+   is true today. Correct?"
+2. **Stage** — "Try a variation" forks into the Next lane. Ask: "Does this
+   fit reality?" Tweak in plain words; never edit DSL live.
+3. **Compare** — "Compare with Now" shows the diff. Promote into Now only
+   when the room nods; promoting copies, never overwrites.
+4. **Park or publish** — not-yet ideas go to Future ("a goal for later").
+   Publish only an accepted Now draft; the previous version is backed up.
+
+Starter prompts per FinTech flow (also shown as chips in the Studio):
+
+| Flow | Try first |
+|---|---|
+| P2P payment | "Add a reversal path" · "What breaks at end of day?" · "Stage multi-currency" |
+| KYC onboarding | "Add a document re-check" · "What if sanctions screening hits?" · "Stage the KYB future version" |
+| Lending | "Add a counter-offer path" · "What if a payment is missed?" · "Stage early settlement" |
+| Fraud scoring | "What if the fraud score is high?" · "Add a manual review step" · "Move this to a future goal" |
+| Ledger / settlement | "Add a reversal path" · "What breaks at end of day?" · "Stage multi-currency" |
+| Open banking | "What if consent is revoked?" · "Add a retry after bank rejection" · "Stage recurring consent" |
+
+Mark staged thinking with `note NEXT:` / `note FUTURE:` frames so the
+diagram itself carries what fits now versus what is a goal.

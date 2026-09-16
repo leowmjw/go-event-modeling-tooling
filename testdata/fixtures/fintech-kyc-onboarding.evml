@@ -1,0 +1,100 @@
+eventmodeling
+
+// Retail KYC onboarding: application, ID check, sanctions screen, risk
+// rating, then approve / reject / escalate to EDD. FUTURE: KYB company
+// graphs + event-driven refresh when customer details change.
+tf 01 ui OnboardingScreen
+tf 02 cmd SubmitApplication { applicationId: "kyc-10", customerId: "cust-9", country: "US" }
+tf 03 evt ApplicationSubmitted { applicationId: "kyc-10", customerId: "cust-9" }
+tf 04 pcr IdentityChecker ->> 03
+tf 05 cmd RunIdentityCheck { applicationId: "kyc-10", documentId: "doc-4" }
+tf 06 evt IdentityVerified { applicationId: "kyc-10", method: "document_liveness" }
+tf 07 pcr SanctionsScreener ->> 06
+tf 08 cmd RunSanctionsScreening { applicationId: "kyc-10" }
+tf 09 evt SanctionsCleared { applicationId: "kyc-10" }
+tf 10 pcr RiskRater ->> 09
+tf 11 cmd AssignRiskRating { applicationId: "kyc-10", tier: "low" }
+tf 12 evt RiskRated { applicationId: "kyc-10", tier: "low" }
+tf 13 rmo ReviewQueue [[Queue13]]
+tf 14 pcr DecisionRouter ->> 12
+tf 15 cmd ApproveCustomer { applicationId: "kyc-10", approver: "ops-1" }
+tf 16 evt CustomerApproved { applicationId: "kyc-10", customerId: "cust-9" }
+tf 17 rmo CustomerRiskProfile { applicationId: "kyc-10", tier: "low" }
+
+rf 18 evt Screening.SanctionsHitFound { applicationId: "kyc-10", listId: "watch-7" }
+tf 19 pcr HitTriage ->> 18
+tf 20 cmd EscalateToEDD { applicationId: "kyc-10", reason: "possible_match" }
+tf 21 evt EDDEscalated { applicationId: "kyc-10", reason: "possible_match" }
+tf 22 rmo AuditTrail { applicationId: "kyc-10", entries: 4 }
+
+data Queue13 {
+  applicationId: "kyc-10"
+  awaiting: "decision"
+}
+
+note 19 { NEXT: a false-positive hit can be overridden by an analyst with a written reason, staying in review instead of auto-rejecting. }
+note 22 { FUTURE: KYB with company registry + owner graph, plus event-driven re-review on address changes or large transactions. }
+
+gwt 02 "accept a complete application"
+  given
+    evt ProspectStarted { customerId: "cust-9" }
+  when
+    cmd SubmitApplication { applicationId: "kyc-10", customerId: "cust-9", country: "US" }
+  then
+    evt ApplicationSubmitted { applicationId: "kyc-10", customerId: "cust-9" }
+
+gwt 05 "verify identity from document and liveness"
+  given
+    evt ApplicationSubmitted { applicationId: "kyc-10", customerId: "cust-9" }
+  when
+    cmd RunIdentityCheck { applicationId: "kyc-10", documentId: "doc-4" }
+  then
+    evt IdentityVerified { applicationId: "kyc-10", method: "document_liveness" }
+
+gwt 05 "fail identity when the document expired"
+  given
+    evt ApplicationSubmitted { applicationId: "kyc-10", customerId: "cust-9" }
+  when
+    cmd RunIdentityCheck { applicationId: "kyc-10", documentId: "doc-4" }
+  then
+    evt IdentityVerificationFailed { applicationId: "kyc-10", reason: "document_expired" }
+
+gwt 08 "clear sanctions when no list matches"
+  given
+    evt IdentityVerified { applicationId: "kyc-10", method: "document_liveness" }
+  when
+    cmd RunSanctionsScreening { applicationId: "kyc-10" }
+  then
+    evt SanctionsCleared { applicationId: "kyc-10" }
+
+gwt 08 "flag a sanctions hit for triage"
+  given
+    evt IdentityVerified { applicationId: "kyc-10", method: "document_liveness" }
+  when
+    cmd RunSanctionsScreening { applicationId: "kyc-10" }
+  then
+    evt SanctionsHitFound { applicationId: "kyc-10", listId: "watch-7" }
+
+gwt 15 "approve a low-risk customer"
+  given
+    evt RiskRated { applicationId: "kyc-10", tier: "low" }
+  when
+    cmd ApproveCustomer { applicationId: "kyc-10", approver: "ops-1" }
+  then
+    evt CustomerApproved { applicationId: "kyc-10", customerId: "cust-9" }
+
+gwt 15 "reject instead of approving a high-risk customer"
+  given
+    evt RiskRated { applicationId: "kyc-10", tier: "high" }
+  when
+    cmd ApproveCustomer { applicationId: "kyc-10", approver: "ops-1" }
+  then
+    evt CustomerRejected { applicationId: "kyc-10", reason: "high_risk" }
+
+gwt 20 "escalate a possible sanctions match to EDD"
+  given
+    evt Screening.SanctionsHitFound { applicationId: "kyc-10", listId: "watch-7" }
+  when
+    cmd EscalateToEDD { applicationId: "kyc-10", reason: "possible_match" }
+  then
+    evt EDDEscalated { applicationId: "kyc-10", reason: "possible_match" }

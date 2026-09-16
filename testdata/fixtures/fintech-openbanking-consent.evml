@@ -1,0 +1,88 @@
+eventmodeling
+
+// Open banking payment initiation: consent, customer authentication at the
+// bank, initiation, then status tracking to confirmation. NEXT: map bank
+// rejection codes to plain-language messages. FUTURE: recurring (VRP)
+// consents across many banks.
+tf 01 ui ConsentScreen
+tf 02 cmd RequestConsent { consentId: "cons-70", tpp: "budget-app", scopes: "payments" }
+tf 03 evt ConsentRequested { consentId: "cons-70", tpp: "budget-app" }
+tf 04 pcr AuthRedirector ->> 03
+tf 05 cmd RedirectForSCA { consentId: "cons-70", bank: "bank-a" }
+tf 06 evt SCACompleted { consentId: "cons-70", bank: "bank-a" }
+tf 07 pcr ConsentGranter ->> 06
+tf 08 cmd GrantConsent { consentId: "cons-70" }
+tf 09 evt ConsentGranted { consentId: "cons-70", expiresAt: "2026-12-15" }
+tf 10 rmo ConsentRegistry { consentId: "cons-70", status: "granted" }
+tf 11 pcr PaymentInitiator ->> 09
+tf 12 cmd InitiateBankPayment { consentId: "cons-70", endToEndId: "e2e-700", amountMinor: 4200 }
+tf 13 evt PaymentInitiatedAtBank { consentId: "cons-70", endToEndId: "e2e-700" }
+tf 14 pcr StatusPoller ->> 13
+tf 15 cmd PollPaymentStatus { endToEndId: "e2e-700" }
+tf 16 evt PaymentStatusUpdated { endToEndId: "e2e-700", status: "ACSC" }
+tf 17 rmo PaymentInitiationStatus { endToEndId: "e2e-700", status: "settled" }
+
+rf 18 evt Bank.PaymentStatusRejected { endToEndId: "e2e-700", code: "RJCT" }
+tf 19 pcr CallbackHandler ->> 18
+tf 20 cmd HandleBankCallback { endToEndId: "e2e-700", code: "RJCT" }
+tf 21 evt ConsentRevoked { consentId: "cons-70", reason: "customer_request" }
+tf 22 rmo TPPAudit { consentId: "cons-70", events: 6 }
+
+note 20 { NEXT: translate bank reason codes (RJCT/ACSC) into plain-language messages before showing them. }
+note 21 { FUTURE: variable recurring payment consents with per-cycle limits and a consent dashboard. }
+
+gwt 02 "request consent for a payment app"
+  given
+    evt AppSelected { tpp: "budget-app" }
+  when
+    cmd RequestConsent { consentId: "cons-70", tpp: "budget-app", scopes: "payments" }
+  then
+    evt ConsentRequested { consentId: "cons-70", tpp: "budget-app" }
+
+gwt 05 "redirect to the bank for authentication"
+  given
+    evt ConsentRequested { consentId: "cons-70", tpp: "budget-app" }
+  when
+    cmd RedirectForSCA { consentId: "cons-70", bank: "bank-a" }
+  then
+    evt SCACompleted { consentId: "cons-70", bank: "bank-a" }
+
+gwt 08 "grant consent after authentication"
+  given
+    evt SCACompleted { consentId: "cons-70", bank: "bank-a" }
+  when
+    cmd GrantConsent { consentId: "cons-70" }
+  then
+    evt ConsentGranted { consentId: "cons-70", expiresAt: "2026-12-15" }
+
+gwt 12 "initiate a payment under a live consent"
+  given
+    evt ConsentGranted { consentId: "cons-70", expiresAt: "2026-12-15" }
+  when
+    cmd InitiateBankPayment { consentId: "cons-70", endToEndId: "e2e-700", amountMinor: 4200 }
+  then
+    evt PaymentInitiatedAtBank { consentId: "cons-70", endToEndId: "e2e-700" }
+
+gwt 12 "block initiation when consent expired"
+  given
+    evt ConsentExpired { consentId: "cons-70" }
+  when
+    cmd InitiateBankPayment { consentId: "cons-70", endToEndId: "e2e-700", amountMinor: 4200 }
+  then
+    evt PaymentInitiationRejected { endToEndId: "e2e-700", reason: "consent_expired" }
+
+gwt 15 "track the bank status to settlement"
+  given
+    evt PaymentInitiatedAtBank { consentId: "cons-70", endToEndId: "e2e-700" }
+  when
+    cmd PollPaymentStatus { endToEndId: "e2e-700" }
+  then
+    evt PaymentStatusUpdated { endToEndId: "e2e-700", status: "ACSC" }
+
+gwt 20 "revoke consent when the bank rejects"
+  given
+    evt Bank.PaymentStatusRejected { endToEndId: "e2e-700", code: "RJCT" }
+  when
+    cmd HandleBankCallback { endToEndId: "e2e-700", code: "RJCT" }
+  then
+    evt ConsentRevoked { consentId: "cons-70", reason: "customer_request" }
