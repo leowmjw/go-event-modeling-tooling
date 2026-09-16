@@ -37,6 +37,7 @@ func run() error {
 		repoRoot = flag.String("repo-root", ".", "root of the go-event-modeling-tooling checkout (contains testdata/fixtures, EVENT_MODELING.md, SKILL.md)")
 		stateDir = flag.String("state-dir", "", "directory to persist in-progress draft versions (default: <evmlweb-module>/.state)")
 		logJSON  = flag.Bool("log-json", false, "emit structured logs as JSON instead of text")
+		llamaVer = flag.String("llama-version", os.Getenv("EVMLWEB_LLAMA_VERSION"), "pin the llama.cpp runtime version (e.g. b9849) instead of the kronk SDK default — useful when the default requires a newer OS")
 	)
 	flag.Parse()
 
@@ -57,7 +58,7 @@ func run() error {
 
 	ctx := context.Background()
 
-	if err := initKronk(ctx, log); err != nil {
+	if err := initKronk(ctx, log, *llamaVer); err != nil {
 		return fmt.Errorf("initializing kronk: %w", err)
 	}
 
@@ -123,14 +124,18 @@ func logHandlerFor(json bool) slog.Handler {
 // CLI may have libraries cached for a *different* SDK/llama.cpp version —
 // Download() checks the installed version against what this build expects
 // and only fetches on a mismatch, so this is a no-op once versions line up.
-func initKronk(ctx context.Context, log *slog.Logger) error {
+func initKronk(ctx context.Context, log *slog.Logger, llamaVersion string) error {
 	if kronk.Initialized() {
 		return nil
 	}
 
 	appLog := slogAppLoggerFunc(log)
 
-	l, err := libs.New()
+	var opts []libs.Option
+	if llamaVersion != "" {
+		opts = append(opts, libs.WithVersion(llamaVersion))
+	}
+	l, err := libs.New(opts...)
 	if err != nil {
 		return fmt.Errorf("detecting runtime libraries: %w", err)
 	}

@@ -223,3 +223,118 @@ mise run test:ui-model-flow-selection
 ```
 
 Browser debug logging: append `?debug=1` to the URL.
+
+### Workshop UX (learned 2026-09, domain-expert sessions)
+
+The app is built for live sessions with non-technical domain experts. The
+core loop is **staging, not auto-applying** — nothing changes the expert's
+model without an explicit click:
+
+- **Staged proposals.** A chat turn that yields valid `.evml` does NOT
+  overwrite the draft. It's stored as `DraftVersion.PendingEvml/PendingSVG`;
+  the diagram shows a *preview* of the proposal and an amber banner offers
+  **Accept** (`POST .../accept`) / **Reject** (`POST .../reject`). Parse
+  errors get one automatic LLM retry fed with the validation error before
+  surfacing to the expert (`streamAssistantReply` in handlers_chat.go).
+- **Source tab.** The left pane has Diagram | Source view tabs (client-side
+  `$leftView` signal). Source shows the draft's `.evml` in a textarea
+  (`data-bind:evml-source`); **Save** posts to `POST .../source`, which
+  validates before applying — invalid source sets `ParseError` and never
+  touches the diagram.
+- **Draft management.** Tabs show label + date; per-draft **Rename**
+  (`POST .../rename`, `draftLabel` signal), **Delete** (`POST .../delete`,
+  JS `confirm()`; deleting the last draft forks a fresh one from the
+  baseline), **Export .evml/.svg** (`GET .../export.evml|svg`, plain
+  downloads). Custom labels live in `DraftVersion.Label` (sidecar JSON).
+- **Safer Activate.** The Activate button JS-confirms first; the handler
+  backs up the current fixture to `<state-dir>/_backups/<flow>/<timestamp>.evml`
+  before overwriting `testdata/fixtures/<flow>.evml`.
+- **Per-draft locking.** `DraftVersion.mu` serializes chat/edit mutations —
+  two browser tabs chatting on the same draft no longer race.
+- `PendingEvml` persists in the draft sidecar; `PendingSVG` is derived on
+  load (a stale/invalid proposal is silently dropped), same pattern as
+  `SVG` from `EvmlSource`.
+
+New routes (all under `/flow/{flow}/draft/{id}`): `accept`, `reject`,
+`source`, `rename`, `delete`, `export.evml`, `export.svg`. Handlers share
+the `lookupDraft` helper and still funnel through `patchWorkspaceSSE`.
+
+### Runtime notes
+
+- **llama.cpp version pinning:** `-llama-version <tag>` flag or
+  `EVMLWEB_LLAMA_VERSION` env var overrides the kronk SDK's default
+  llama.cpp build. Use it when the SDK default requires a newer OS than the
+  machine has (e.g. kronk v1.29.9 defaults to b10195, whose prebuilt macOS
+  binaries target macOS 26 and fail to `dlopen` on macOS 15). Note the
+  pinned version must still export every symbol the kronk SDK loads —
+  too-old builds (e.g. b9849) fail with `dlsym ... symbol not found`.
+  Pick the newest tag whose macOS binary still targets your OS.
+
+### FinTech example fixtures (added 2026-09)
+
+Three complex, multi-bounded-context models for workshop demos and parser
+coverage — `fintech-card-payment-settlement.evml` (auth → clearing →
+ledger → reconciliation, decline/reversal/mismatch branches),
+`fintech-fraud-review.evml` (real-time risk scoring → analyst case work →
+SAR filing), `fintech-kyc-onboarding.evml` (application → external IDV →
+sanctions screening → account provisioning). All follow the same patterns:
+contexts crossed only via `rf` facts + translator processors, every branch
+ends in a recorded outcome read model, GWT scenarios for the key rules.
+
+---
+
+## Roadmap — known gaps (as of 2026-09)
+
+Ordered roughly by value for live domain-expert workshops.
+
+### Web app (`cmd/evmlweb`)
+
+1. **Proposal diff view.** Accept/Reject shows only the rendered SVG
+   preview; there's no textual diff of `PendingEvml` vs `EvmlSource`, so
+   experts can't see *what* the assistant changed line-by-line before
+   accepting. A simple line diff in the Source tab (or a third "Compare"
+   view) closes this.
+2. **Clickable diagram nodes.** `render.go` emits inert SVG — frame boxes
+   carry no `id`/`data-*` attributes. Adding them would let the Datastar
+   frontend offer click-a-box → edit-panel (rename, change payload, delete)
+   without going through chat.
+3. **AST → `.evml` serializer (root library).** The library parses and
+   renders but cannot write a `Model` back out as `.evml` text. This is the
+   prerequisite for any true GUI editing (mutate AST → validate → write →
+   render) instead of having the LLM re-emit the whole document.
+4. **Chat context growth.** Every turn resends the full system prompt (two
+   long docs) + entire transcript + full document; `max_tokens=4096` can
+   silently truncate large complete-document responses mid-fence (no fence
+   → misread as a "clarifying answer"). Needs transcript compaction and/or
+   a larger token budget scaled to document size.
+5. **Streaming cost.** Every token delta re-renders and outer-morphs the
+   entire `#chat-log` — O(transcript) per token and resets scroll. Patch
+   only the in-flight assistant bubble instead.
+6. **Workspace decoupling.** The app only reads `testdata/fixtures/` and
+   Activate writes into the git working tree. Support pointing at an
+   arbitrary folder of `.evml` files so workshops don't mutate the repo.
+7. **Single-user.** Cookie sessions are per-browser; two people can't see
+   or collaborate on each other's drafts. No sharing/export of a session.
+8. **In-app model download.** Requires locally pre-downloaded Kronk models;
+   no picker-driven download.
+9. **llama.cpp runtime on macOS 15 (blocked, see "Runtime notes").** kronk
+   v1.29.9's default b10195 targets macOS 26; older builds lack symbols the
+   SDK loads. Until a compatible pin is found, the app can't boot on this
+   machine and the Playwright UI regression can't run.
+
+### DSL / core library
+
+10. **§12 proposed extensions** (`EVENT_MODELING.md`): `hotspot`, `actor`
+    lanes + `@Actor`, `chapter`, `slice … status`. The types already exist
+    in `model.go` (`Hotspot`, `Chapter`, `Slice`, `SliceStatus`,
+    `Frame.Actor`) but the parser never populates them and `render.go`
+    ignores them; `model.go` doc comments even reference `OpenHotspots`/
+    `Lint` functions that don't exist yet. Slice statuses (`live` /
+    `staging` / `future` / `blocked` / `deprecated`) are exactly the
+    vocabulary for "what fits reality vs future goals" in workshops, so
+    this pairs naturally with the web app's staging flow. Read §12's
+    grammar sketches before implementing — parser, renderer, validation,
+    and docs must move together.
+
+NOTE: Kimi K3 - command-code --resume 10d16794-0aab-4b42-8ee2-89025913a493
+

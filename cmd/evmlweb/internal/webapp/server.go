@@ -79,6 +79,13 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("POST /flow/{flow}/draft/{id}/chat", a.handleChat)
 	mux.HandleFunc("POST /flow/{flow}/draft/{id}/new-version", a.handleNewVersion)
 	mux.HandleFunc("POST /flow/{flow}/draft/{id}/activate", a.handleActivate)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/accept", a.handleAcceptProposal)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/reject", a.handleRejectProposal)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/source", a.handleSaveSource)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/rename", a.handleRenameDraft)
+	mux.HandleFunc("POST /flow/{flow}/draft/{id}/delete", a.handleDeleteDraft)
+	mux.HandleFunc("GET /flow/{flow}/draft/{id}/export.evml", a.handleExportEvml)
+	mux.HandleFunc("GET /flow/{flow}/draft/{id}/export.svg", a.handleExportSVG)
 
 	return withRequestLogging(a.log, mux)
 }

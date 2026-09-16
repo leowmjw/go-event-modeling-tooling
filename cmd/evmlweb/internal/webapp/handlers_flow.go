@@ -47,24 +47,32 @@ func (a *App) buildPage(s *Session) (WorkspacePage, error) {
 
 	for _, id := range fs.DraftOrder {
 		d := fs.Drafts[id]
-		page.Drafts = append(page.Drafts, DraftTab{ID: d.ID, Label: draftLabel(d)})
+		page.Drafts = append(page.Drafts, DraftTab{ID: d.ID, Label: draftLabel(d), Date: d.Date})
 	}
 	page.ActiveDraftID = fs.ActiveDraftID
 
 	if d, ok := fs.Drafts[fs.ActiveDraftID]; ok {
 		page.ActiveSVG = template.HTML(activeSVG(fs, d))
+		page.ActiveEvml = d.EvmlSource
+		page.HasProposal = d.PendingEvml != ""
 		page.Transcript = toChatViews(d.Transcript)
 		page.ParseError = d.ParseError
 	} else {
 		page.ActiveSVG = template.HTML(fs.BaselineSVG)
+		page.ActiveEvml = fs.BaselineEvml
 	}
 
 	return page, nil
 }
 
-// activeSVG returns the best available rendered diagram for a draft,
-// falling back to the flow baseline when the draft has no cached SVG.
+// activeSVG returns the best available rendered diagram for a draft. A
+// staged assistant proposal (PendingSVG) takes precedence so the expert
+// previews the proposed change before accepting it; otherwise the draft's
+// own SVG, falling back to the flow baseline.
 func activeSVG(fs *FlowState, d *DraftVersion) string {
+	if d.PendingSVG != "" {
+		return d.PendingSVG
+	}
 	if d.SVG != "" {
 		return d.SVG
 	}

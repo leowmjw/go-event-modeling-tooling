@@ -6,30 +6,64 @@
   <nav class="draft-tabs">
     {{range .Drafts}}
     <button class="tab {{if eq .ID $.ActiveDraftID}}active{{end}}"
+            title="{{.ID}}"
             data-on:click="@get('/flow/{{$.ActiveFlow}}/draft/{{.ID}}')">
-      {{.Label}}
+      {{.Label}}<span class="tab-date">{{.Date}}</span>
     </button>
     {{end}}
     <button class="tab tab-new" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/new-version')">+ New version</button>
     {{if .ActiveDraftID}}
-    <button class="tab tab-activate" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/activate')">Activate</button>
+    <span class="tab-actions">
+      <button class="tab" title="Name this version (e.g. what you're exploring)"
+              data-on:click="const v = prompt('Name this version:', ''); if (v !== null) @post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/rename', {payload: {draftLabel: v}})">Rename</button>
+      <a class="tab" href="/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/export.evml" download>Export .evml</a>
+      <a class="tab" href="/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/export.svg" download>Export .svg</a>
+      <button class="tab tab-danger" title="Delete this version"
+              data-on:click="if (confirm('Delete this version? This cannot be undone.')) @post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/delete')">Delete</button>
+      <button class="tab tab-activate"
+              data-on:click="if (confirm('Make this version the official baseline for {{.ActiveFlow}}? The previous baseline is backed up automatically.')) @post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/activate')">Activate</button>
+    </span>
     {{end}}
   </nav>
 
-  <div class="workspace-grid">
-    <section class="svg-pane"
-      data-signals:svg-scale="1" data-signals:svg-x="0" data-signals:svg-y="0" data-signals:panning="false"
-      data-signals:pan-start-x="0" data-signals:pan-start-y="0" data-signals:pan-orig-x="0" data-signals:pan-orig-y="0"
-      data-on:wheel__prevent="$svgScale = Math.min(4, Math.max(0.2, $svgScale - evt.deltaY / 1000))"
-      data-on:mousedown="$panning = true; $panStartX = evt.clientX; $panStartY = evt.clientY; $panOrigX = $svgX; $panOrigY = $svgY"
-      data-on:mouseup__window="$panning = false"
-      data-on:mousemove__window="if ($panning) { $svgX = $panOrigX + (evt.clientX - $panStartX); $svgY = $panOrigY + (evt.clientY - $panStartY) }">
-      <div class="svg-toolbar">
-        <button data-on:click="$svgScale = 1; $svgX = 0; $svgY = 0">Reset view</button>
-        <span class="hint">scroll to zoom, drag to pan</span>
+  {{if .HasProposal}}
+  <div class="proposal-banner">
+    <span>The assistant proposed a change — the diagram shows a <strong>preview</strong>. Accept it to make it this version's model, or reject it to keep the current one.</span>
+    <button class="btn-accept" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/accept')">Accept</button>
+    <button class="btn-reject" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/reject')">Reject</button>
+  </div>
+  {{end}}
+
+  <div class="workspace-grid" data-signals:left-view="'diagram'">
+    <section class="left-pane">
+      <div class="view-tabs">
+        <button class="view-tab" data-class:active="$leftView == 'diagram'" data-on:click="$leftView = 'diagram'">Diagram</button>
+        <button class="view-tab" data-class:active="$leftView == 'source'" data-on:click="$leftView = 'source'">Source</button>
       </div>
-      <div id="svg-container" data-attr:style="`transform: translate(${$svgX}px, ${$svgY}px) scale(${$svgScale})`">
-        {{if not .PatchSVG}}{{.ActiveSVG}}{{end}}
+
+      <div class="svg-pane" data-show="$leftView == 'diagram'"
+        data-signals:svg-scale="1" data-signals:svg-x="0" data-signals:svg-y="0" data-signals:panning="false"
+        data-signals:pan-start-x="0" data-signals:pan-start-y="0" data-signals:pan-orig-x="0" data-signals:pan-orig-y="0"
+        data-on:wheel__prevent="$svgScale = Math.min(4, Math.max(0.2, $svgScale - evt.deltaY / 1000))"
+        data-on:mousedown="$panning = true; $panStartX = evt.clientX; $panStartY = evt.clientY; $panOrigX = $svgX; $panOrigY = $svgY"
+        data-on:mouseup__window="$panning = false"
+        data-on:mousemove__window="if ($panning) { $svgX = $panOrigX + (evt.clientX - $panStartX); $svgY = $panOrigY + (evt.clientY - $panStartY) }">
+        <div class="svg-toolbar">
+          <button data-on:click="$svgScale = 1; $svgX = 0; $svgY = 0">Reset view</button>
+          <span class="hint">scroll to zoom, drag to pan</span>
+        </div>
+        <div id="svg-container" data-attr:style="`transform: translate(${$svgX}px, ${$svgY}px) scale(${$svgScale})`">
+          {{if not .PatchSVG}}{{.ActiveSVG}}{{end}}
+        </div>
+      </div>
+
+      <div class="source-pane" data-show="$leftView == 'source'">
+        <p class="source-hint">This is the model in text form — one line per step. Edit it directly if you like, then Save to update the diagram.</p>
+        <textarea class="source-editor" data-bind:evml-source spellcheck="false">{{.ActiveEvml}}</textarea>
+        <div class="source-actions">
+          <button data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/source')">Save &amp; update diagram</button>
+          {{if .ParseError}}<span class="source-error">{{.ParseError}}</span>{{end}}
+        </div>
       </div>
     </section>
 

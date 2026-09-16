@@ -24,13 +24,15 @@ type DraftStore struct {
 // the .evml source itself, which is stored alongside as plain text so it
 // stays diffable/readable on its own).
 type draftMeta struct {
-	FlowName   string        `json:"flow_name"`
-	Date       string        `json:"date"`
-	Seq        int           `json:"seq"`
-	ParseError string        `json:"parse_error,omitempty"`
-	Transcript []ChatMessage `json:"transcript"`
-	CreatedAt  string        `json:"created_at"`
-	UpdatedAt  string        `json:"updated_at"`
+	FlowName    string        `json:"flow_name"`
+	Date        string        `json:"date"`
+	Seq         int           `json:"seq"`
+	Label       string        `json:"label,omitempty"`
+	ParseError  string        `json:"parse_error,omitempty"`
+	PendingEvml string        `json:"pending_evml,omitempty"`
+	Transcript  []ChatMessage `json:"transcript"`
+	CreatedAt   string        `json:"created_at"`
+	UpdatedAt   string        `json:"updated_at"`
 }
 
 // NewDraftStore creates a store rooted at root, creating the directory if
@@ -70,13 +72,15 @@ func (s *DraftStore) Save(d *DraftVersion) error {
 	}
 
 	meta := draftMeta{
-		FlowName:   d.FlowName,
-		Date:       d.Date,
-		Seq:        d.Seq,
-		ParseError: d.ParseError,
-		Transcript: d.Transcript,
-		CreatedAt:  d.CreatedAt.Format(timeLayout),
-		UpdatedAt:  d.UpdatedAt.Format(timeLayout),
+		FlowName:    d.FlowName,
+		Date:        d.Date,
+		Seq:         d.Seq,
+		Label:       d.Label,
+		ParseError:  d.ParseError,
+		PendingEvml: d.PendingEvml,
+		Transcript:  d.Transcript,
+		CreatedAt:   d.CreatedAt.Format(timeLayout),
+		UpdatedAt:   d.UpdatedAt.Format(timeLayout),
 	}
 	b, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
@@ -198,13 +202,15 @@ func (s *DraftStore) load(flow, draftID string) (*DraftVersion, error) {
 	}
 
 	d := &DraftVersion{
-		ID:         draftID,
-		FlowName:   meta.FlowName,
-		Date:       meta.Date,
-		Seq:        meta.Seq,
-		EvmlSource: string(evml),
-		ParseError: meta.ParseError,
-		Transcript: meta.Transcript,
+		ID:          draftID,
+		FlowName:    meta.FlowName,
+		Date:        meta.Date,
+		Seq:         meta.Seq,
+		Label:       meta.Label,
+		EvmlSource:  string(evml),
+		ParseError:  meta.ParseError,
+		PendingEvml: meta.PendingEvml,
+		Transcript:  meta.Transcript,
 	}
 	d.CreatedAt, _ = parseTime(meta.CreatedAt)
 	d.UpdatedAt, _ = parseTime(meta.UpdatedAt)
@@ -222,5 +228,25 @@ func (s *DraftStore) load(flow, draftID string) (*DraftVersion, error) {
 			d.SVG = svg
 		}
 	}
+	// PendingSVG is derived from PendingEvml; recompute it on load the same
+	// way. A stale/invalid proposal is simply dropped.
+	if d.PendingEvml != "" {
+		if svg, err := renderEvml(d.PendingEvml); err != nil {
+			d.PendingEvml = ""
+		} else {
+			d.PendingSVG = svg
+		}
+	}
 	return d, nil
+}
+
+// Delete removes draftID's .evml and sidecar files for flow. A missing
+// draft is not an error.
+func (s *DraftStore) Delete(flow, draftID string) error {
+	for _, p := range []string{s.evmlPath(flow, draftID), s.metaPath(flow, draftID)} {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("draftstore: deleting %q: %w", p, err)
+		}
+	}
+	return nil
 }

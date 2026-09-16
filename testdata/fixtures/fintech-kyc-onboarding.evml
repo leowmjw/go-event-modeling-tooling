@@ -1,0 +1,94 @@
+eventmodeling
+
+// Customer Onboarding & KYC (Know Your Customer)
+//
+// Bounded contexts (left → right across time):
+//   Onboarding  →  Identity Verification  →  Screening  →  Accounts
+//
+// A new customer applies, captures identity documents, is verified by an
+// external identity provider, screened against sanctions lists, and — only
+// when every check passes — gets an account provisioned. External systems
+// enter the model only as durable facts (rf), never as direct calls.
+
+// ── Onboarding bounded context ───────────────────────────────────────────────
+tf 01 ui OnboardingApp
+tf 02 rmo ApplicationForm [[ApplicationForm02]]
+tf 03 cmd SubmitApplication { fullName: "Ada Osei", dateOfBirth: "1990-04-12", country: "GH", product: "checking" }
+tf 04 evt ApplicationSubmitted { applicationId: "app-5501", fullName: "Ada Osei", country: "GH", product: "checking", boundedContext: "Onboarding" }
+
+tf 05 ui DocumentCaptureScreen
+tf 06 cmd CaptureIdentityDocument { applicationId: "app-5501", documentType: "passport", imageRef: "img-99120" }
+tf 07 evt IdentityDocumentCaptured { applicationId: "app-5501", documentType: "passport", imageRef: "img-99120", capturedAt: "2026-09-15T11:02:00Z" }
+tf 08 rmo ApplicationProgress { applicationId: "app-5501", step: "documents_captured" }
+
+// ── Identity Verification bounded context ────────────────────────────────────
+rf 09 evt Onboarding.IdentityDocumentCaptured { applicationId: "app-5501", imageRef: "img-99120" }
+tf 10 pcr IdentityVerificationProcessor ->> 09
+tf 11 cmd VerifyIdentityDocument { applicationId: "app-5501", imageRef: "img-99120", provider: "external-idv" }
+tf 12 evt IdentityDocumentVerified { applicationId: "app-5501", verificationId: "idv-771", authenticity: "genuine", faceMatchScore: 0.97, boundedContext: "IdentityVerification" }
+
+// Forgery suspicion is a recorded outcome that routes to manual review.
+tf 13 evt IdentityDocumentRejected { applicationId: "app-5501", verificationId: "idv-771", reason: "suspected_tampering", boundedContext: "IdentityVerification" }
+tf 14 rmo ManualReviewQueue { applicationId: "app-5501", reason: "suspected_tampering", status: "pending" }
+
+// ── Screening bounded context ────────────────────────────────────────────────
+rf 15 evt IdentityVerification.IdentityDocumentVerified { applicationId: "app-5501", fullName: "Ada Osei", country: "GH" }
+tf 16 pcr SanctionsScreeningProcessor ->> 15
+tf 17 cmd ScreenAgainstWatchlists { applicationId: "app-5501", fullName: "Ada Osei", country: "GH", lists: ["OFAC", "EU", "UN"] }
+tf 18 evt ScreeningCleared { applicationId: "app-5501", lists: ["OFAC", "EU", "UN"], hits: 0, screenedAt: "2026-09-15T11:05:00Z", boundedContext: "Screening" }
+
+// A potential match is never auto-rejected — it becomes a compliance case.
+tf 19 evt ScreeningHitFound { applicationId: "app-5501", list: "OFAC", matchConfidence: 0.82, boundedContext: "Screening" }
+tf 20 rmo ComplianceCaseQueue { applicationId: "app-5501", list: "OFAC", status: "awaiting_compliance_officer" }
+
+// ── Accounts bounded context ─────────────────────────────────────────────────
+rf 21 evt Screening.ScreeningCleared { applicationId: "app-5501", product: "checking" }
+tf 22 pcr AccountProvisioningProcessor ->> 21
+tf 23 cmd OpenAccount { applicationId: "app-5501", product: "checking", currency: "USD" }
+tf 24 evt AccountOpened { accountId: "acc-90210", applicationId: "app-5501", product: "checking", openedAt: "2026-09-15T11:06:00Z", boundedContext: "Accounts" }
+tf 25 rmo CustomerAccountSummary [[CustomerAccountSummary25]]
+
+// Onboarding learns the outcome so the customer sees the result in the app.
+rf 26 evt Accounts.AccountOpened { accountId: "acc-90210", applicationId: "app-5501" }
+tf 27 pcr OnboardingCompletionProcessor ->> 26
+tf 28 cmd CompleteOnboarding { applicationId: "app-5501", accountId: "acc-90210" }
+tf 29 evt OnboardingCompleted { applicationId: "app-5501", accountId: "acc-90210", completedAt: "2026-09-15T11:06:30Z", boundedContext: "Onboarding" }
+tf 30 rmo WelcomeScreen { applicationId: "app-5501", accountId: "acc-90210", status: "active" }
+
+data ApplicationForm02 {
+  applicationId: "app-5501"
+  requiredFields: ["fullName", "dateOfBirth", "country", "product"]
+  requiredDocuments: ["passport_or_national_id"]
+}
+
+data CustomerAccountSummary25 {
+  accountId: "acc-90210"
+  product: "checking"
+  currency: "USD"
+  status: "active"
+  openedAt: "2026-09-15T11:06:00Z"
+}
+
+gwt 03 "application requires all mandatory fields"
+  given
+    evt OnboardingStarted { applicationId: "app-5501" }
+  when
+    cmd SubmitApplication { fullName: "Ada Osei", dateOfBirth: "1990-04-12", country: "GH", product: "checking" }
+  then
+    evt ApplicationSubmitted { applicationId: "app-5501" }
+
+gwt 17 "no watchlist hits clears screening"
+  given
+    evt IdentityDocumentVerified { applicationId: "app-5501" }
+  when
+    cmd ScreenAgainstWatchlists { applicationId: "app-5501", lists: ["OFAC", "EU", "UN"] }
+  then
+    evt ScreeningCleared { applicationId: "app-5501", hits: 0 }
+
+gwt 23 "account opens only after screening clears"
+  given
+    evt ScreeningCleared { applicationId: "app-5501" }
+  when
+    cmd OpenAccount { applicationId: "app-5501", product: "checking" }
+  then
+    evt AccountOpened { accountId: "acc-90210", applicationId: "app-5501" }

@@ -4,7 +4,10 @@
 // into testdata/fixtures once happy with it.
 package webapp
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // ChatRole identifies who authored a ChatMessage.
 type ChatRole string
@@ -29,12 +32,20 @@ type DraftVersion struct {
 	FlowName   string
 	Date       string // YYYY-MM-DD, the date this draft was created
 	Seq        int
+	Label      string // optional expert-given name, e.g. "add chargeback path"
 	EvmlSource string
 	SVG        string
 	ParseError string // non-empty when EvmlSource fails to parse/validate
-	Transcript []ChatMessage
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// PendingEvml/PendingSVG hold a staged proposal (from the assistant)
+	// that the expert hasn't accepted yet. The diagram previews PendingSVG
+	// while EvmlSource/SVG stay untouched until Accept.
+	PendingEvml string
+	PendingSVG  string
+	Transcript  []ChatMessage
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+
+	mu sync.Mutex // serializes chat/edit mutations of this draft
 }
 
 // FlowState tracks one business flow: its on-disk baseline (if any) plus

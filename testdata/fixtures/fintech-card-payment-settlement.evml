@@ -1,0 +1,102 @@
+eventmodeling
+
+// Card Payment Authorization → Clearing → Settlement → Ledger
+//
+// Bounded contexts (left → right across time):
+//   Payments  →  Clearing  →  Ledger  →  Reconciliation
+//
+// A card purchase is authorized in real time, batched for clearing by the
+// card network, settled against the issuer account, and posted to the
+// double-entry ledger. Every context boundary is crossed by a durable fact
+// (rf) translated by a processor — no shared state between contexts.
+
+// ── Payments bounded context ─────────────────────────────────────────────────
+tf 01 ui MerchantTerminal
+tf 02 rmo CardOnFile [[CardOnFile02]]
+tf 03 cmd AuthorizePurchase { cardId: "card-4412", merchantId: "mch-88", amount: 129.90, currency: "USD" }
+tf 04 evt PurchaseAuthorized { authId: "auth-7001", cardId: "card-4412", merchantId: "mch-88", amount: 129.90, currency: "USD", boundedContext: "Payments" }
+tf 05 rmo AuthorizationLog [[AuthorizationLog05]]
+
+// Declined path: insufficient funds is a recorded outcome, not silence.
+tf 06 evt PurchaseDeclined { cardId: "card-4412", merchantId: "mch-88", amount: 129.90, reason: "insufficient_funds", boundedContext: "Payments" }
+tf 07 rmo DeclineReasons { cardId: "card-4412", reason: "insufficient_funds" }
+
+// ── Clearing bounded context ─────────────────────────────────────────────────
+rf 08 evt Payments.PurchaseAuthorized { authId: "auth-7001", amount: 129.90, currency: "USD" }
+tf 09 pcr ClearingBatchProcessor ->> 08
+tf 10 cmd SubmitClearingRecord { authId: "auth-7001", batchId: "batch-2026-09-15-01", interchangeFee: 1.95 }
+tf 11 evt ClearingRecordSubmitted { authId: "auth-7001", batchId: "batch-2026-09-15-01", interchangeFee: 1.95, network: "VISA", boundedContext: "Clearing" }
+tf 12 rmo ClearingBatchStatus { batchId: "batch-2026-09-15-01", records: 14822, status: "submitted" }
+
+// ── Ledger bounded context ───────────────────────────────────────────────────
+rf 13 evt Clearing.ClearingRecordSubmitted { authId: "auth-7001", amount: 129.90, interchangeFee: 1.95 }
+tf 14 pcr LedgerPostingProcessor ->> 13
+tf 15 cmd PostDoubleEntry { authId: "auth-7001", debitAccount: "cardholder:card-4412", creditAccount: "merchant:mch-88", amount: 129.90, feeAccount: "revenue:interchange", feeAmount: 1.95 }
+tf 16 evt LedgerEntryPosted { journalId: "jrnl-55201", authId: "auth-7001", amount: 129.90, feeAmount: 1.95, boundedContext: "Ledger" }
+tf 17 rmo AccountBalance { accountId: "cardholder:card-4412", availableBalance: 870.10 }
+
+// Settlement failure is translated back so Payments can reverse the hold.
+rf 18 evt Ledger.PostingRejected { authId: "auth-7001", reason: "account_closed" }
+tf 19 pcr PaymentsRecoveryTranslator ->> 18
+tf 20 cmd ReverseAuthorization { authId: "auth-7001", reason: "settlement_failed" }
+tf 21 evt AuthorizationReversed { authId: "auth-7001", reversedAt: "2026-09-16T02:10:00Z", boundedContext: "Payments" }
+tf 22 rmo ReversedAuthorizations { authId: "auth-7001", status: "reversed" }
+
+// ── Reconciliation bounded context ───────────────────────────────────────────
+rf 23 evt Ledger.LedgerEntryPosted { journalId: "jrnl-55201", authId: "auth-7001", amount: 129.90 }
+tf 24 pcr ReconciliationProcessor ->> 23
+tf 25 cmd MatchSettlementReport { journalId: "jrnl-55201", networkReportId: "visa-rpt-99120", expectedAmount: 129.90 }
+tf 26 evt SettlementMatched { journalId: "jrnl-55201", networkReportId: "visa-rpt-99120", matchedAt: "2026-09-16T06:00:00Z", boundedContext: "Reconciliation" }
+tf 27 rmo DailyReconciliationReport [[DailyReconciliationReport27]]
+
+// A mismatch opens an exception case for the operations team.
+tf 28 evt SettlementMismatchDetected { journalId: "jrnl-55201", expectedAmount: 129.90, reportedAmount: 128.90, variance: 1.00 }
+tf 29 rmo ExceptionQueue { journalId: "jrnl-55201", variance: 1.00, status: "open" }
+
+data CardOnFile02 {
+  cardId: "card-4412"
+  status: "active"
+  availableBalance: 1000.00
+  currency: "USD"
+}
+
+data AuthorizationLog05 {
+  authId: "auth-7001"
+  cardId: "card-4412"
+  merchantId: "mch-88"
+  amount: 129.90
+  status: "authorized"
+  authorizedAt: "2026-09-15T18:42:11Z"
+}
+
+data DailyReconciliationReport27 {
+  date: "2026-09-15"
+  matched: 14820
+  mismatched: 2
+  totalSettled: 1842201.44
+  currency: "USD"
+}
+
+gwt 03 "authorize within available balance"
+  given
+    evt CardToppedUp { cardId: "card-4412", availableBalance: 1000.00 }
+  when
+    cmd AuthorizePurchase { cardId: "card-4412", merchantId: "mch-88", amount: 129.90, currency: "USD" }
+  then
+    evt PurchaseAuthorized { authId: "auth-7001", amount: 129.90 }
+
+gwt 03 "decline when balance is insufficient"
+  given
+    evt CardToppedUp { cardId: "card-4412", availableBalance: 50.00 }
+  when
+    cmd AuthorizePurchase { cardId: "card-4412", merchantId: "mch-88", amount: 129.90, currency: "USD" }
+  then
+    evt PurchaseDeclined { cardId: "card-4412", reason: "insufficient_funds" }
+
+gwt 15 "posting is balanced double entry"
+  given
+    evt ClearingRecordSubmitted { authId: "auth-7001", amount: 129.90, interchangeFee: 1.95 }
+  when
+    cmd PostDoubleEntry { authId: "auth-7001", amount: 129.90, feeAmount: 1.95 }
+  then
+    evt LedgerEntryPosted { journalId: "jrnl-55201", amount: 129.90, feeAmount: 1.95 }

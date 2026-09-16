@@ -23,7 +23,8 @@ type ChatMessageView struct {
 // DraftTab is one entry in the draft-version tab strip.
 type DraftTab struct {
 	ID    string
-	Label string // e.g. "v1", "v2"
+	Label string // e.g. "v1", or the expert-given name
+	Date  string // YYYY-MM-DD, shown small under/next to the label
 }
 
 // WorkspacePage is the full view model for both the initial page render
@@ -36,8 +37,14 @@ type WorkspacePage struct {
 	Drafts        []DraftTab
 	ActiveDraftID string
 	ActiveSVG     template.HTML
-	Transcript    []ChatMessageView
-	ParseError    string
+	// ActiveEvml is the active draft's .evml source, shown in the Source
+	// tab's editable textarea.
+	ActiveEvml string
+	// HasProposal is true when the assistant staged a not-yet-accepted
+	// change; ActiveSVG then previews the proposal, not the draft.
+	HasProposal bool
+	Transcript  []ChatMessageView
+	ParseError  string
 	// PatchSVG is true when rendering the workspace fragment for an SSE
 	// patch. The SVG is sent in a separate patch to #svg-container so
 	// Datastar never morphs a large HTML tree containing inline <svg>.
@@ -76,5 +83,8 @@ func toChatViews(msgs []ChatMessage) []ChatMessageView {
 }
 
 func draftLabel(d *DraftVersion) string {
+	if d.Label != "" {
+		return d.Label
+	}
 	return fmt.Sprintf("v%d", d.Seq)
 }

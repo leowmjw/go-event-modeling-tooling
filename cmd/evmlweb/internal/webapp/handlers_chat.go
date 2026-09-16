@@ -34,6 +34,11 @@ func (a *App) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// One chat turn at a time per draft — the streaming loop below mutates
+	// the transcript and (possibly) the staged proposal.
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	modelID := s.ModelID
 	if modelID == "" {
 		http.Error(w, "no model selected", http.StatusBadRequest)
@@ -58,26 +63,36 @@ func (a *App) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	assistantIdx := len(d.Transcript)
-	d.Transcript = append(d.Transcript, ChatMessage{Role: RoleAssistant, Content: "", At: time.Now()})
-
-	streamStart := time.Now()
-	deltaCount := 0
-	full, err := llm.StreamChat(ctx, a.systemPrompt, d.Transcript[:assistantIdx], func(delta string) error {
-		deltaCount++
-		d.Transcript[assistantIdx].Content += delta
-		return a.patchChatLog(sse, d)
-	})
+	full, err := a.streamAssistantReply(sse, llm, d)
 	if err != nil {
-		log.Warn("action: chat generation failed", "draft_id", draftID, "deltas", deltaCount, "duration_ms", time.Since(streamStart).Milliseconds(), "error", err)
-		d.Transcript[assistantIdx].Content = full
+		log.Warn("action: chat generation failed", "draft_id", draftID, "error", err)
 		a.appendSystemNote(sse, d, "Model error: "+err.Error())
 		return
 	}
-	d.Transcript[assistantIdx].Content = full
-	log.Info("action: chat generation complete", "draft_id", draftID, "deltas", deltaCount, "response_len", len(full), "duration_ms", time.Since(streamStart).Milliseconds())
 
 	evmlSrc, hasBlock := ExtractEvml(full)
+	if hasBlock {
+		if _, renderErr := renderEvml(evmlSrc); renderErr != nil {
+			// Give the model one automatic chance to correct itself: feed
+			// the validation error back and re-stream. This keeps dead-end
+			// red errors away from the expert in the common case.
+			log.Info("action: chat evml failed validation, auto-retrying", "draft_id", draftID, "error", renderErr)
+			retryPrompt := "The .evml you just proposed did not validate. Error:\n" + renderErr.Error() +
+				"\n\nPlease reply with the COMPLETE corrected .evml document in a fenced ```evml block."
+			d.Transcript = append(d.Transcript, ChatMessage{Role: RoleUser, Content: retryPrompt, At: time.Now()})
+			if err := a.patchChatLog(sse, d); err != nil {
+				return
+			}
+			full, err = a.streamAssistantReply(sse, llm, d)
+			if err != nil {
+				log.Warn("action: chat retry generation failed", "draft_id", draftID, "error", err)
+				a.appendSystemNote(sse, d, "Model error: "+err.Error())
+				return
+			}
+			evmlSrc, hasBlock = ExtractEvml(full)
+		}
+	}
+
 	if !hasBlock {
 		// Pure clarifying question / no proposed change yet — nothing to
 		// parse or persist beyond the transcript update already sent.
@@ -89,23 +104,47 @@ func (a *App) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	svg, renderErr := renderEvml(evmlSrc)
 	if renderErr != nil {
-		log.Info("action: chat evml failed validation", "draft_id", draftID, "error", renderErr)
+		log.Info("action: chat evml failed validation after retry", "draft_id", draftID, "error", renderErr)
 		d.ParseError = renderErr.Error()
 		_ = a.store.Save(d)
 		a.patchWorkspaceSSE(sse, s)
 		return
 	}
 
-	d.EvmlSource = evmlSrc
-	d.SVG = svg
+	// Stage the proposal instead of applying it: the diagram previews it
+	// and the expert accepts or rejects it explicitly.
+	d.PendingEvml = evmlSrc
+	d.PendingSVG = svg
 	d.ParseError = ""
 	d.UpdatedAt = time.Now()
 	if err := a.store.Save(d); err != nil {
 		log.Warn("saving draft failed", "draft_id", d.ID, "error", err)
 	}
-	log.Info("action: chat evml applied", "draft_id", draftID, "evml_len", len(evmlSrc))
+	log.Info("action: chat evml staged as proposal", "draft_id", draftID, "evml_len", len(evmlSrc))
 
 	a.patchWorkspaceSSE(sse, s)
+}
+
+// streamAssistantReply appends an assistant message to d's transcript and
+// streams the model's reply into it, repatching the chat log per token.
+// Returns the full response text.
+func (a *App) streamAssistantReply(sse *datastar.ServerSentEventGenerator, llm *LLM, d *DraftVersion) (string, error) {
+	assistantIdx := len(d.Transcript)
+	d.Transcript = append(d.Transcript, ChatMessage{Role: RoleAssistant, Content: "", At: time.Now()})
+
+	streamStart := time.Now()
+	deltaCount := 0
+	full, err := llm.StreamChat(sse.Context(), a.systemPrompt, d.Transcript[:assistantIdx], func(delta string) error {
+		deltaCount++
+		d.Transcript[assistantIdx].Content += delta
+		return a.patchChatLog(sse, d)
+	})
+	d.Transcript[assistantIdx].Content = full
+	if err != nil {
+		return full, err
+	}
+	a.log.Info("action: chat generation complete", "draft_id", d.ID, "deltas", deltaCount, "response_len", len(full), "duration_ms", time.Since(streamStart).Milliseconds())
+	return full, nil
 }
 
 func (a *App) patchChatLog(sse *datastar.ServerSentEventGenerator, d *DraftVersion) error {

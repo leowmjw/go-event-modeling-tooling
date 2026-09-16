@@ -1,0 +1,105 @@
+eventmodeling
+
+// Real-Time Fraud Screening & Analyst Review
+//
+// Bounded contexts (left → right across time):
+//   Transactions  →  Risk  →  Case Management  →  Compliance
+//
+// Every transaction is screened synchronously before funds move. High-risk
+// transactions become cases for human analysts; confirmed fraud is reported
+// to Compliance for regulatory filing. The analyst's decision — not the
+// model's score — is the authoritative fact that releases or blocks money.
+
+// ── Transactions bounded context ─────────────────────────────────────────────
+tf 01 ui BankingApp
+tf 02 rmo AccountSnapshot [[AccountSnapshot02]]
+tf 03 cmd TransferFunds { fromAccount: "acc-100", toAccount: "acc-8842", amount: 9500.00, currency: "USD" }
+tf 04 evt TransferRequested { transferId: "trf-3001", fromAccount: "acc-100", toAccount: "acc-8842", amount: 9500.00, currency: "USD", boundedContext: "Transactions" }
+
+// ── Risk bounded context ─────────────────────────────────────────────────────
+rf 05 evt Transactions.TransferRequested { transferId: "trf-3001", amount: 9500.00 }
+tf 06 pcr RiskScoringProcessor ->> 05
+tf 07 cmd ScoreTransferRisk { transferId: "trf-3001", amount: 9500.00, deviceTrust: "unknown_device", velocityLastHour: 3 }
+tf 08 evt TransferRiskScored { transferId: "trf-3001", riskScore: 87, riskBand: "high", reasons: ["new_payee", "unknown_device", "amount_above_usual"], boundedContext: "Risk" }
+
+// Low-risk transfers are released immediately — no human in the loop.
+tf 09 pcr AutoReleaseProcessor ->> 08
+tf 10 cmd ReleaseTransfer { transferId: "trf-3001" }
+tf 11 evt TransferReleased { transferId: "trf-3001", releasedBy: "auto", boundedContext: "Transactions" }
+
+// ── Case Management bounded context ──────────────────────────────────────────
+rf 12 evt Risk.TransferRiskScored { transferId: "trf-3001", riskScore: 87, riskBand: "high" }
+tf 13 pcr CaseOpeningProcessor ->> 12
+tf 14 cmd OpenFraudCase { transferId: "trf-3001", riskScore: 87, queue: "fraud-analysts" }
+tf 15 evt FraudCaseOpened { caseId: "case-910", transferId: "trf-3001", riskScore: 87, openedAt: "2026-09-15T09:14:00Z", boundedContext: "CaseManagement" }
+tf 16 rmo AnalystWorkQueue [[AnalystWorkQueue16]]
+
+tf 17 ui AnalystConsole
+tf 18 rmo CaseDetail [[CaseDetail18]]
+tf 19 cmd RequestCustomerConfirmation { caseId: "case-910", channel: "push_notification" }
+tf 20 evt CustomerConfirmationRequested { caseId: "case-910", channel: "push_notification", sentAt: "2026-09-15T09:20:00Z" }
+
+rf 21 evt Transactions.CustomerConfirmedTransfer { transferId: "trf-3001", confirmedAt: "2026-09-15T09:31:00Z" }
+tf 22 pcr CaseResolutionProcessor ->> 21
+tf 23 cmd ApproveTransfer { caseId: "case-910", analystId: "ana-4", rationale: "customer_confirmed_via_push" }
+tf 24 evt FraudCaseApproved { caseId: "case-910", transferId: "trf-3001", analystId: "ana-4", boundedContext: "CaseManagement" }
+
+// Analyst rejects: the transfer is blocked and the card/account is frozen.
+tf 25 cmd RejectTransfer { caseId: "case-910", analystId: "ana-4", rationale: "customer_unreachable_payee_blacklisted" }
+tf 26 evt FraudCaseRejected { caseId: "case-910", transferId: "trf-3001", analystId: "ana-4", boundedContext: "CaseManagement" }
+tf 27 rmo CaseOutcomes { caseId: "case-910", outcome: "rejected", transferId: "trf-3001" }
+
+// ── Compliance bounded context ───────────────────────────────────────────────
+rf 28 evt CaseManagement.FraudCaseRejected { caseId: "case-910", transferId: "trf-3001" }
+tf 29 pcr ComplianceTranslator ->> 28
+tf 30 cmd FileSuspiciousActivityReport { caseId: "case-910", transferId: "trf-3001", regulator: "FinCEN", dueBy: "2026-10-15" }
+tf 31 evt SuspiciousActivityReportFiled { sarId: "sar-2026-0441", caseId: "case-910", filedAt: "2026-09-20T16:00:00Z", boundedContext: "Compliance" }
+tf 32 rmo RegulatoryFilingLog { sarId: "sar-2026-0441", status: "filed", regulator: "FinCEN" }
+
+data AccountSnapshot02 {
+  accountId: "acc-100"
+  availableBalance: 24000.00
+  currency: "USD"
+  usualPayees: ["acc-1001", "acc-2044"]
+}
+
+data AnalystWorkQueue16 {
+  queue: "fraud-analysts"
+  openCases: [
+    { caseId: "case-910", transferId: "trf-3001", riskScore: 87, ageMinutes: 6 }
+  ]
+  slaMinutes: 30
+}
+
+data CaseDetail18 {
+  caseId: "case-910"
+  transferId: "trf-3001"
+  amount: 9500.00
+  riskScore: 87
+  reasons: ["new_payee", "unknown_device", "amount_above_usual"]
+  customerReachable: true
+}
+
+gwt 07 "high risk score opens a case"
+  given
+    evt TransferRequested { transferId: "trf-3001", amount: 9500.00 }
+  when
+    cmd ScoreTransferRisk { transferId: "trf-3001", deviceTrust: "unknown_device", velocityLastHour: 3 }
+  then
+    evt TransferRiskScored { transferId: "trf-3001", riskBand: "high" }
+
+gwt 23 "analyst approval releases the transfer"
+  given
+    evt FraudCaseOpened { caseId: "case-910", transferId: "trf-3001" }
+  when
+    cmd ApproveTransfer { caseId: "case-910", analystId: "ana-4" }
+  then
+    evt FraudCaseApproved { caseId: "case-910", transferId: "trf-3001" }
+
+gwt 30 "rejected case files a SAR within 30 days"
+  given
+    evt FraudCaseRejected { caseId: "case-910", transferId: "trf-3001" }
+  when
+    cmd FileSuspiciousActivityReport { caseId: "case-910", regulator: "FinCEN" }
+  then
+    evt SuspiciousActivityReportFiled { sarId: "sar-2026-0441", caseId: "case-910" }

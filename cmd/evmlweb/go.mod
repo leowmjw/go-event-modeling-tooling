@@ -1,6 +1,6 @@
 module github.com/leowmjw/go-event-modeling-tooling/cmd/evmlweb
 
-go 1.26.5
+go 1.27.1
 
 require (
 	github.com/ardanlabs/kronk v1.29.9

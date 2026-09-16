@@ -38,8 +38,80 @@ body {
   font-size: 0.85rem;
 }
 .tab.active { background: #2b6cff; color: #fff; border-color: #2b6cff; }
+.tab.active .tab-date { color: #d5e0ff; }
+.tab-date { display: block; font-size: 0.65rem; color: #8a8a8e; }
 .tab-new { border-style: dashed; }
 .tab-activate { background: #16a34a; color: #fff; border-color: #16a34a; }
+.tab-danger { color: #b91c1c; border-color: #f0b9b9; }
+.tab-actions { display: flex; gap: 6px; margin-left: auto; align-items: center; }
+a.tab { text-decoration: none; color: inherit; }
+
+.proposal-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+.proposal-banner span { flex: 1; }
+.proposal-banner button {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.btn-accept { background: #16a34a; color: #fff; }
+.btn-reject { background: #fff; border: 1px solid #d0d0d4 !important; }
+
+.left-pane { display: flex; flex-direction: column; min-height: 0; }
+.view-tabs { display: flex; gap: 4px; margin-bottom: 6px; }
+.view-tab {
+  padding: 5px 14px;
+  border: 1px solid #d0d0d4;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.view-tab.active { background: #2b6cff; color: #fff; border-color: #2b6cff; }
+
+.source-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: #fff;
+  border: 1px solid #e0e0e2;
+  border-radius: 10px;
+  padding: 10px;
+  gap: 8px;
+}
+.source-hint { margin: 0; color: #8a8a8e; font-size: 0.8rem; }
+.source-editor {
+  flex: 1;
+  resize: none;
+  border: 1px solid #d0d0d4;
+  border-radius: 8px;
+  padding: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.source-actions { display: flex; align-items: center; gap: 12px; }
+.source-actions button {
+  padding: 7px 16px;
+  border: none;
+  border-radius: 8px;
+  background: #2b6cff;
+  color: #fff;
+  cursor: pointer;
+}
+.source-error { color: #a11; font-size: 0.8rem; white-space: pre-wrap; }
 
 .workspace-grid {
   display: grid;
@@ -50,6 +122,8 @@ body {
 
 .svg-pane {
   position: relative;
+  flex: 1;
+  min-height: 0;
   background: #fff;
   border: 1px solid #e0e0e2;
   border-radius: 10px;
