@@ -1,0 +1,43 @@
+name: data-block-main
+version: 0.1.0
+description: IR for main context of data-block
+input:
+  type: CartScreenCommand
+  required:
+  - payload
+  input_schema:
+    type: object
+    properties: {}
+    title: CartScreenCommand
+nodes:
+- id: decide_AddItem
+  kind: pure_function
+  description: Decide the result of command AddItem
+  source:
+    section: tf 02 cmd AddItem
+  impl: extracted/main.py:decide_AddItem
+  input: &id001
+    command: pipeline.input
+  inputs: *id001
+  output:
+    result: AddItemResult
+  mandatory: false
+- id: decide_AddItem_04
+  kind: pure_function
+  description: Decide the result of command AddItem
+  source:
+    section: tf 04 cmd AddItem
+  impl: extracted/main.py:decide_AddItem
+  input: &id002
+    command: pipeline.input
+  inputs: *id002
+  output:
+    result: AddItemResult
+  mandatory: false
+edges: []
+entry_nodes:
+- decide_AddItem
+- decide_AddItem_04
+exit_nodes:
+- decide_AddItem
+- decide_AddItem_04

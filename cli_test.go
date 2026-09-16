@@ -66,6 +66,12 @@ type jsonDoc struct {
 	GWTs []struct {
 		Frame string `json:"frame"`
 	} `json:"gwts"`
+	Hotspots []struct {
+		Frame    string `json:"frame"`
+		DataType string `json:"dataType"`
+		Value    string `json:"value"`
+		Line     int    `json:"line"`
+	} `json:"hotspots"`
 }
 
 func TestRunJSONBoundedContextFixture(t *testing.T) {
@@ -134,6 +140,50 @@ func TestRunJSONBoundedContextFixture(t *testing.T) {
 	}
 	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(doc.SHA256) {
 		t.Fatalf("sha256 = %q", doc.SHA256)
+	}
+}
+
+func TestRunJSONEmitsHotspots(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"json", "testdata/fixtures/hotel-booking-with-hotspots.evml"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("Run() code = %d, stderr = %s", code, stderr.String())
+	}
+	var doc jsonDoc
+	if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	if len(doc.Hotspots) != 3 {
+		t.Fatalf("len(hotspots) = %d, want 3", len(doc.Hotspots))
+	}
+	byFrame := map[string]int{}
+	for _, h := range doc.Hotspots {
+		byFrame[h.Frame]++
+		if h.Line <= 0 {
+			t.Fatalf("hotspot on frame %s has line = %d", h.Frame, h.Line)
+		}
+	}
+	if byFrame["03"] != 2 || byFrame["05"] != 1 {
+		t.Fatalf("hotspots by frame = %v, want {03: 2, 05: 1}", byFrame)
+	}
+	if !strings.Contains(doc.Hotspots[0].Value, "concurrent booking") {
+		t.Fatalf("first hotspot value = %q", doc.Hotspots[0].Value)
+	}
+	if doc.Hotspots[1].DataType != "md" {
+		t.Fatalf("second hotspot dataType = %q, want md", doc.Hotspots[1].DataType)
+	}
+}
+
+func TestRunJSONEmitsEmptyHotspotsArray(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"json", "testdata/fixtures/bounded-context-order-fulfillment.evml"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("Run() code = %d, stderr = %s", code, stderr.String())
+	}
+	// A model with no hotspots must still emit [] rather than null so the
+	// provenance script can index it unconditionally.
+	if !strings.Contains(stdout.String(), `"hotspots": []`) {
+		t.Fatalf("expected an empty hotspots array in output")
 	}
 }
 

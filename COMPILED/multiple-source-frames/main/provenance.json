@@ -1,0 +1,34 @@
+{
+  "schema": "evml-rote-ir-provenance/v1",
+  "source_model": "testdata/fixtures/multiple-source-frames.evml",
+  "source_sha256": "aec4cd2e67312047e154b7e9968635c286cab0ee6db88987eaff8ef553a50e84",
+  "model": "multiple-source-frames",
+  "context": "main",
+  "section_name": "",
+  "frames": [
+    "01",
+    "02",
+    "03",
+    "04"
+  ],
+  "ir": "pipeline.yaml",
+  "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
+  "compiled_at": "2026-09-17",
+  "pipeline_version": "0.1.0",
+  "sections": {
+    "tf 01 evt Start": "e69a9c08c3f0cf648637a81122b618aa8bea1253e22525ebce01aba28be227eb",
+    "tf 02 evt End": "0d9b4408900dca38c2f98fd33faa0c9685b128566bb5d3e34af468eebe9229fd",
+    "rf 03 rmo ReadModel01": "b3ff6659024ed0d2711ccc01e4390b48f7c6ebf1cd04b788d6c5409979d64764",
+    "rf 04 rmo ReadModel02": "70ba3fa24425f63a54630b6efa4423a62708184787a0768a277800fedd2329d5"
+  },
+  "nodes": {
+    "project_ReadModel01": {
+      "section": "rf 03 rmo ReadModel01",
+      "content_hash": "b3ff6659024ed0d2711ccc01e4390b48f7c6ebf1cd04b788d6c5409979d64764"
+    },
+    "project_ReadModel02": {
+      "section": "rf 04 rmo ReadModel02",
+      "content_hash": "70ba3fa24425f63a54630b6efa4423a62708184787a0768a277800fedd2329d5"
+    }
+  }
+}

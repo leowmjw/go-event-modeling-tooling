@@ -1,0 +1,97 @@
+{
+  "schema": "evml-model/v1",
+  "source": "testdata/fixtures/data-block.evml",
+  "sha256": "8d8baf51e8a57da6cddb76d1a390f8391ed5b7000dbb8d5ed9729aa44e60e91a",
+  "sections": [],
+  "entities": [],
+  "frames": [
+    {
+      "id": "01",
+      "kind": "tf",
+      "type": "ui",
+      "name": "CartScreen",
+      "namespace": "",
+      "line": 3,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "02",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "AddItem",
+      "namespace": "",
+      "line": 4,
+      "section": "",
+      "sources": [],
+      "dataRef": "AddItem01",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "03",
+      "kind": "tf",
+      "type": "evt",
+      "name": "ItemAdded",
+      "namespace": "",
+      "line": 5,
+      "section": "",
+      "sources": [],
+      "dataRef": "ItemAdded",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "04",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "AddItem",
+      "namespace": "",
+      "line": 6,
+      "section": "",
+      "sources": [],
+      "dataRef": "AddItem02",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "05",
+      "kind": "tf",
+      "type": "evt",
+      "name": "ItemAdded",
+      "namespace": "",
+      "line": 7,
+      "section": "",
+      "sources": [],
+      "dataRef": "ItemAdded",
+      "dataType": "",
+      "data": ""
+    }
+  ],
+  "data": [
+    {
+      "name": "AddItem01",
+      "dataType": "",
+      "value": "{\n  description: 'john'\n  image: 'avatar_john'\n  price: 20.4\n}",
+      "line": 9
+    },
+    {
+      "name": "AddItem02",
+      "dataType": "",
+      "value": "{\n  description: 'jack'\n  image: 'avatar_jack'\n  price: 12.5\n}",
+      "line": 15
+    },
+    {
+      "name": "ItemAdded",
+      "dataType": "",
+      "value": "{\n  description: string\n  image: string\n  price: number\n}",
+      "line": 21
+    }
+  ],
+  "notes": [],
+  "hotspots": [],
+  "gwts": []
+}

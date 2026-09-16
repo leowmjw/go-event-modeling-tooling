@@ -1,0 +1,40 @@
+{
+  "schema": "evml-rote-ir-provenance/v1",
+  "source_model": "testdata/fixtures/bounded-context-order-fulfillment.evml",
+  "source_sha256": "5b12449fa4cbe7b60499bc133cd8f57e8dad47dd962e14c6e1de24d66cc4fa2a",
+  "model": "bounded-context-order-fulfillment",
+  "context": "fulfillment",
+  "section_name": "Fulfillment bounded context",
+  "frames": [
+    "11",
+    "12",
+    "13",
+    "14",
+    "15"
+  ],
+  "ir": "pipeline.yaml",
+  "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
+  "compiled_at": "2026-09-17",
+  "pipeline_version": "0.1.0",
+  "sections": {
+    "rf 11 evt Billing.PaymentAuthorized": "52b12fd68197f9f1087a5d6fbc19056eb8ca945af28e02f68e925b80b22b17c3",
+    "tf 12 pcr FulfillmentTranslator": "6586817790e11d56d50fcf55e00ac3ef65e7db36059138c81ec57b140301eece",
+    "tf 13 cmd AllocateShipment": "457a178f011c4b0235273d413242a8a15a0a069bd3440dc59a1eadba8aa707dc",
+    "tf 14 evt ShipmentAllocated": "0b391a62bcf6f86ab7e200f4303ccd33280cc45d25345337e1165fd385d1d4fe",
+    "tf 15 rmo ShipmentQueue": "5095914738b4021342489c87e54c73f23f59db47e0b27de7aa0be0954e294e00"
+  },
+  "nodes": {
+    "translate_fulfillment": {
+      "section": "tf 12 pcr FulfillmentTranslator",
+      "content_hash": "6586817790e11d56d50fcf55e00ac3ef65e7db36059138c81ec57b140301eece"
+    },
+    "decide_allocate_shipment": {
+      "section": "tf 13 cmd AllocateShipment",
+      "content_hash": "457a178f011c4b0235273d413242a8a15a0a069bd3440dc59a1eadba8aa707dc"
+    },
+    "project_shipment_queue": {
+      "section": "tf 15 rmo ShipmentQueue",
+      "content_hash": "5095914738b4021342489c87e54c73f23f59db47e0b27de7aa0be0954e294e00"
+    }
+  }
+}

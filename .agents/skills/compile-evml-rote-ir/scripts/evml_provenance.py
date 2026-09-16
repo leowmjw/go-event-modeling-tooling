@@ -40,6 +40,9 @@ def frame_content(model, frame):
     frame_id = frame["id"]
     gwts = [_strip(g, "line") for g in model.get("gwts", []) if g["frame"] == frame_id]
     notes = [_strip(n, "line") for n in model.get("notes", []) if n["frame"] == frame_id]
+    hotspots = [
+        _strip(h, "line") for h in model.get("hotspots", []) if h["frame"] == frame_id
+    ]
     data = None
     data_ref = frame.get("dataRef") or ""
     if data_ref:
@@ -52,6 +55,7 @@ def frame_content(model, frame):
         "gwts": gwts,
         "data": data,
         "notes": notes,
+        "hotspots": hotspots,
     }
 
 

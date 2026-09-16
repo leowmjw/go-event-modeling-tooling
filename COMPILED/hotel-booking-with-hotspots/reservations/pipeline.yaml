@@ -1,0 +1,57 @@
+name: hotel-booking-with-hotspots-reservations
+version: 0.1.0
+description: IR for reservations context of hotel-booking-with-hotspots
+input:
+  type: SearchRoomsScreenCommand
+  required:
+  - payload
+  input_schema:
+    type: object
+    properties: {}
+    title: SearchRoomsScreenCommand
+nodes:
+- id: project_AvailableRooms
+  kind: pure_function
+  description: Project read model AvailableRooms
+  source:
+    section: tf 02 rmo AvailableRooms
+  impl: extracted/reservations.py:project_AvailableRooms
+  input: &id001
+    event: pipeline.input
+  inputs: *id001
+  output:
+    view: AvailableRooms
+  mandatory: false
+- id: decide_BookRoom
+  kind: pure_function
+  description: Decide the result of command BookRoom
+  source:
+    section: tf 03 cmd BookRoom
+  impl: extracted/reservations.py:decide_BookRoom
+  input: &id002
+    command: pipeline.input
+  inputs: *id002
+  output:
+    result: BookRoomResult
+  mandatory: true
+- id: project_BookingConfirmation
+  kind: pure_function
+  description: Project read model BookingConfirmation
+  source:
+    section: tf 05 rmo BookingConfirmation
+  impl: extracted/reservations.py:project_BookingConfirmation
+  input: &id003
+    event: pipeline.input
+  inputs: *id003
+  output:
+    view: BookingConfirmation
+  mandatory: true
+edges: []
+entry_nodes:
+- project_AvailableRooms
+- decide_BookRoom
+- project_BookingConfirmation
+exit_nodes:
+- project_AvailableRooms
+- decide_BookRoom
+- project_BookingConfirmation

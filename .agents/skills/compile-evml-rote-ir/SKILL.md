@@ -65,8 +65,8 @@ workflows are never orphaned silently — is the whole point of this skill.
   to `COMPILED/<model>/<context>/`. The file and symbol must exist.
 - **Provenance:** `COMPILED/<model>/<context>/provenance.json` records the
   sha256 of every source **frame section** the context was compiled from
-  (frame + its `gwt` blocks + referenced `data` block + `note`s) and, per
-  node, which frame section it came from. Written by
+  (frame + its `gwt` blocks + referenced `data` block + `note`s +
+  `hotspot`s) and, per node, which frame section it came from. Written by
   `scripts/evml_provenance.py write`; checked by `... check`.
 - **Tooling:** Go via `go run ./cmd/evml …`; Python only via
   `mise exec -- uv run …` (never a raw `.venv`). One-off scripts and scratch
@@ -138,9 +138,28 @@ deviation in `compile-report.md` §Judgment calls.
 | `pcr` — LLM-flavoured (`Agent_*`, `InvokeModel`, "classify", "summarise", free-text payloads, `data` block containing prose) | **Stop and ask** | — | Present the frame, its sources, and the three options: `llm_judge` (bounded typed output — preferred), `agent_loop` (iterative tool use; needs `tools:` + `tool_servers:` + `termination`), or `pure_function` (the expert confirms the decision is actually enumerable). Do not guess. Record the answer in the report and as a `note` suggestion for the `.evml`. |
 | `rf` | **pipeline `input`** of the consuming context — no node. `input.type` = the event name; `input_schema` from its payload. | — | In the producing context, the `cmd` node that emits this event is an `exit_node`; record the link in the report. If the same external event is produced by nothing in the model (a truly external system), say so. |
 | `data` | JSON Schema for the frame's payload (`$defs/<Name>`) | — | Infer types from the literal (`"…"` → string, `12.5` → number, `[...]` → array, ISO dates → `format: date-time`). |
-| `note` | Appended to the node `description`; also the place to look for timeouts, retries, MCP names, HITL channels. | — | |
+| `note` | Appended to the node `description`; also the place to look for timeouts, retries, MCP names, HITL channels. If the payload is a key/value block, it becomes the node's `timeout`, `retry`, `mcp`, `hitl`, `eval_set` config. | — | |
 | `gwt` | Golden tests for the `decide_*` node + seed examples | — | `given` → prior events (fixture state), `when` → command payload, `then` → expected output. Every `gwt` becomes one test case in `tests/test_<context>.py`; for `llm_judge` nodes it also becomes one `evals/<node>.jsonl` line. |
+| `hotspot` | **Blocks the node** — no IR guess | — | An unresolved business question on that frame. Do **not** invent a decision to fill it. Carry it verbatim into `compile-report.md` §Open questions, and set `mandatory: true` on the node so the gap is loud at runtime rather than silently defaulted. If the hotspot makes the node's contract undecidable, stop and ask the expert before emitting the context. |
 | `entity` | Report-only | — | Candidate workflow id / correlation key (`entity Cart` ⇒ `cartId`). |
+
+### Runtime-knob convention for `note`
+
+When a `note` payload is a key/value block (rather than prose), the
+compiler treats it as the authoritative runtime config for the node it
+annotates. Recognised keys:
+
+| Key | Maps to | Example |
+|---|---|---|
+| `timeout` | `node.timeout` | `timeout: "60s"` or `timeout: "7d"` |
+| `retry` | `node.retry` | `retry: { max: 3, backoff: exponential }` |
+| `mcp` | `external_call` `mcp:` binding | `mcp: { server: hubspot, tool: hubspot_batch_upsert }` |
+| `hitl` | `hitl_gate` channel / signal | `hitl: "#billing-reviews"` |
+| `eval_set` | `llm_judge` / `agent_loop` evals path | `eval_set: "evals/vet_contact.jsonl"` |
+
+Unrecognised keys are copied into `constants:` and logged in the report.
+This keeps business rules in the `.evml` and runtime tuning in the
+`.evml` too, instead of hand-editing `pipeline.yaml`.
 
 ### Edges and data flow
 
@@ -336,9 +355,11 @@ can verify it by hand.
 ```
 
 A section hash covers the frame declaration plus every `gwt` anchored to
-it, the `data` block it references, and its `note`s — with source line
-numbers excluded, so reformatting does not churn hashes but renumbering a
-frame does (its key and `->>` references change).
+it, the `data` block it references, and its `note`s and `hotspot`s — with
+source line numbers excluded, so reformatting does not churn hashes but
+renumbering a frame does (its key and `->>` references change). Resolving
+a hotspot therefore marks its context stale, which is the point: the
+open question the compiler asked about has been answered.
 
 ## Invariants
 

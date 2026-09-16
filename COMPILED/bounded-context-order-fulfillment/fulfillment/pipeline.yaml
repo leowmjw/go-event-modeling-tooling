@@ -1,0 +1,54 @@
+name: bounded-context-order-fulfillment-fulfillment
+version: 0.1.0
+description: IR for fulfillment context of bounded-context-order-fulfillment
+input:
+  type: Billing_PaymentAuthorized
+  required:
+  - payload
+  input_schema:
+    type: object
+    title: Billing_PaymentAuthorized
+    properties:
+      payload:
+        type: object
+nodes:
+- id: translate_fulfillment
+  kind: pure_function
+  description: pure_function translate_fulfillment
+  source:
+    section: tf 12 pcr FulfillmentTranslator
+  impl: extracted/fulfillment.py:translate_fulfillment
+  input: Billing_PaymentAuthorized
+  inputs:
+    event: pipeline.input
+  output: AllocateShipmentCommand
+- id: decide_allocate_shipment
+  kind: pure_function
+  description: pure_function decide_allocate_shipment
+  source:
+    section: tf 13 cmd AllocateShipment
+  impl: extracted/fulfillment.py:decide_allocate_shipment
+  input: AllocateShipmentCommand
+  inputs:
+    command: translate_fulfillment.output
+  output: ShipmentAllocationResult
+  mandatory: true
+- id: project_shipment_queue
+  kind: pure_function
+  description: pure_function project_shipment_queue
+  source:
+    section: tf 15 rmo ShipmentQueue
+  impl: extracted/fulfillment.py:project_shipment_queue
+  input: ShipmentAllocationResult
+  inputs:
+    event: decide_allocate_shipment.output
+  output: ShipmentQueueView
+edges:
+- - translate_fulfillment
+  - decide_allocate_shipment
+- - decide_allocate_shipment
+  - project_shipment_queue
+entry_nodes:
+- translate_fulfillment
+exit_nodes:
+- project_shipment_queue

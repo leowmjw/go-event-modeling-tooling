@@ -1,0 +1,181 @@
+{
+  "schema": "evml-model/v1",
+  "source": "testdata/fixtures/agent-workflow-from-discord.evml",
+  "sha256": "fb07c2bb1cc822cf6828fca0e214ccdf20a5d57e072909e005c4be84ea2b5a18",
+  "sections": [],
+  "entities": [],
+  "frames": [
+    {
+      "id": "01",
+      "kind": "tf",
+      "type": "ui",
+      "name": "DiscordScreen",
+      "namespace": "",
+      "line": 3,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "02",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "AskQuestion",
+      "namespace": "",
+      "line": 4,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ question: \"How many invoices were sent out yesterday?\" }"
+    },
+    {
+      "id": "03",
+      "kind": "tf",
+      "type": "evt",
+      "name": "QuestionAsked",
+      "namespace": "",
+      "line": 5,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ question: \"How many invoices were sent out yesterday?\" }"
+    },
+    {
+      "id": "04",
+      "kind": "tf",
+      "type": "pcr",
+      "name": "Agent_A",
+      "namespace": "",
+      "line": 6,
+      "section": "",
+      "sources": [
+        "03"
+      ],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "05",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "InvokeModel",
+      "namespace": "",
+      "line": 7,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ question }"
+    },
+    {
+      "id": "06",
+      "kind": "tf",
+      "type": "evt",
+      "name": "InvocationCompleted",
+      "namespace": "",
+      "line": 8,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "07",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "InvocationResult",
+      "namespace": "",
+      "line": 9,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ callTool: findInvoices }"
+    },
+    {
+      "id": "08",
+      "kind": "rf",
+      "type": "evt",
+      "name": "External.InvoicesFound",
+      "namespace": "External",
+      "line": 11,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ count: 2, customers: [\"X\", \"Y\"] }"
+    },
+    {
+      "id": "09",
+      "kind": "tf",
+      "type": "pcr",
+      "name": "Agent_A",
+      "namespace": "",
+      "line": 12,
+      "section": "",
+      "sources": [
+        "07",
+        "08"
+      ],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "10",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "InvokeModel",
+      "namespace": "",
+      "line": 13,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ toolResult }"
+    },
+    {
+      "id": "11",
+      "kind": "tf",
+      "type": "evt",
+      "name": "InvocationCompleted",
+      "namespace": "",
+      "line": 14,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "12",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "Answers",
+      "namespace": "",
+      "line": 15,
+      "section": "",
+      "sources": [],
+      "dataRef": "Answers10",
+      "dataType": "",
+      "data": ""
+    }
+  ],
+  "data": [
+    {
+      "name": "Answers10",
+      "dataType": "",
+      "value": "{\n  2 invoices were sent out\n  yesterday to customers X and Y\n}",
+      "line": 17
+    }
+  ],
+  "notes": [],
+  "hotspots": [],
+  "gwts": []
+}

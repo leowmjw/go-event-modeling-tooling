@@ -1,0 +1,127 @@
+name: flight-arrival-post-flight-settlement-compensation
+version: 0.1.0
+description: IR for compensation context of flight-arrival-post-flight-settlement
+input:
+  type: GateOpened
+  required:
+  - payload
+  input_schema:
+    type: object
+    properties: {}
+    title: GateOpened
+nodes:
+- id: translate_CompensationProcessor
+  kind: pure_function
+  description: Translate external event to internal payload
+  source:
+    section: tf 09 pcr CompensationProcessor
+  impl: extracted/compensation.py:translate_CompensationProcessor
+  input: &id001
+    input: pipeline.input
+  inputs: *id001
+  output:
+    result: CompensationProcessorResult
+  mandatory: false
+- id: decide_EvaluateDelay
+  kind: pure_function
+  description: Decide the result of command EvaluateDelay
+  source:
+    section: tf 10 cmd EvaluateDelay
+  impl: extracted/compensation.py:decide_EvaluateDelay
+  input: &id002
+    command: pipeline.input
+  inputs: *id002
+  output:
+    result: EvaluateDelayResult
+  mandatory: false
+- id: decide_VerifyPassengerEligibility
+  kind: pure_function
+  description: Decide the result of command VerifyPassengerEligibility
+  source:
+    section: tf 12 cmd VerifyPassengerEligibility
+  impl: extracted/compensation.py:decide_VerifyPassengerEligibility
+  input: &id003
+    command: pipeline.input
+  inputs: *id003
+  output:
+    result: VerifyPassengerEligibilityResult
+  mandatory: false
+- id: decide_CalculateCompensation
+  kind: pure_function
+  description: Decide the result of command CalculateCompensation
+  source:
+    section: tf 14 cmd CalculateCompensation
+  impl: extracted/compensation.py:decide_CalculateCompensation
+  input: &id004
+    command: pipeline.input
+  inputs: *id004
+  output:
+    result: CalculateCompensationResult
+  mandatory: false
+- id: project_DelayClaimSummary
+  kind: pure_function
+  description: Project read model DelayClaimSummary
+  source:
+    section: tf 16 rmo DelayClaimSummary
+  impl: extracted/compensation.py:project_DelayClaimSummary
+  input: &id005
+    event: pipeline.input
+  inputs: *id005
+  output:
+    view: DelayClaimSummary
+  mandatory: false
+- id: translate_CompensationClosureProcessor
+  kind: pure_function
+  description: Translate external event to internal payload
+  source:
+    section: tf 18 pcr CompensationClosureProcessor
+  impl: extracted/compensation.py:translate_CompensationClosureProcessor
+  input: &id006
+    input: pipeline.input
+  inputs: *id006
+  output:
+    result: CompensationClosureProcessorResult
+  mandatory: false
+- id: decide_CloseCompensationCase
+  kind: pure_function
+  description: Decide the result of command CloseCompensationCase
+  source:
+    section: tf 19 cmd CloseCompensationCase
+  impl: extracted/compensation.py:decide_CloseCompensationCase
+  input: &id007
+    command: pipeline.input
+  inputs: *id007
+  output:
+    result: CloseCompensationCaseResult
+  mandatory: false
+- id: project_ClosedClaimRecord
+  kind: pure_function
+  description: Project read model ClosedClaimRecord
+  source:
+    section: tf 21 rmo ClosedClaimRecord
+  impl: extracted/compensation.py:project_ClosedClaimRecord
+  input: &id008
+    event: pipeline.input
+  inputs: *id008
+  output:
+    view: ClosedClaimRecord
+  mandatory: false
+edges: []
+entry_nodes:
+- translate_CompensationProcessor
+- decide_EvaluateDelay
+- decide_VerifyPassengerEligibility
+- decide_CalculateCompensation
+- project_DelayClaimSummary
+- translate_CompensationClosureProcessor
+- decide_CloseCompensationCase
+- project_ClosedClaimRecord
+exit_nodes:
+- translate_CompensationProcessor
+- decide_EvaluateDelay
+- decide_VerifyPassengerEligibility
+- decide_CalculateCompensation
+- project_DelayClaimSummary
+- translate_CompensationClosureProcessor
+- decide_CloseCompensationCase
+- project_ClosedClaimRecord

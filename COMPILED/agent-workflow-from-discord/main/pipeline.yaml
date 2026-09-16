@@ -1,0 +1,115 @@
+name: agent-workflow-from-discord-main
+version: 0.1.0
+description: IR for main context of agent-workflow-from-discord
+input:
+  type: DiscordScreenCommand
+  required:
+  - payload
+  input_schema:
+    type: object
+    properties: {}
+    title: DiscordScreenCommand
+nodes:
+- id: decide_AskQuestion
+  kind: pure_function
+  description: Decide the result of command AskQuestion
+  source:
+    section: tf 02 cmd AskQuestion
+  impl: extracted/main.py:decide_AskQuestion
+  input: &id001
+    command: pipeline.input
+  inputs: *id001
+  output:
+    result: AskQuestionResult
+  mandatory: false
+- id: judge_Agent_A
+  kind: llm_judge
+  description: LLM judge for Agent_A
+  source:
+    section: tf 04 pcr Agent_A
+  signature: signatures/Agent_A.py:Agent_AJudge
+  input:
+    value: Agent_A
+  inputs:
+    value: pipeline.input
+  output:
+    result: Agent_AResult
+  mandatory: true
+- id: decide_InvokeModel
+  kind: pure_function
+  description: Decide the result of command InvokeModel
+  source:
+    section: tf 05 cmd InvokeModel
+  impl: extracted/main.py:decide_InvokeModel
+  input: &id002
+    command: pipeline.input
+  inputs: *id002
+  output:
+    result: InvokeModelResult
+  mandatory: false
+- id: project_InvocationResult
+  kind: pure_function
+  description: Project read model InvocationResult
+  source:
+    section: tf 07 rmo InvocationResult
+  impl: extracted/main.py:project_InvocationResult
+  input: &id003
+    event: pipeline.input
+  inputs: *id003
+  output:
+    view: InvocationResult
+  mandatory: false
+- id: judge_Agent_A_09
+  kind: llm_judge
+  description: LLM judge for Agent_A
+  source:
+    section: tf 09 pcr Agent_A
+  signature: signatures/Agent_A.py:Agent_AJudge
+  input:
+    value: Agent_A
+  inputs:
+    value: pipeline.input
+  output:
+    result: Agent_AResult
+  mandatory: true
+- id: decide_InvokeModel_10
+  kind: pure_function
+  description: Decide the result of command InvokeModel
+  source:
+    section: tf 10 cmd InvokeModel
+  impl: extracted/main.py:decide_InvokeModel
+  input: &id004
+    command: pipeline.input
+  inputs: *id004
+  output:
+    result: InvokeModelResult
+  mandatory: false
+- id: project_Answers
+  kind: pure_function
+  description: Project read model Answers
+  source:
+    section: tf 12 rmo Answers
+  impl: extracted/main.py:project_Answers
+  input: &id005
+    event: pipeline.input
+  inputs: *id005
+  output:
+    view: Answers
+  mandatory: false
+edges: []
+entry_nodes:
+- decide_AskQuestion
+- judge_Agent_A
+- decide_InvokeModel
+- project_InvocationResult
+- judge_Agent_A_09
+- decide_InvokeModel_10
+- project_Answers
+exit_nodes:
+- decide_AskQuestion
+- judge_Agent_A
+- decide_InvokeModel
+- project_InvocationResult
+- judge_Agent_A_09
+- decide_InvokeModel_10
+- project_Answers

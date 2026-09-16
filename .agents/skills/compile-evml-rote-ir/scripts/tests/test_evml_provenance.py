@@ -101,6 +101,9 @@ def model_json(tmp_path):
         "notes": [
             {"frame": "02", "dataType": "md", "value": "{ note text }", "line": 22}
         ],
+        "hotspots": [
+            {"frame": "03", "dataType": "", "value": "{ is o-1 idempotent? }", "line": 23}
+        ],
         "gwts": [
             {
                 "frame": "02",
@@ -233,6 +236,21 @@ def test_check_stale_changed(model_json, tmp_path):
     assert ctx["reasons"]["changed"] == ["tf 02 cmd PlaceOrder"]
     assert ctx["stale_nodes"] == ["n0"]
     assert ctx["preserved_nodes"] == ["n1"]
+
+
+def test_check_stale_when_hotspot_resolved(model_json, tmp_path):
+    compiled = _compiled(tmp_path, model_json)
+    model = json.loads(model_json.read_text())
+    # resolving the open question on frame 03 must re-derive that node
+    model["hotspots"] = []
+    model_json.write_text(json.dumps(model))
+    res = run_script("check", str(model_json), "--compiled", str(compiled), "--json")
+    assert res.returncode == 0, res.stderr
+    ctx = json.loads(res.stdout)["contexts"][0]
+    assert ctx["status"] == "stale"
+    assert ctx["reasons"]["changed"] == ["tf 03 evt OrderPlaced"]
+    assert ctx["stale_nodes"] == ["n1"]
+    assert ctx["preserved_nodes"] == ["n0"]
 
 
 def test_check_added_frame(model_json, tmp_path):

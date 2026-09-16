@@ -287,6 +287,27 @@ tf 02 cmd Wrong ->> 01
 	}
 }
 
+func TestParseHotspot(t *testing.T) {
+	model, err := Parse(`eventmodeling
+tf 01 cmd PlaceOrder
+hotspot 01 {
+  What happens if the cart is empty?
+}
+`)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if len(model.HotspotEntities) != 1 {
+		t.Fatalf("len(HotspotEntities) = %d, want 1", len(model.HotspotEntities))
+	}
+	if model.HotspotEntities[0].SourceID != "01" {
+		t.Fatalf("hotspot SourceID = %q", model.HotspotEntities[0].SourceID)
+	}
+	if !strings.Contains(model.HotspotEntities[0].Value, "empty") {
+		t.Fatalf("hotspot value = %q", model.HotspotEntities[0].Value)
+	}
+}
+
 func TestParseMultipleSourceFrames(t *testing.T) {
 	model, err := Parse(`eventmodeling
 tf 01 evt Start

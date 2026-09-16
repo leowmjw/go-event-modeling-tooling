@@ -1,0 +1,68 @@
+{
+  "schema": "evml-rote-ir-provenance/v1",
+  "source_model": "testdata/fixtures/flight-arrival-post-flight-settlement.evml",
+  "source_sha256": "63e0ae454394f981424d019c5363393e418ea5c8ad700939fc5725298d8ad505",
+  "model": "flight-arrival-post-flight-settlement",
+  "context": "marketing",
+  "section_name": "Marketing bounded context",
+  "frames": [
+    "40",
+    "41",
+    "42",
+    "43",
+    "44",
+    "45",
+    "46",
+    "47",
+    "48",
+    "49",
+    "50"
+  ],
+  "ir": "pipeline.yaml",
+  "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
+  "compiled_at": "2026-09-17",
+  "pipeline_version": "0.1.0",
+  "sections": {
+    "rf 40 evt Finance.PayoutIssued": "adeba2167c3ed5f04e96db96659dafbb50c7a60f8bc1d33559622a3b49cf870c",
+    "tf 41 pcr MarketingTranslator": "e3279267b4a6cfc6f8b7a0601be0835891c0cd0be8914f032818ae8d6b3649ed",
+    "tf 42 cmd TagDelayedTravelers": "0fa397d61642fd972f53e8dc6a384d06b53cbb4437a055e67c6d3887f22df14d",
+    "tf 43 evt DelayedTravelerTagged": "a783a278d8ff8b13db99c53f0dbee0b409aa352e231eedd21a7eda39076f1327",
+    "tf 44 cmd SendRecoveryOffer": "cb63e85a446c6248eb02d0368d472715d474c8a454f7fe48a3edc2b2140e5273",
+    "tf 45 evt RecoveryOfferSent": "a38ff9ef379403a1449107cce5f91323bd2aa3f548ffd32cf96048ec880351dc",
+    "tf 46 rmo MarketingCampaignDashboard": "6d31423ab6b38d13bdf36886e0636e3b4cbcdb49652328551511853562253278",
+    "tf 47 ui RecoveryOfferResponseScreen": "d2d6dbfcb80b1c9223077491f7126b43e40f0359d5595a0d80a8c72f31a14c71",
+    "tf 48 cmd RespondToRecoveryOffer": "a949df7ef66da176d8ea67437c751a5ffeaefc7d3441b92965d29b0bf9f7cfb3",
+    "tf 49 evt RecoveryOfferAccepted": "8573c86959823cb4091ef9ae24fbc40bce44d1453ac56540b6ef58418ca45686",
+    "tf 50 rmo MarketingConversionReport": "59eda79cccc318f44ec463869f6df9be3426a91bed1a468daedbb7ad0aa80bb4"
+  },
+  "nodes": {
+    "translate_MarketingTranslator": {
+      "section": "tf 41 pcr MarketingTranslator",
+      "content_hash": "e3279267b4a6cfc6f8b7a0601be0835891c0cd0be8914f032818ae8d6b3649ed"
+    },
+    "decide_TagDelayedTravelers": {
+      "section": "tf 42 cmd TagDelayedTravelers",
+      "content_hash": "0fa397d61642fd972f53e8dc6a384d06b53cbb4437a055e67c6d3887f22df14d"
+    },
+    "decide_SendRecoveryOffer": {
+      "section": "tf 44 cmd SendRecoveryOffer",
+      "content_hash": "cb63e85a446c6248eb02d0368d472715d474c8a454f7fe48a3edc2b2140e5273"
+    },
+    "project_MarketingCampaignDashboard": {
+      "section": "tf 46 rmo MarketingCampaignDashboard",
+      "content_hash": "6d31423ab6b38d13bdf36886e0636e3b4cbcdb49652328551511853562253278"
+    },
+    "gate_RecoveryOfferResponseScreen": {
+      "section": "tf 47 ui RecoveryOfferResponseScreen",
+      "content_hash": "d2d6dbfcb80b1c9223077491f7126b43e40f0359d5595a0d80a8c72f31a14c71"
+    },
+    "decide_RespondToRecoveryOffer": {
+      "section": "tf 48 cmd RespondToRecoveryOffer",
+      "content_hash": "a949df7ef66da176d8ea67437c751a5ffeaefc7d3441b92965d29b0bf9f7cfb3"
+    },
+    "project_MarketingConversionReport": {
+      "section": "tf 50 rmo MarketingConversionReport",
+      "content_hash": "59eda79cccc318f44ec463869f6df9be3426a91bed1a468daedbb7ad0aa80bb4"
+    }
+  }
+}

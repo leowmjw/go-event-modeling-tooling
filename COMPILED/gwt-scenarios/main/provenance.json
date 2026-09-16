@@ -1,0 +1,26 @@
+{
+  "schema": "evml-rote-ir-provenance/v1",
+  "source_model": "testdata/fixtures/gwt-scenarios.evml",
+  "source_sha256": "72214130943f669994d694ba5f9b50b6540b628a8e70ad2a8581619115308a0c",
+  "model": "gwt-scenarios",
+  "context": "main",
+  "section_name": "",
+  "frames": [
+    "01",
+    "02"
+  ],
+  "ir": "pipeline.yaml",
+  "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
+  "compiled_at": "2026-09-17",
+  "pipeline_version": "0.1.0",
+  "sections": {
+    "tf 01 cmd AddToCart": "6b5564328a910b9baf721635a2fca0c5df915e5da3ed7c200d16ebe5ee49833f",
+    "tf 02 evt CartUpdated": "59d2e5754ff5b8cbee3210ba58e22f2bb0d762a2e0780593a09bce1e02a55d9a"
+  },
+  "nodes": {
+    "decide_AddToCart": {
+      "section": "tf 01 cmd AddToCart",
+      "content_hash": "6b5564328a910b9baf721635a2fca0c5df915e5da3ed7c200d16ebe5ee49833f"
+    }
+  }
+}

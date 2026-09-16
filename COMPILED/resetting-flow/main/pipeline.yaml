@@ -1,0 +1,57 @@
+name: resetting-flow-main
+version: 0.1.0
+description: IR for main context of resetting-flow
+input:
+  type: CartScreenCommand
+  required:
+  - payload
+  input_schema:
+    type: object
+    properties: {}
+    title: CartScreenCommand
+nodes:
+- id: decide_AddItem
+  kind: pure_function
+  description: Decide the result of command AddItem
+  source:
+    section: tf 02 cmd AddItem
+  impl: extracted/main.py:decide_AddItem
+  input: &id001
+    command: pipeline.input
+  inputs: *id001
+  output:
+    result: AddItemResult
+  mandatory: false
+- id: InventoryProcessor
+  kind: pure_function
+  description: Processor InventoryProcessor
+  source:
+    section: tf 05 pcr InventoryProcessor
+  impl: extracted/main.py:InventoryProcessor
+  input: &id002
+    input: pipeline.input
+  inputs: *id002
+  output:
+    result: InventoryProcessorResult
+  mandatory: false
+- id: decide_ChangeInventory
+  kind: pure_function
+  description: Decide the result of command ChangeInventory
+  source:
+    section: tf 06 cmd ChangeInventory
+  impl: extracted/main.py:decide_ChangeInventory
+  input: &id003
+    command: pipeline.input
+  inputs: *id003
+  output:
+    result: ChangeInventoryResult
+  mandatory: false
+edges: []
+entry_nodes:
+- decide_AddItem
+- InventoryProcessor
+- decide_ChangeInventory
+exit_nodes:
+- decide_AddItem
+- InventoryProcessor
+- decide_ChangeInventory

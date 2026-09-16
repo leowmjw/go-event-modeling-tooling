@@ -1,0 +1,34 @@
+{
+  "schema": "evml-rote-ir-provenance/v1",
+  "source_model": "testdata/fixtures/translation-pattern.evml",
+  "source_sha256": "65f1af911f10492cfa02a612663ef6b97d1d83691b090021b4cbe133ded3096b",
+  "model": "translation-pattern",
+  "context": "main",
+  "section_name": "",
+  "frames": [
+    "02",
+    "03",
+    "04",
+    "05"
+  ],
+  "ir": "pipeline.yaml",
+  "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
+  "compiled_at": "2026-09-17",
+  "pipeline_version": "0.1.0",
+  "sections": {
+    "tf 02 pcr InventoryProcessor": "2b944754d76f262060771e7db164bd7144ecf87a9554286e104000d092c8f70f",
+    "tf 03 evt External.InventoryChanged": "89498e91040b60bcf60976ab2582b3e517f5f4a3269343ce1e26529899dc3b7d",
+    "tf 04 cmd ChangeInventory": "087c40cf6fbae4a959c112e491463ea224c4e438013208a3372456b4c7687527",
+    "tf 05 evt Cart.InventoryChanged": "f1aa2330fc2de7172a8e6e25ddc1a01d46b5900114d6abaeb98715c9f2d19a10"
+  },
+  "nodes": {
+    "InventoryProcessor": {
+      "section": "tf 02 pcr InventoryProcessor",
+      "content_hash": "2b944754d76f262060771e7db164bd7144ecf87a9554286e104000d092c8f70f"
+    },
+    "decide_ChangeInventory": {
+      "section": "tf 04 cmd ChangeInventory",
+      "content_hash": "087c40cf6fbae4a959c112e491463ea224c4e438013208a3372456b4c7687527"
+    }
+  }
+}

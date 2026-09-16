@@ -64,13 +64,15 @@ func RenderSVG(model *Model, opts RenderOptions) (string, error) {
 	reflowSwimlanes(swimlaneByLabel, boxes)
 	var b strings.Builder
 	laneBottom := swimlaneBottom(swimlaneByLabel)
-	noteStartY := laneBottom + 20
-	noteHeight := noteStackHeight(model.NoteEntities)
-	gwtStartY := noteStartY + noteHeight
-	if noteHeight > 0 && len(model.GWTs) > 0 {
-		gwtStartY += 20
-	}
-	totalHeight := diagramHeight(laneBottom, noteHeight, gwtStackHeight(model.GWTs), len(model.GWTs) > 0)
+	// Stack the annotation bands (notes, GWT scenarios, hotspots) below the
+	// swimlanes. Each present band is preceded by a 20px gap; absent bands
+	// consume neither height nor gap, so the same cursor drives both the
+	// render offsets and the final diagram height.
+	cursor := laneBottom
+	noteStartY, cursor := stackBand(cursor, noteStackHeight(model.NoteEntities), len(model.NoteEntities) > 0)
+	gwtStartY, cursor := stackBand(cursor, gwtStackHeight(model.GWTs), len(model.GWTs) > 0)
+	hotspotStartY, cursor := stackBand(cursor, hotspotStackHeight(model.HotspotEntities), len(model.HotspotEntities) > 0)
+	totalHeight := cursor + 20
 	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" width="%0.f" height="%0.f" viewBox="0 0 %0.f %0.f">`, math.Ceil(totalWidth), math.Ceil(totalHeight), math.Ceil(totalWidth), math.Ceil(totalHeight))
 	b.WriteString(`<defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#444"/></marker></defs>`)
 	b.WriteString(`<style>text{font-family:sans-serif;fill:#222;font-size:12px}.box-title{font-weight:bold}.note text,.gwt text{font-size:11px}.code{font-family:monospace}.lane-label{font-weight:bold;font-size:13px}</style>`)
@@ -96,6 +98,7 @@ func RenderSVG(model *Model, opts RenderOptions) (string, error) {
 	}
 	renderNotes(&b, model.NoteEntities, boxByID, noteStartY)
 	renderGWT(&b, model.GWTs, boxByID, gwtStartY)
+	renderHotspots(&b, model.HotspotEntities, boxByID, hotspotStartY)
 	b.WriteString(`</svg>`)
 	return b.String(), nil
 }
@@ -164,12 +167,14 @@ func reflowSwimlanes(lanes map[string]*swimlaneLayout, boxes []boxLayout) {
 	}
 }
 
-func diagramHeight(laneBottom, notesHeight, gwtHeight float64, hasGWT bool) float64 {
-	total := laneBottom + 20 + notesHeight
-	if hasGWT {
-		total += 20 + gwtHeight
+// stackBand places one annotation band at cursor, preceded by a 20px gap.
+// An absent band leaves the cursor untouched so no blank space is reserved.
+func stackBand(cursor, height float64, present bool) (startY, next float64) {
+	if !present {
+		return cursor, cursor
 	}
-	return total + 20
+	startY = cursor + 20
+	return startY, startY + height
 }
 
 func swimlaneBottom(lanes map[string]*swimlaneLayout) float64 {
@@ -186,6 +191,14 @@ func noteStackHeight(notes []*NoteEntity) float64 {
 	total := 0.0
 	for _, note := range notes {
 		total += 26 + float64(len(dataRows(note.Value)))*16 + 12
+	}
+	return total
+}
+
+func hotspotStackHeight(hotspots []*HotspotEntity) float64 {
+	total := 0.0
+	for _, h := range hotspots {
+		total += 26 + float64(len(dataRows(h.Value)))*16 + 12
 	}
 	return total
 }
@@ -263,6 +276,25 @@ func renderNotes(b *strings.Builder, notes []*NoteEntity, boxes map[string]boxLa
 		height := 26.0 + float64(len(rows))*16
 		fmt.Fprintf(b, `<g class="note"><rect x="%0.f" y="%0.f" width="220" height="%0.f" rx="4" fill="#fff6cc" stroke="#c9b458"/>`, box.x, y, height)
 		fmt.Fprintf(b, `<text x="%0.f" y="%0.f">Note for %s</text>`, box.x+10, y+18, esc(note.Source.Identifier))
+		for i, row := range rows {
+			fmt.Fprintf(b, `<text class="code" x="%0.f" y="%0.f">%s</text>`, box.x+10, y+36+float64(i)*16, esc(row))
+		}
+		b.WriteString(`</g>`)
+		y += height + 12
+	}
+}
+
+func renderHotspots(b *strings.Builder, hotspots []*HotspotEntity, boxes map[string]boxLayout, startY float64) {
+	if len(hotspots) == 0 {
+		return
+	}
+	y := startY
+	for _, h := range hotspots {
+		box := boxes[h.Source.ID]
+		rows := dataRows(h.Value)
+		height := 26.0 + float64(len(rows))*16
+		fmt.Fprintf(b, `<g class="hotspot"><rect x="%0.f" y="%0.f" width="220" height="%0.f" rx="4" fill="#ffcccc" stroke="#c95c5c"/>`, box.x, y, height)
+		fmt.Fprintf(b, `<text x="%0.f" y="%0.f">Hotspot for %s</text>`, box.x+10, y+18, esc(h.Source.Identifier))
 		for i, row := range rows {
 			fmt.Fprintf(b, `<text class="code" x="%0.f" y="%0.f">%s</text>`, box.x+10, y+36+float64(i)*16, esc(row))
 		}

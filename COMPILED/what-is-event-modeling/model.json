@@ -1,0 +1,375 @@
+{
+  "schema": "evml-model/v1",
+  "source": "testdata/fixtures/what-is-event-modeling.evml",
+  "sha256": "ca84b96386b29c5c134385dc841c41022743a1bfd1149ad7bceabb4d5677d99f",
+  "sections": [],
+  "entities": [],
+  "frames": [
+    {
+      "id": "01",
+      "kind": "tf",
+      "type": "ui",
+      "name": "SearchRoomsScreen",
+      "namespace": "",
+      "line": 12,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "02",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "SearchRooms",
+      "namespace": "",
+      "line": 13,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ roomType: \"double\", checkIn: \"2024-06-01\", checkOut: \"2024-06-05\" }"
+    },
+    {
+      "id": "03",
+      "kind": "tf",
+      "type": "evt",
+      "name": "RoomsSearched",
+      "namespace": "",
+      "line": 14,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ roomType: \"double\", available: 3 }"
+    },
+    {
+      "id": "04",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "RoomList",
+      "namespace": "",
+      "line": 15,
+      "section": "",
+      "sources": [],
+      "dataRef": "RoomList04",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "05",
+      "kind": "tf",
+      "type": "ui",
+      "name": "BookRoomScreen",
+      "namespace": "",
+      "line": 17,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "06",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "BookRoom",
+      "namespace": "",
+      "line": 18,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ roomId: \"r-42\", guestId: \"g-7\" }"
+    },
+    {
+      "id": "07",
+      "kind": "tf",
+      "type": "evt",
+      "name": "RoomBooked",
+      "namespace": "",
+      "line": 19,
+      "section": "",
+      "sources": [],
+      "dataRef": "RoomBooked07",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "08",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "BookingConfirmation",
+      "namespace": "",
+      "line": 20,
+      "section": "",
+      "sources": [],
+      "dataRef": "Confirmation08",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "09",
+      "kind": "tf",
+      "type": "ui",
+      "name": "CheckInDesk",
+      "namespace": "",
+      "line": 22,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "10",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "CheckIn",
+      "namespace": "",
+      "line": 23,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ bookingId: \"b-1\" }"
+    },
+    {
+      "id": "11",
+      "kind": "tf",
+      "type": "evt",
+      "name": "GuestCheckedIn",
+      "namespace": "",
+      "line": 24,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ bookingId: \"b-1\", roomId: \"r-42\" }"
+    },
+    {
+      "id": "12",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "RoomStatus",
+      "namespace": "",
+      "line": 25,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ status: \"occupied\" }"
+    },
+    {
+      "id": "13",
+      "kind": "tf",
+      "type": "ui",
+      "name": "CheckOutDesk",
+      "namespace": "",
+      "line": 27,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "14",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "CheckOut",
+      "namespace": "",
+      "line": 28,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ bookingId: \"b-1\" }"
+    },
+    {
+      "id": "15",
+      "kind": "tf",
+      "type": "evt",
+      "name": "GuestCheckedOut",
+      "namespace": "",
+      "line": 29,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ bookingId: \"b-1\" }"
+    },
+    {
+      "id": "16",
+      "kind": "tf",
+      "type": "pcr",
+      "name": "BillingProcessor",
+      "namespace": "",
+      "line": 30,
+      "section": "",
+      "sources": [
+        "15"
+      ],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "17",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "TakePayment",
+      "namespace": "",
+      "line": 31,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ bookingId: \"b-1\", amount: 400 }"
+    },
+    {
+      "id": "18",
+      "kind": "tf",
+      "type": "evt",
+      "name": "PaymentTaken",
+      "namespace": "",
+      "line": 32,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ bookingId: \"b-1\", amount: 400 }"
+    },
+    {
+      "id": "19",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "Invoice",
+      "namespace": "",
+      "line": 33,
+      "section": "",
+      "sources": [],
+      "dataRef": "Invoice19",
+      "dataType": "",
+      "data": ""
+    }
+  ],
+  "data": [
+    {
+      "name": "RoomList04",
+      "dataType": "",
+      "value": "{\n  rooms: [\n    { id: \"r-42\", type: \"double\", price: 100 }\n    { id: \"r-55\", type: \"double\", price: 110 }\n  ]\n}",
+      "line": 35
+    },
+    {
+      "name": "RoomBooked07",
+      "dataType": "",
+      "value": "{\n  roomId: \"r-42\"\n  guestId: \"g-7\"\n  checkIn: \"2024-06-01\"\n  checkOut: \"2024-06-05\"\n}",
+      "line": 42
+    },
+    {
+      "name": "Confirmation08",
+      "dataType": "",
+      "value": "{\n  bookingId: \"b-1\"\n  roomId: \"r-42\"\n  checkIn: \"2024-06-01\"\n  checkOut: \"2024-06-05\"\n}",
+      "line": 49
+    },
+    {
+      "name": "Invoice19",
+      "dataType": "",
+      "value": "{\n  bookingId: \"b-1\"\n  nights: 4\n  amount: 400\n}",
+      "line": 56
+    }
+  ],
+  "notes": [],
+  "hotspots": [],
+  "gwts": [
+    {
+      "frame": "07",
+      "label": "book available room",
+      "line": 62,
+      "given": [
+        {
+          "type": "evt",
+          "name": "RoomsSearched",
+          "dataType": "",
+          "data": "{ roomType: \"double\", available: 3 }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "BookRoom",
+          "dataType": "",
+          "data": "{ roomId: \"r-42\", guestId: \"g-7\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "RoomBooked",
+          "dataType": "",
+          "data": "{ roomId: \"r-42\", guestId: \"g-7\" }"
+        }
+      ]
+    },
+    {
+      "frame": "11",
+      "label": "check in guest",
+      "line": 70,
+      "given": [
+        {
+          "type": "evt",
+          "name": "RoomBooked",
+          "dataType": "",
+          "data": "{ roomId: \"r-42\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "CheckIn",
+          "dataType": "",
+          "data": "{ bookingId: \"b-1\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "GuestCheckedIn",
+          "dataType": "",
+          "data": "{ bookingId: \"b-1\", roomId: \"r-42\" }"
+        }
+      ]
+    },
+    {
+      "frame": "18",
+      "label": "payment on check out",
+      "line": 78,
+      "given": [
+        {
+          "type": "evt",
+          "name": "GuestCheckedOut",
+          "dataType": "",
+          "data": "{ bookingId: \"b-1\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "TakePayment",
+          "dataType": "",
+          "data": "{ amount: 400 }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "PaymentTaken",
+          "dataType": "",
+          "data": "{ bookingId: \"b-1\", amount: 400 }"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,112 @@
+name: flight-arrival-post-flight-settlement-marketing
+version: 0.1.0
+description: IR for marketing context of flight-arrival-post-flight-settlement
+input:
+  type: PayoutIssued
+  required:
+  - payload
+  input_schema:
+    type: object
+    properties: {}
+    title: PayoutIssued
+nodes:
+- id: translate_MarketingTranslator
+  kind: pure_function
+  description: Translate external event to internal payload
+  source:
+    section: tf 41 pcr MarketingTranslator
+  impl: extracted/marketing.py:translate_MarketingTranslator
+  input: &id001
+    input: pipeline.input
+  inputs: *id001
+  output:
+    result: MarketingTranslatorResult
+  mandatory: false
+- id: decide_TagDelayedTravelers
+  kind: pure_function
+  description: Decide the result of command TagDelayedTravelers
+  source:
+    section: tf 42 cmd TagDelayedTravelers
+  impl: extracted/marketing.py:decide_TagDelayedTravelers
+  input: &id002
+    command: pipeline.input
+  inputs: *id002
+  output:
+    result: TagDelayedTravelersResult
+  mandatory: false
+- id: decide_SendRecoveryOffer
+  kind: pure_function
+  description: Decide the result of command SendRecoveryOffer
+  source:
+    section: tf 44 cmd SendRecoveryOffer
+  impl: extracted/marketing.py:decide_SendRecoveryOffer
+  input: &id003
+    command: pipeline.input
+  inputs: *id003
+  output:
+    result: SendRecoveryOfferResult
+  mandatory: false
+- id: project_MarketingCampaignDashboard
+  kind: pure_function
+  description: Project read model MarketingCampaignDashboard
+  source:
+    section: tf 46 rmo MarketingCampaignDashboard
+  impl: extracted/marketing.py:project_MarketingCampaignDashboard
+  input: &id004
+    event: pipeline.input
+  inputs: *id004
+  output:
+    view: MarketingCampaignDashboard
+  mandatory: false
+- id: gate_RecoveryOfferResponseScreen
+  kind: hitl_gate
+  description: HITL gate on RecoveryOfferResponseScreen
+  source:
+    section: tf 47 ui RecoveryOfferResponseScreen
+  signal: RecoveryOfferResponseScreen
+  input:
+    value: RecoveryOfferResponseScreenCommand
+  output:
+    command: RecoveryOfferResponseScreenCommand
+  mandatory: false
+- id: decide_RespondToRecoveryOffer
+  kind: pure_function
+  description: Decide the result of command RespondToRecoveryOffer
+  source:
+    section: tf 48 cmd RespondToRecoveryOffer
+  impl: extracted/marketing.py:decide_RespondToRecoveryOffer
+  input: &id005
+    command: pipeline.input
+  inputs: *id005
+  output:
+    result: RespondToRecoveryOfferResult
+  mandatory: false
+- id: project_MarketingConversionReport
+  kind: pure_function
+  description: Project read model MarketingConversionReport
+  source:
+    section: tf 50 rmo MarketingConversionReport
+  impl: extracted/marketing.py:project_MarketingConversionReport
+  input: &id006
+    event: pipeline.input
+  inputs: *id006
+  output:
+    view: MarketingConversionReport
+  mandatory: false
+edges: []
+entry_nodes:
+- translate_MarketingTranslator
+- decide_TagDelayedTravelers
+- decide_SendRecoveryOffer
+- project_MarketingCampaignDashboard
+- gate_RecoveryOfferResponseScreen
+- decide_RespondToRecoveryOffer
+- project_MarketingConversionReport
+exit_nodes:
+- translate_MarketingTranslator
+- decide_TagDelayedTravelers
+- decide_SendRecoveryOffer
+- project_MarketingCampaignDashboard
+- gate_RecoveryOfferResponseScreen
+- decide_RespondToRecoveryOffer
+- project_MarketingConversionReport

@@ -1,0 +1,194 @@
+name: what-is-event-modeling-main
+version: 0.1.0
+description: IR for main context of what-is-event-modeling
+input:
+  type: SearchRoomsScreenCommand
+  required:
+  - payload
+  input_schema:
+    type: object
+    properties: {}
+    title: SearchRoomsScreenCommand
+nodes:
+- id: decide_SearchRooms
+  kind: pure_function
+  description: Decide the result of command SearchRooms
+  source:
+    section: tf 02 cmd SearchRooms
+  impl: extracted/main.py:decide_SearchRooms
+  input: &id001
+    command: pipeline.input
+  inputs: *id001
+  output:
+    result: SearchRoomsResult
+  mandatory: false
+- id: project_RoomList
+  kind: pure_function
+  description: Project read model RoomList
+  source:
+    section: tf 04 rmo RoomList
+  impl: extracted/main.py:project_RoomList
+  input: &id002
+    event: pipeline.input
+  inputs: *id002
+  output:
+    view: RoomList
+  mandatory: false
+- id: gate_BookRoomScreen
+  kind: hitl_gate
+  description: HITL gate on BookRoomScreen
+  source:
+    section: tf 05 ui BookRoomScreen
+  signal: BookRoomScreen
+  input:
+    value: BookRoomScreenCommand
+  output:
+    command: BookRoomScreenCommand
+  mandatory: false
+- id: decide_BookRoom
+  kind: pure_function
+  description: Decide the result of command BookRoom
+  source:
+    section: tf 06 cmd BookRoom
+  impl: extracted/main.py:decide_BookRoom
+  input: &id003
+    command: pipeline.input
+  inputs: *id003
+  output:
+    result: BookRoomResult
+  mandatory: false
+- id: project_BookingConfirmation
+  kind: pure_function
+  description: Project read model BookingConfirmation
+  source:
+    section: tf 08 rmo BookingConfirmation
+  impl: extracted/main.py:project_BookingConfirmation
+  input: &id004
+    event: pipeline.input
+  inputs: *id004
+  output:
+    view: BookingConfirmation
+  mandatory: false
+- id: gate_CheckInDesk
+  kind: hitl_gate
+  description: HITL gate on CheckInDesk
+  source:
+    section: tf 09 ui CheckInDesk
+  signal: CheckInDesk
+  input:
+    value: CheckInDeskCommand
+  output:
+    command: CheckInDeskCommand
+  mandatory: false
+- id: decide_CheckIn
+  kind: pure_function
+  description: Decide the result of command CheckIn
+  source:
+    section: tf 10 cmd CheckIn
+  impl: extracted/main.py:decide_CheckIn
+  input: &id005
+    command: pipeline.input
+  inputs: *id005
+  output:
+    result: CheckInResult
+  mandatory: false
+- id: project_RoomStatus
+  kind: pure_function
+  description: Project read model RoomStatus
+  source:
+    section: tf 12 rmo RoomStatus
+  impl: extracted/main.py:project_RoomStatus
+  input: &id006
+    event: pipeline.input
+  inputs: *id006
+  output:
+    view: RoomStatus
+  mandatory: false
+- id: gate_CheckOutDesk
+  kind: hitl_gate
+  description: HITL gate on CheckOutDesk
+  source:
+    section: tf 13 ui CheckOutDesk
+  signal: CheckOutDesk
+  input:
+    value: CheckOutDeskCommand
+  output:
+    command: CheckOutDeskCommand
+  mandatory: false
+- id: decide_CheckOut
+  kind: pure_function
+  description: Decide the result of command CheckOut
+  source:
+    section: tf 14 cmd CheckOut
+  impl: extracted/main.py:decide_CheckOut
+  input: &id007
+    command: pipeline.input
+  inputs: *id007
+  output:
+    result: CheckOutResult
+  mandatory: false
+- id: BillingProcessor
+  kind: pure_function
+  description: Processor BillingProcessor
+  source:
+    section: tf 16 pcr BillingProcessor
+  impl: extracted/main.py:BillingProcessor
+  input: &id008
+    input: pipeline.input
+  inputs: *id008
+  output:
+    result: BillingProcessorResult
+  mandatory: false
+- id: decide_TakePayment
+  kind: pure_function
+  description: Decide the result of command TakePayment
+  source:
+    section: tf 17 cmd TakePayment
+  impl: extracted/main.py:decide_TakePayment
+  input: &id009
+    command: pipeline.input
+  inputs: *id009
+  output:
+    result: TakePaymentResult
+  mandatory: false
+- id: project_Invoice
+  kind: pure_function
+  description: Project read model Invoice
+  source:
+    section: tf 19 rmo Invoice
+  impl: extracted/main.py:project_Invoice
+  input: &id010
+    event: pipeline.input
+  inputs: *id010
+  output:
+    view: Invoice
+  mandatory: false
+edges: []
+entry_nodes:
+- decide_SearchRooms
+- project_RoomList
+- gate_BookRoomScreen
+- decide_BookRoom
+- project_BookingConfirmation
+- gate_CheckInDesk
+- decide_CheckIn
+- project_RoomStatus
+- gate_CheckOutDesk
+- decide_CheckOut
+- BillingProcessor
+- decide_TakePayment
+- project_Invoice
+exit_nodes:
+- decide_SearchRooms
+- project_RoomList
+- gate_BookRoomScreen
+- decide_BookRoom
+- project_BookingConfirmation
+- gate_CheckInDesk
+- decide_CheckIn
+- project_RoomStatus
+- gate_CheckOutDesk
+- decide_CheckOut
+- BillingProcessor
+- decide_TakePayment
+- project_Invoice

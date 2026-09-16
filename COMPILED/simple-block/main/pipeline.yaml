@@ -1,0 +1,30 @@
+name: simple-block-main
+version: 0.1.0
+description: IR for main context of simple-block
+input:
+  type: AddItemCommand
+  required:
+  - payload
+  input_schema:
+    type: object
+    properties: {}
+    required: []
+    title: AddItemCommand
+nodes:
+- id: decide_AddItem
+  kind: pure_function
+  description: Decide the result of command AddItem
+  source:
+    section: tf 02 cmd AddItem
+  impl: extracted/main.py:decide_AddItem
+  input: &id001
+    command: pipeline.input
+  inputs: *id001
+  output:
+    result: AddItemResult
+  mandatory: false
+edges: []
+entry_nodes:
+- decide_AddItem
+exit_nodes:
+- decide_AddItem

@@ -39,6 +39,13 @@ type noteJSON struct {
 	Line     int    `json:"line"`
 }
 
+type hotspotJSON struct {
+	Frame    string `json:"frame"`
+	DataType string `json:"dataType"`
+	Value    string `json:"value"`
+	Line     int    `json:"line"`
+}
+
 type statementJSON struct {
 	Type     string `json:"type"`
 	Name     string `json:"name"`
@@ -64,6 +71,7 @@ type modelJSON struct {
 	Frames   []frameJSON   `json:"frames"`
 	Data     []dataJSON    `json:"data"`
 	Notes    []noteJSON    `json:"notes"`
+	Hotspots []hotspotJSON `json:"hotspots"`
 	GWTs     []gwtJSON     `json:"gwts"`
 }
 
@@ -94,6 +102,7 @@ func ModelJSON(model *Model, source string, content []byte) ([]byte, error) {
 		Frames:   make([]frameJSON, 0, len(model.Frames)),
 		Data:     make([]dataJSON, 0, len(model.DataEntities)),
 		Notes:    make([]noteJSON, 0, len(model.NoteEntities)),
+		Hotspots: make([]hotspotJSON, 0, len(model.HotspotEntities)),
 		GWTs:     make([]gwtJSON, 0, len(model.GWTs)),
 	}
 	for _, s := range model.Sections {
@@ -124,6 +133,9 @@ func ModelJSON(model *Model, source string, content []byte) ([]byte, error) {
 	}
 	for _, n := range model.NoteEntities {
 		out.Notes = append(out.Notes, noteJSON{Frame: n.SourceID, DataType: n.DataType, Value: n.Value, Line: n.Line})
+	}
+	for _, h := range model.HotspotEntities {
+		out.Hotspots = append(out.Hotspots, hotspotJSON{Frame: h.SourceID, DataType: h.DataType, Value: h.Value, Line: h.Line})
 	}
 	for _, g := range model.GWTs {
 		out.GWTs = append(out.GWTs, gwtJSON{

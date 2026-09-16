@@ -1,0 +1,42 @@
+name: bounded-context-order-fulfillment-sales
+version: 0.1.0
+description: IR for sales context of bounded-context-order-fulfillment
+input:
+  type: PlaceOrderCommand
+  required:
+  - payload
+  input_schema:
+    type: object
+    title: PlaceOrderCommand
+    properties:
+      payload:
+        type: object
+nodes:
+- id: decide_place_order
+  kind: pure_function
+  description: pure_function decide_place_order
+  source:
+    section: tf 03 cmd PlaceOrder
+  impl: extracted/sales.py:decide_place_order
+  input: PlaceOrderCommand
+  inputs:
+    command: pipeline.input
+  output: PlaceOrderResult
+  mandatory: true
+- id: project_order_status
+  kind: pure_function
+  description: pure_function project_order_status
+  source:
+    section: tf 05 rmo OrderStatus
+  impl: extracted/sales.py:project_order_status
+  input: OrderPlaced
+  inputs:
+    event: decide_place_order.output
+  output: OrderStatusView
+edges:
+- - decide_place_order
+  - project_order_status
+entry_nodes:
+- decide_place_order
+exit_nodes:
+- project_order_status

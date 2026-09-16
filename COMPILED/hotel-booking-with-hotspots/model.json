@@ -1,0 +1,175 @@
+{
+  "schema": "evml-model/v1",
+  "source": "testdata/fixtures/hotel-booking-with-hotspots.evml",
+  "sha256": "e66059d6593cd9a1345485495d08e4591a03036d0bb70bbf57a16784ca0ade55",
+  "sections": [
+    {
+      "name": "Reservations bounded context",
+      "line": 8
+    }
+  ],
+  "entities": [],
+  "frames": [
+    {
+      "id": "01",
+      "kind": "tf",
+      "type": "ui",
+      "name": "SearchRoomsScreen",
+      "namespace": "",
+      "line": 9,
+      "section": "Reservations bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "02",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "AvailableRooms",
+      "namespace": "",
+      "line": 10,
+      "section": "Reservations bounded context",
+      "sources": [],
+      "dataRef": "AvailableRooms02",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "03",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "BookRoom",
+      "namespace": "",
+      "line": 11,
+      "section": "Reservations bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ roomId: \"room-12\", guestId: \"guest-7\", checkIn: \"2024-07-01\", checkOut: \"2024-07-04\" }"
+    },
+    {
+      "id": "04",
+      "kind": "tf",
+      "type": "evt",
+      "name": "RoomBooked",
+      "namespace": "",
+      "line": 12,
+      "section": "Reservations bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ bookingId: \"bk-900\", roomId: \"room-12\", guestId: \"guest-7\", nights: 3 }"
+    },
+    {
+      "id": "05",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "BookingConfirmation",
+      "namespace": "",
+      "line": 13,
+      "section": "Reservations bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ bookingId: \"bk-900\", roomId: \"room-12\", status: \"confirmed\" }"
+    }
+  ],
+  "data": [
+    {
+      "name": "AvailableRooms02",
+      "dataType": "",
+      "value": "{\n  checkIn: \"2024-07-01\"\n  checkOut: \"2024-07-04\"\n  rooms: [\n    { roomId: \"room-12\", rate: 180.00, beds: 1 }\n    { roomId: \"room-31\", rate: 240.00, beds: 2 }\n  ]\n}",
+      "line": 15
+    }
+  ],
+  "notes": [
+    {
+      "frame": "03",
+      "dataType": "md",
+      "value": "{\n  # Settled\n  Rate is locked at search time, not at booking time.\n}",
+      "line": 24
+    }
+  ],
+  "hotspots": [
+    {
+      "frame": "03",
+      "dataType": "",
+      "value": "{\n  concurrent booking on the same room: last write wins, or reject the second?\n}",
+      "line": 29
+    },
+    {
+      "frame": "03",
+      "dataType": "md",
+      "value": "{\n  Does an **overbooking** emit a rejection event, or is it silently queued\n  for the front desk to resolve manually?\n}",
+      "line": 33
+    },
+    {
+      "frame": "05",
+      "dataType": "",
+      "value": "{\n  is BookingConfirmation readable before payment settles, or only after?\n}",
+      "line": 38
+    }
+  ],
+  "gwts": [
+    {
+      "frame": "03",
+      "label": "book an available room",
+      "line": 42,
+      "given": [
+        {
+          "type": "evt",
+          "name": "RoomListed",
+          "dataType": "",
+          "data": "{ roomId: \"room-12\", rate: 180.00 }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "BookRoom",
+          "dataType": "",
+          "data": "{ roomId: \"room-12\", guestId: \"guest-7\", checkIn: \"2024-07-01\", checkOut: \"2024-07-04\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "RoomBooked",
+          "dataType": "",
+          "data": "{ bookingId: \"bk-900\", roomId: \"room-12\", nights: 3 }"
+        }
+      ]
+    },
+    {
+      "frame": "03",
+      "label": "reject booking for an already-booked room",
+      "line": 50,
+      "given": [
+        {
+          "type": "evt",
+          "name": "RoomBooked",
+          "dataType": "",
+          "data": "{ bookingId: \"bk-899\", roomId: \"room-12\", nights: 2 }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "BookRoom",
+          "dataType": "",
+          "data": "{ roomId: \"room-12\", guestId: \"guest-9\", checkIn: \"2024-07-01\", checkOut: \"2024-07-04\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "RoomBookingRejected",
+          "dataType": "",
+          "data": "{ roomId: \"room-12\", reason: \"already_booked\" }"
+        }
+      ]
+    }
+  ]
+}

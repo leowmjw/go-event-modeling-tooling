@@ -1,0 +1,155 @@
+name: flight-arrival-post-flight-settlement-finance
+version: 0.1.0
+description: IR for finance context of flight-arrival-post-flight-settlement
+input:
+  type: CompensationCalculated
+  required:
+  - payload
+  input_schema:
+    type: object
+    properties: {}
+    title: CompensationCalculated
+nodes:
+- id: translate_FinanceTranslator
+  kind: pure_function
+  description: Translate external event to internal payload
+  source:
+    section: tf 23 pcr FinanceTranslator
+  impl: extracted/finance.py:translate_FinanceTranslator
+  input: &id001
+    input: pipeline.input
+  inputs: *id001
+  output:
+    result: FinanceTranslatorResult
+  mandatory: false
+- id: decide_ApproveDisbursement
+  kind: pure_function
+  description: Decide the result of command ApproveDisbursement
+  source:
+    section: tf 24 cmd ApproveDisbursement
+  impl: extracted/finance.py:decide_ApproveDisbursement
+  input: &id002
+    command: pipeline.input
+  inputs: *id002
+  output:
+    result: ApproveDisbursementResult
+  mandatory: false
+- id: decide_IssuePayout
+  kind: pure_function
+  description: Decide the result of command IssuePayout
+  source:
+    section: tf 26 cmd IssuePayout
+  impl: extracted/finance.py:decide_IssuePayout
+  input: &id003
+    command: pipeline.input
+  inputs: *id003
+  output:
+    result: IssuePayoutResult
+  mandatory: false
+- id: project_FinanceSettlementReport
+  kind: pure_function
+  description: Project read model FinanceSettlementReport
+  source:
+    section: tf 28 rmo FinanceSettlementReport
+  impl: extracted/finance.py:project_FinanceSettlementReport
+  input: &id004
+    event: pipeline.input
+  inputs: *id004
+  output:
+    view: FinanceSettlementReport
+  mandatory: false
+- id: translate_PayoutRecoveryProcessor
+  kind: pure_function
+  description: Translate external event to internal payload
+  source:
+    section: tf 30 pcr PayoutRecoveryProcessor
+  impl: extracted/finance.py:translate_PayoutRecoveryProcessor
+  input: &id005
+    input: pipeline.input
+  inputs: *id005
+  output:
+    result: PayoutRecoveryProcessorResult
+  mandatory: false
+- id: decide_ReverseAndReissuePayout
+  kind: pure_function
+  description: Decide the result of command ReverseAndReissuePayout
+  source:
+    section: tf 31 cmd ReverseAndReissuePayout
+  impl: extracted/finance.py:decide_ReverseAndReissuePayout
+  input: &id006
+    command: pipeline.input
+  inputs: *id006
+  output:
+    result: ReverseAndReissuePayoutResult
+  mandatory: false
+- id: project_PayoutRecoveryReport
+  kind: pure_function
+  description: Project read model PayoutRecoveryReport
+  source:
+    section: tf 34 rmo PayoutRecoveryReport
+  impl: extracted/finance.py:project_PayoutRecoveryReport
+  input: &id007
+    event: pipeline.input
+  inputs: *id007
+  output:
+    view: PayoutRecoveryReport
+  mandatory: false
+- id: translate_CompensationRecoveryTranslator
+  kind: pure_function
+  description: Translate external event to internal payload
+  source:
+    section: tf 36 pcr CompensationRecoveryTranslator
+  impl: extracted/finance.py:translate_CompensationRecoveryTranslator
+  input: &id008
+    input: pipeline.input
+  inputs: *id008
+  output:
+    result: CompensationRecoveryTranslatorResult
+  mandatory: false
+- id: decide_EscalateUnresolvedClaim
+  kind: pure_function
+  description: Decide the result of command EscalateUnresolvedClaim
+  source:
+    section: tf 37 cmd EscalateUnresolvedClaim
+  impl: extracted/finance.py:decide_EscalateUnresolvedClaim
+  input: &id009
+    command: pipeline.input
+  inputs: *id009
+  output:
+    result: EscalateUnresolvedClaimResult
+  mandatory: false
+- id: project_EscalatedClaimsQueue
+  kind: pure_function
+  description: Project read model EscalatedClaimsQueue
+  source:
+    section: tf 39 rmo EscalatedClaimsQueue
+  impl: extracted/finance.py:project_EscalatedClaimsQueue
+  input: &id010
+    event: pipeline.input
+  inputs: *id010
+  output:
+    view: EscalatedClaimsQueue
+  mandatory: false
+edges: []
+entry_nodes:
+- translate_FinanceTranslator
+- decide_ApproveDisbursement
+- decide_IssuePayout
+- project_FinanceSettlementReport
+- translate_PayoutRecoveryProcessor
+- decide_ReverseAndReissuePayout
+- project_PayoutRecoveryReport
+- translate_CompensationRecoveryTranslator
+- decide_EscalateUnresolvedClaim
+- project_EscalatedClaimsQueue
+exit_nodes:
+- translate_FinanceTranslator
+- decide_ApproveDisbursement
+- decide_IssuePayout
+- project_FinanceSettlementReport
+- translate_PayoutRecoveryProcessor
+- decide_ReverseAndReissuePayout
+- project_PayoutRecoveryReport
+- translate_CompensationRecoveryTranslator
+- decide_EscalateUnresolvedClaim
+- project_EscalatedClaimsQueue

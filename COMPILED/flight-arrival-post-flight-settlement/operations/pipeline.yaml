@@ -1,0 +1,113 @@
+name: flight-arrival-post-flight-settlement-operations
+version: 0.1.0
+description: IR for operations context of flight-arrival-post-flight-settlement
+input:
+  type: FlightDeckCommand
+  required:
+  - payload
+  input_schema:
+    type: object
+    properties: {}
+    title: FlightDeckCommand
+nodes:
+- id: project_FlightStatus
+  kind: pure_function
+  description: Project read model FlightStatus
+  source:
+    section: tf 02 rmo FlightStatus
+  impl: extracted/operations.py:project_FlightStatus
+  input: &id001
+    event: pipeline.input
+  inputs: *id001
+  output:
+    view: FlightStatus
+  mandatory: false
+- id: decide_RecordWheelsDown
+  kind: pure_function
+  description: Decide the result of command RecordWheelsDown
+  source:
+    section: tf 03 cmd RecordWheelsDown
+  impl: extracted/operations.py:decide_RecordWheelsDown
+  input: &id002
+    command: pipeline.input
+  inputs: *id002
+  output:
+    result: RecordWheelsDownResult
+  mandatory: false
+- id: decide_RecordGateArrival
+  kind: pure_function
+  description: Decide the result of command RecordGateArrival
+  source:
+    section: tf 05 cmd RecordGateArrival
+  impl: extracted/operations.py:decide_RecordGateArrival
+  input: &id003
+    command: pipeline.input
+  inputs: *id003
+  output:
+    result: RecordGateArrivalResult
+  mandatory: false
+- id: project_ArrivalBoard
+  kind: pure_function
+  description: Project read model ArrivalBoard
+  source:
+    section: tf 07 rmo ArrivalBoard
+  impl: extracted/operations.py:project_ArrivalBoard
+  input: &id004
+    event: pipeline.input
+  inputs: *id004
+  output:
+    view: ArrivalBoard
+  mandatory: false
+- id: translate_OntimeVerifier
+  kind: pure_function
+  description: Translate external event to internal payload
+  source:
+    section: tf 52 pcr OntimeVerifier
+  impl: extracted/operations.py:translate_OntimeVerifier
+  input: &id005
+    input: pipeline.input
+  inputs: *id005
+  output:
+    result: OntimeVerifierResult
+  mandatory: false
+- id: decide_CloseFlightOnTime
+  kind: pure_function
+  description: Decide the result of command CloseFlightOnTime
+  source:
+    section: tf 53 cmd CloseFlightOnTime
+  impl: extracted/operations.py:decide_CloseFlightOnTime
+  input: &id006
+    command: pipeline.input
+  inputs: *id006
+  output:
+    result: CloseFlightOnTimeResult
+  mandatory: false
+- id: project_FlightClosureRecord
+  kind: pure_function
+  description: Project read model FlightClosureRecord
+  source:
+    section: tf 55 rmo FlightClosureRecord
+  impl: extracted/operations.py:project_FlightClosureRecord
+  input: &id007
+    event: pipeline.input
+  inputs: *id007
+  output:
+    view: FlightClosureRecord
+  mandatory: false
+edges: []
+entry_nodes:
+- project_FlightStatus
+- decide_RecordWheelsDown
+- decide_RecordGateArrival
+- project_ArrivalBoard
+- translate_OntimeVerifier
+- decide_CloseFlightOnTime
+- project_FlightClosureRecord
+exit_nodes:
+- project_FlightStatus
+- decide_RecordWheelsDown
+- decide_RecordGateArrival
+- project_ArrivalBoard
+- translate_OntimeVerifier
+- decide_CloseFlightOnTime
+- project_FlightClosureRecord

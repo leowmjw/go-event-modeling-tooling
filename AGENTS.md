@@ -103,6 +103,23 @@ needing to read every source file first.
 4. Add a `case` in `SwimlaneBand` in `model.go`.
 5. Add at least one fixture and a targeted test.
 
+### Adding a new frame annotation (sibling of `note` / `hotspot`)
+Annotations attach to a frame by id and are *not* `EntityType`s, so
+`allowedSources` is untouched. Follow the `hotspot` implementation:
+1. Add the `XxxEntity` struct + `Model.XxxEntities` slice in `model.go`.
+2. Add `parseXxxEntity` in `parse.go` (mirror `parseNoteEntity`), a
+   `hasKeyword(trimmed, "xxx")` case in `parse`, the keyword in
+   `isTopLevel`, and a resolution loop in `resolveReferences`.
+3. Add the `xxxJSON` type + array to `modelJSON` in `json.go` —
+   `make(...)` it so the JSON emits `[]` and not `null`.
+4. Add `xxxStackHeight` + `renderXxx` in `render.go` and one more
+   `stackBand` call in `RenderSVG`.
+5. Include it in the compile skill's provenance hash (`frame_content` in
+   `.agents/skills/compile-evml-rote-ir/scripts/evml_provenance.py`) if a
+   change to it should invalidate compiled IR.
+6. Document it in `EVENT_MODELING.md` (own section + BNF `Statement`
+   alternative), and add a fixture plus parser/JSON tests.
+
 ---
 
 ## Validation semantics (learned 2026-08, cross-checked against eventmodelers.ai)
@@ -125,10 +142,13 @@ needing to read every source file first.
 - When touching `allowedSources` or the four-pattern descriptions, update
   both `validate.go`'s error strings and the corresponding prose in
   `EVENT_MODELING.md` / `SKILL.md` together — they're expected to agree.
-- Four notation features from the eventmodelers.ai cheat sheet have no DSL
-  equivalent yet: hotspots, actor lanes, chapters, slice status tags. Grammar
-  sketches and rationale live in `EVENT_MODELING.md` §12 — read that before
-  proposing new keywords for any of these.
+- Of the four notation features from the eventmodelers.ai cheat sheet that
+  had no DSL equivalent, **`hotspot` is now implemented** (`EVENT_MODELING.md`
+  §6): a sibling of `note` for *unresolved* questions, rendered in a red box
+  and included in the compile skill's provenance hash. Three remain
+  unimplemented: actor lanes, chapters, slice status tags. Grammar sketches
+  and rationale live in `EVENT_MODELING.md` §13 — read that before proposing
+  new keywords for any of these.
 
 ---
 

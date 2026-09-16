@@ -89,7 +89,7 @@ tf 48 cmd RespondToRecoveryOffer { offerId: "offer-77", travelerId: "visitor-a",
 tf 49 evt RecoveryOfferAccepted { offerId: "offer-77", travelerId: "visitor-a", acceptedAt: "2024-06-15T17:05:00Z" }
 tf 50 rmo MarketingConversionReport { offerId: "offer-77", acceptedCount: 1, declinedCount: 0 }
 
-// ── No-delay path: Operations closes, then notifies Compensation (Gap-1) ─────
+// ── Operations: no-delay path (Gap-1) ───────────────────────────────────────
 rf 51 evt Operations.WheelsDownRecorded { flightId: "HLT-421", wheelsTouchTime: "2024-06-15T14:28:00Z" }
 tf 52 pcr OntimeVerifier ->> 51
 tf 53 cmd CloseFlightOnTime { flightId: "HLT-421", closedAt: "2024-06-15T14:28:00Z", reason: "on_time_wheels_down" }

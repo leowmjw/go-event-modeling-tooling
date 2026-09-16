@@ -101,6 +101,14 @@ func (p *parser) parse() (*Model, error) {
 			note.Line = p.line + 1
 			model.NoteEntities = append(model.NoteEntities, note)
 			p.line += consumed
+		case hasKeyword(trimmed, "hotspot"):
+			hotspot, consumed, err := p.parseHotspotEntity(trimmed)
+			if err != nil {
+				return nil, err
+			}
+			hotspot.Line = p.line + 1
+			model.HotspotEntities = append(model.HotspotEntities, hotspot)
+			p.line += consumed
 		case hasKeyword(trimmed, "gwt"):
 			gwt, consumed, err := p.parseGWT(trimmed)
 			if err != nil {
@@ -216,6 +224,22 @@ func (p *parser) parseNoteEntity(trimmed string) (*NoteEntity, int, error) {
 		return nil, 0, p.errorf("missing note payload")
 	}
 	return &NoteEntity{SourceID: sourceID, DataType: dataType, Value: data}, consumed, nil
+}
+
+func (p *parser) parseHotspotEntity(trimmed string) (*HotspotEntity, int, error) {
+	rest := afterKeyword(trimmed)
+	sourceID, rest, ok := nextToken(rest)
+	if !ok {
+		return nil, 0, p.errorf("missing hotspot source frame identifier")
+	}
+	dataType, data, consumed, err := p.parsePayload(rest, true)
+	if err != nil {
+		return nil, 0, err
+	}
+	if data == "" {
+		return nil, 0, p.errorf("missing hotspot payload")
+	}
+	return &HotspotEntity{SourceID: sourceID, DataType: dataType, Value: data}, consumed, nil
 }
 
 func (p *parser) parseGWT(trimmed string) (*GWT, int, error) {
@@ -370,6 +394,13 @@ func resolveReferences(model *Model) error {
 		}
 		note.Source = source
 	}
+	for _, hotspot := range model.HotspotEntities {
+		source, ok := frames[hotspot.SourceID]
+		if !ok {
+			return fmt.Errorf("unknown hotspot source frame %s", hotspot.SourceID)
+		}
+		hotspot.Source = source
+	}
 	for _, gwt := range model.GWTs {
 		source, ok := frames[gwt.SourceID]
 		if !ok {
@@ -399,6 +430,7 @@ func isTopLevel(trimmed string) bool {
 	return hasKeyword(trimmed, "tf") || hasKeyword(trimmed, "timeframe") ||
 		hasKeyword(trimmed, "rf") || hasKeyword(trimmed, "resetframe") ||
 		hasKeyword(trimmed, "data") || hasKeyword(trimmed, "note") ||
+		hasKeyword(trimmed, "hotspot") ||
 		hasKeyword(trimmed, "gwt") || hasKeyword(trimmed, "entity")
 }
 

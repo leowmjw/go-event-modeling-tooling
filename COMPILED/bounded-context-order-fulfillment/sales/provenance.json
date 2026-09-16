@@ -1,0 +1,36 @@
+{
+  "schema": "evml-rote-ir-provenance/v1",
+  "source_model": "testdata/fixtures/bounded-context-order-fulfillment.evml",
+  "source_sha256": "5b12449fa4cbe7b60499bc133cd8f57e8dad47dd962e14c6e1de24d66cc4fa2a",
+  "model": "bounded-context-order-fulfillment",
+  "context": "sales",
+  "section_name": "Sales bounded context",
+  "frames": [
+    "01",
+    "02",
+    "03",
+    "04",
+    "05"
+  ],
+  "ir": "pipeline.yaml",
+  "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
+  "compiled_at": "2026-09-17",
+  "pipeline_version": "0.1.0",
+  "sections": {
+    "tf 01 ui CheckoutScreen": "fe7269f50556583a398482db424b3f26775bcd87283c1d5c519e46ea2ef47ee2",
+    "tf 02 rmo CartSummary": "859d3820291187f67be3c221d50647b274f07b479c36a075b5c61ce254e7e330",
+    "tf 03 cmd PlaceOrder": "85bb8bd9d3bb0f921afada7a11e4f7f7c4fdbc5caa9c60284b66709b2d6b53d7",
+    "tf 04 evt OrderPlaced": "1619e1dd6ed40c5ba88d111ba84058b9dfa938eb248ad9056f2eb273ed439a89",
+    "tf 05 rmo OrderStatus": "bc113fc6888d9e5441d4d9772da53a75c89b634e6557713ca9f3e10ff7f89d74"
+  },
+  "nodes": {
+    "decide_place_order": {
+      "section": "tf 03 cmd PlaceOrder",
+      "content_hash": "85bb8bd9d3bb0f921afada7a11e4f7f7c4fdbc5caa9c60284b66709b2d6b53d7"
+    },
+    "project_order_status": {
+      "section": "tf 05 rmo OrderStatus",
+      "content_hash": "bc113fc6888d9e5441d4d9772da53a75c89b634e6557713ca9f3e10ff7f89d74"
+    }
+  }
+}

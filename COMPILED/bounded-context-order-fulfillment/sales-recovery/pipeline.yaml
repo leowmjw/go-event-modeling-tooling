@@ -1,0 +1,54 @@
+name: bounded-context-order-fulfillment-sales-recovery
+version: 0.1.0
+description: IR for sales-recovery context of bounded-context-order-fulfillment
+input:
+  type: Billing_PaymentDeclined
+  required:
+  - payload
+  input_schema:
+    type: object
+    title: Billing_PaymentDeclined
+    properties:
+      payload:
+        type: object
+nodes:
+- id: translate_sales_recovery
+  kind: pure_function
+  description: pure_function translate_sales_recovery
+  source:
+    section: tf 17 pcr SalesRecoveryTranslator
+  impl: extracted/sales_recovery.py:translate_sales_recovery
+  input: Billing_PaymentDeclined
+  inputs:
+    event: pipeline.input
+  output: CancelOrderCommand
+- id: decide_cancel_order
+  kind: pure_function
+  description: pure_function decide_cancel_order
+  source:
+    section: tf 18 cmd CancelOrder
+  impl: extracted/sales_recovery.py:decide_cancel_order
+  input: CancelOrderCommand
+  inputs:
+    command: translate_sales_recovery.output
+  output: OrderCancellationResult
+  mandatory: true
+- id: project_cancelled_order_status
+  kind: pure_function
+  description: pure_function project_cancelled_order_status
+  source:
+    section: tf 20 rmo CancelledOrderStatus
+  impl: extracted/sales_recovery.py:project_cancelled_order_status
+  input: OrderCancellationResult
+  inputs:
+    event: decide_cancel_order.output
+  output: CancelledOrderStatusView
+edges:
+- - translate_sales_recovery
+  - decide_cancel_order
+- - decide_cancel_order
+  - project_cancelled_order_status
+entry_nodes:
+- translate_sales_recovery
+exit_nodes:
+- project_cancelled_order_status

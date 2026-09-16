@@ -1,0 +1,65 @@
+{
+  "schema": "evml-model/v1",
+  "source": "testdata/fixtures/translation-pattern.evml",
+  "sha256": "65f1af911f10492cfa02a612663ef6b97d1d83691b090021b4cbe133ded3096b",
+  "sections": [],
+  "entities": [],
+  "frames": [
+    {
+      "id": "03",
+      "kind": "tf",
+      "type": "evt",
+      "name": "External.InventoryChanged",
+      "namespace": "External",
+      "line": 3,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "02",
+      "kind": "tf",
+      "type": "pcr",
+      "name": "InventoryProcessor",
+      "namespace": "",
+      "line": 4,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "04",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "ChangeInventory",
+      "namespace": "",
+      "line": 5,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "05",
+      "kind": "tf",
+      "type": "evt",
+      "name": "Cart.InventoryChanged",
+      "namespace": "Cart",
+      "line": 6,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    }
+  ],
+  "data": [],
+  "notes": [],
+  "hotspots": [],
+  "gwts": []
+}

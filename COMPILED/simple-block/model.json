@@ -1,0 +1,33 @@
+{
+  "schema": "evml-model/v1",
+  "source": "testdata/fixtures/simple-block.evml",
+  "sha256": "91f6ce3127cdc8b92c252becbc8e5bf387ac2714f870f0129faa39c6aa30b23d",
+  "sections": [],
+  "entities": [],
+  "frames": [
+    {
+      "id": "02",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "AddItem",
+      "namespace": "",
+      "line": 3,
+      "section": "",
+      "sources": [],
+      "dataRef": "AddItem01",
+      "dataType": "",
+      "data": ""
+    }
+  ],
+  "data": [
+    {
+      "name": "AddItem01",
+      "dataType": "",
+      "value": "{\n  description: 'john'\n  image: 'avatar_john'\n  price: 20.4\n}",
+      "line": 5
+    }
+  ],
+  "notes": [],
+  "hotspots": [],
+  "gwts": []
+}

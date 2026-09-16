@@ -1,0 +1,43 @@
+name: multiple-source-frames-main
+version: 0.1.0
+description: IR for main context of multiple-source-frames
+input:
+  type: ReadModel01
+  required:
+  - payload
+  input_schema:
+    type: object
+    properties: {}
+    title: ReadModel01
+nodes:
+- id: project_ReadModel01
+  kind: pure_function
+  description: Project read model ReadModel01
+  source:
+    section: rf 03 rmo ReadModel01
+  impl: extracted/main.py:project_ReadModel01
+  input: &id001
+    event: pipeline.input
+  inputs: *id001
+  output:
+    view: ReadModel01
+  mandatory: false
+- id: project_ReadModel02
+  kind: pure_function
+  description: Project read model ReadModel02
+  source:
+    section: rf 04 rmo ReadModel02
+  impl: extracted/main.py:project_ReadModel02
+  input: &id002
+    event: pipeline.input
+  inputs: *id002
+  output:
+    view: ReadModel02
+  mandatory: false
+edges: []
+entry_nodes:
+- project_ReadModel01
+- project_ReadModel02
+exit_nodes:
+- project_ReadModel01
+- project_ReadModel02

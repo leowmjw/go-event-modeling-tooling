@@ -1,0 +1,54 @@
+name: bounded-context-order-fulfillment-billing
+version: 0.1.0
+description: IR for billing context of bounded-context-order-fulfillment
+input:
+  type: Sales_OrderPlaced
+  required:
+  - payload
+  input_schema:
+    type: object
+    title: Sales_OrderPlaced
+    properties:
+      payload:
+        type: object
+nodes:
+- id: translate_billing
+  kind: pure_function
+  description: pure_function translate_billing
+  source:
+    section: tf 07 pcr BillingTranslator
+  impl: extracted/billing.py:translate_billing
+  input: Sales_OrderPlaced
+  inputs:
+    event: pipeline.input
+  output: AuthorizePaymentCommand
+- id: decide_authorize_payment
+  kind: pure_function
+  description: pure_function decide_authorize_payment
+  source:
+    section: tf 08 cmd AuthorizePayment
+  impl: extracted/billing.py:decide_authorize_payment
+  input: AuthorizePaymentCommand
+  inputs:
+    command: translate_billing.output
+  output: PaymentAuthorizationResult
+  mandatory: true
+- id: project_payment_status
+  kind: pure_function
+  description: pure_function project_payment_status
+  source:
+    section: tf 10 rmo PaymentStatus
+  impl: extracted/billing.py:project_payment_status
+  input: PaymentAuthorizationResult
+  inputs:
+    event: decide_authorize_payment.output
+  output: PaymentStatusView
+edges:
+- - translate_billing
+  - decide_authorize_payment
+- - decide_authorize_payment
+  - project_payment_status
+entry_nodes:
+- translate_billing
+exit_nodes:
+- project_payment_status

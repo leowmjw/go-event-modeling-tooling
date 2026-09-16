@@ -52,3 +52,4 @@ for f in testdata/fixtures/*.evml; do
   fi
 done
 '''
+

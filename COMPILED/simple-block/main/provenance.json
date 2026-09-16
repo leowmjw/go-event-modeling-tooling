@@ -1,0 +1,24 @@
+{
+  "schema": "evml-rote-ir-provenance/v1",
+  "source_model": "testdata/fixtures/simple-block.evml",
+  "source_sha256": "91f6ce3127cdc8b92c252becbc8e5bf387ac2714f870f0129faa39c6aa30b23d",
+  "model": "simple-block",
+  "context": "main",
+  "section_name": "",
+  "frames": [
+    "02"
+  ],
+  "ir": "pipeline.yaml",
+  "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
+  "compiled_at": "2026-09-17",
+  "pipeline_version": "0.1.0",
+  "sections": {
+    "tf 02 cmd AddItem": "7548bf62292122efbbdcba0217d43dfb02f67eb217190e7565c23a4ec4502ccd"
+  },
+  "nodes": {
+    "decide_AddItem": {
+      "section": "tf 02 cmd AddItem",
+      "content_hash": "7548bf62292122efbbdcba0217d43dfb02f67eb217190e7565c23a4ec4502ccd"
+    }
+  }
+}
