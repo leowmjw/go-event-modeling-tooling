@@ -10,7 +10,11 @@
       {{.Label}}
     </button>
     {{end}}
-    <button class="tab tab-new" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/new-version')">+ New version</button>
+
+    <span class="version-control">
+      <input data-bind:versionName class="version-name" placeholder="name (optional)">
+      <button class="tab tab-new" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/new-version', {payload: {versionName: $versionName}})">+ New version</button>
+    </span>
     {{if .ActiveDraftID}}
     <button class="tab tab-activate" data-on:click="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/activate')">Activate</button>
     {{end}}
@@ -18,12 +22,12 @@
 
   <div class="workspace-grid">
     <section class="svg-pane"
-      data-signals:svg-scale="1" data-signals:svg-x="0" data-signals:svg-y="0" data-signals:panning="false"
-      data-signals:pan-start-x="0" data-signals:pan-start-y="0" data-signals:pan-orig-x="0" data-signals:pan-orig-y="0"
-      data-on:wheel__prevent="$svgScale = Math.min(4, Math.max(0.2, $svgScale - evt.deltaY / 1000))"
-      data-on:mousedown="$panning = true; $panStartX = evt.clientX; $panStartY = evt.clientY; $panOrigX = $svgX; $panOrigY = $svgY"
-      data-on:mouseup__window="$panning = false"
-      data-on:mousemove__window="if ($panning) { $svgX = $panOrigX + (evt.clientX - $panStartX); $svgY = $panOrigY + (evt.clientY - $panStartY) }">
+       data-signals:svg-scale="1" data-signals:svg-x="0" data-signals:svg-y="0" data-signals:panning="false"
+       data-signals:pan-start-x="0" data-signals:pan-start-y="0" data-signals:pan-orig-x="0" data-signals:pan-orig-y="0"
+       data-on:wheel__prevent="$svgScale = Math.min(4, Math.max(0.2, $svgScale - evt.deltaY / 1000))"
+       data-on:mousedown="$panning = true; $panStartX = evt.clientX; $panStartY = evt.clientY; $panOrigX = $svgX; $panOrigY = $svgY"
+       data-on:mouseup__window="$panning = false"
+       data-on:mousemove__window="if ($panning) { $svgX = $panOrigX + (evt.clientX - $panStartX); $svgY = $panOrigY + (evt.clientY - $panStartY) }">
       <div class="svg-toolbar">
         <button data-on:click="$svgScale = 1; $svgX = 0; $svgY = 0">Reset view</button>
         <span class="hint">scroll to zoom, drag to pan</span>
@@ -34,11 +38,31 @@
     </section>
 
     <section class="chat-pane">
-      {{template "chatlog" .}}
-      <form class="chat-input" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/chat')">
-        <textarea data-bind:message name="message" placeholder="Describe the process, or ask for a change…" rows="3"></textarea>
-        <button type="submit">Send</button>
-      </form>
+      <nav class="chat-tabs">
+        <button class="chat-tab"
+                data-attr:class="$chatTab == 'discussion' ? 'chat-tab active' : 'chat-tab'"
+                data-on:click="$chatTab = 'discussion'">Discussion</button>
+        <button class="chat-tab"
+                data-attr:class="$chatTab == 'source' ? 'chat-tab active' : 'chat-tab'"
+                data-on:click="$chatTab = 'source'">Source</button>
+        <button class="chat-tab"
+                data-attr:class="$chatTab == 'open-questions' ? 'chat-tab active' : 'chat-tab'"
+                data-on:click="$chatTab = 'open-questions'">Open questions</button>
+      </nav>
+
+      <div class="chat-content-wrapper">
+        <div class="chat-panel" data-show="$chatTab == 'discussion'">
+          {{template "chatlog" .}}
+          <form class="chat-input" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/chat')">
+            <textarea data-bind:message name="message" placeholder="Describe the process, or ask for a change…" rows="3"></textarea>
+            <button type="submit">Send</button>
+          </form>
+        </div>
+
+        <div class="chat-panel" data-show="$chatTab == 'source'">{{template "source-editor" .}}</div>
+
+        <div class="chat-panel" data-show="$chatTab == 'open-questions'">{{template "questions" .}}</div>
+      </div>
     </section>
   </div>
 {{end}}
@@ -61,5 +85,53 @@
     <div class="chat-content">The proposed model didn't validate:<br>{{.ParseError}}</div>
   </div>
   {{end}}
+</div>
+{{end}}
+
+{{/* Source editor: tweak the .evml directly, then validate & render to update the diagram. */}}
+{{define "source-editor"}}
+<div class="source-editor">
+  <p class="hint">Edit the .evml directly, then click "Validate &amp; render" to update the diagram. Your edit is applied to this draft only until it activates.</p>
+  <form class="source-form" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/source', {payload: {source: $source}})">
+    <textarea data-bind:source class="source-text" rows="26">{{.Source}}</textarea>
+    <button type="submit">Validate &amp; render</button>
+  </form>
+  {{if .ParseError}}
+  <div class="source-error">The proposed model didn't validate:<br>{{.ParseError}}</div>
+  {{else if .Source}}
+  <div class="source-ok">Looks good — the diagram above reflects this source.</div>
+  {{end}}
+</div>
+{{end}}
+
+{{/* Open questions: a per-draft staging checklist. Items tagged as future goals
+     surface the "what might come later" that the team still needs to agree on. */}}
+{{define "questions"}}
+<div class="questions-panel">
+  <p class="hint">Stage open questions and future goals here while you talk them through. Check off the ones you resolve — they travel with the draft and survive restarts.</p>
+
+  {{if .Questions}}
+  <div class="question-list">
+    {{range .Questions}}
+    {{if not .Resolved}}
+    <div class="question-row{{if .FutureGoal}} future{{end}}">
+      <span class="question-text">{{.Text}}</span>
+      {{if .FutureGoal}}<span class="badge">future goal</span>{{end}}
+      <button class="q-action q-toggle" title="mark resolved" data-on:click="@post('/flow/{{$.ActiveFlow}}/draft/{{$.ActiveDraftID}}/question/{{.ID}}/toggle')">✓</button>
+      <button class="q-action q-delete" title="delete" data-on:click="@post('/flow/{{$.ActiveFlow}}/draft/{{$.ActiveDraftID}}/question/{{.ID}}/delete')">✕</button>
+    </div>
+    {{end}}
+    {{end}}
+  </div>
+  {{end}}
+
+  <form class="question-form" data-on:submit__prevent="@post('/flow/{{.ActiveFlow}}/draft/{{.ActiveDraftID}}/question', {payload: {qText: $qText, qFuture: $qFuture}})">
+    <input data-bind:qText class="question-input" placeholder="What's unclear here, or a future goal to plan for?">
+    <select data-bind:qFuture class="q-type">
+      <option value="open">Question</option>
+      <option value="future">Future goal</option>
+    </select>
+    <button type="submit">Add</button>
+  </form>
 </div>
 {{end}}

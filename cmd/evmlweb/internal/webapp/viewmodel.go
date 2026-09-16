@@ -23,7 +23,23 @@ type ChatMessageView struct {
 // DraftTab is one entry in the draft-version tab strip.
 type DraftTab struct {
 	ID    string
-	Label string // e.g. "v1", "v2"
+	Label string // e.g. "v1", "v2", or a human-friendly version name
+}
+
+// QuestionView is one staging-checklist item rendered in the questions panel.
+type QuestionView struct {
+	ID         string
+	Text       string
+	Resolved   bool
+	FutureGoal bool
+}
+
+// ExampleView is one curated fixture shown in the /examples gallery.
+type ExampleView struct {
+	FlowID      string
+	Title       string
+	SVG         template.HTML
+	Description string
 }
 
 // WorkspacePage is the full view model for both the initial page render
@@ -37,6 +53,8 @@ type WorkspacePage struct {
 	ActiveDraftID string
 	ActiveSVG     template.HTML
 	Transcript    []ChatMessageView
+	Questions     []QuestionView // staging checklist for the active draft
+	Source        string         // .evml source for the active draft (source editor)
 	ParseError    string
 	// PatchSVG is true when rendering the workspace fragment for an SSE
 	// patch. The SVG is sent in a separate patch to #svg-container so
@@ -76,5 +94,21 @@ func toChatViews(msgs []ChatMessage) []ChatMessageView {
 }
 
 func draftLabel(d *DraftVersion) string {
+	if d.Name != "" {
+		return d.Name
+	}
 	return fmt.Sprintf("v%d", d.Seq)
+}
+
+func toQuestionViews(qs []OpenQuestion) []QuestionView {
+	out := make([]QuestionView, 0, len(qs))
+	for _, q := range qs {
+		out = append(out, QuestionView{
+			ID:         q.ID,
+			Text:       q.Text,
+			Resolved:   q.Resolved,
+			FutureGoal: q.FutureGoal,
+		})
+	}
+	return out
 }

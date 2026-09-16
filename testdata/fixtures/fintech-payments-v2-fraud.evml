@@ -1,0 +1,126 @@
+eventmodeling
+
+// FinTech Enterprise — Payments Platform
+// Version 2: layers in Fraud detection across a bounded-context boundary.
+//
+// Bounded contexts: Core Payments → Fraud.
+// The withdrawal request now crosses into Fraud for risk screening before
+// funds can move — this is what "real" looks like once compliance sits in the
+// room. Both outcomes are modelled: a held (flagged) withdrawal and a cleared
+// one.
+//
+// Future goals not yet modeled: daily settlement reconciliation (v3) and
+// async payout-failure recovery (v4).
+
+tf 01 ui DepositScreen
+tf 02 cmd InitiateDeposit { accountId: "acc-100", amount: 250.00, currency: "USD" }
+tf 03 evt DepositReceived { accountId: "acc-100", amount: 250.00, currency: "USD", depositId: "dep-201" }
+tf 04 rmo AccountBalance [[AccountBalance04]]
+tf 05 rmo Ledger [[Ledger05]]
+
+// ── Core Payments: a withdrawal is now held pending a fraud verdict ──
+tf 06 ui WithdrawalScreen
+tf 07 cmd InitiateWithdrawal { accountId: "acc-100", amount: 75.00 }
+tf 08 evt WithdrawalRequested { accountId: "acc-100", amount: 75.00, requestId: "req-301" }
+tf 09 rmo PendingWithdrawal [[PendingWithdrawal09]]
+
+// ── Fraud bounded context (enters via reset frame) ──
+rf 11 evt Core.WithdrawalRequested { accountId: "acc-100", amount: 75.00, requestId: "req-301" }
+tf 12 pcr FraudCheckProcessor ->> 11
+tf 13 cmd EvaluateRisk { requestId: "req-301", accountId: "acc-100", amount: 75.00 }
+tf 14 evt RiskEvaluated { requestId: "req-301", riskScore: 0.12, isFlagged: false }
+
+// Flagged branch: the withdrawal is held for manual review.
+tf 15 pcr FlaggedWithdrawalRouter ->> 14
+tf 16 cmd HoldWithdrawal { requestId: "req-301", reason: "high_risk_pattern" }
+tf 17 evt WithdrawalFlagged { requestId: "req-301", reason: "high_risk_pattern" }
+tf 18 rmo FlaggedWithdrawalQueue [[FlaggedWithdrawalQueue18]]
+
+// Clear branch: risk accepted, funds move.
+rf 19 evt Fraud.RiskAccepted { requestId: "req-301" }
+tf 20 pcr WithdrawalProcessor ->> 19
+tf 21 cmd CompleteWithdrawal { requestId: "req-301", withdrawalId: "wd-401" }
+tf 22 evt WithdrawalCompleted { accountId: "acc-100", amount: 75.00, withdrawalId: "wd-401", requestId: "req-301" }
+tf 23 rmo AccountBalance [[AccountBalance23]]
+tf 24 rmo Ledger [[Ledger24]]
+
+data AccountBalance04 {
+  accountId: "acc-100"
+  balance: 250.00
+  currency: "USD"
+}
+
+data AccountBalance23 {
+  accountId: "acc-100"
+  balance: 175.00
+  currency: "USD"
+}
+
+data PendingWithdrawal09 {
+  requestId: "req-301"
+  accountId: "acc-100"
+  amount: 75.00
+  status: "pending_fraud_check"
+}
+
+data FlaggedWithdrawalQueue18 {
+  requestId: "req-301"
+  accountId: "acc-100"
+  reason: "high_risk_pattern"
+  status: "awaiting_manual_review"
+}
+
+data Ledger05 {
+  accountId: "acc-100"
+  entries: [
+    { type: "credit", amount: 250.00, balance: 250.00 }
+  ]
+}
+
+data Ledger24 {
+  accountId: "acc-100"
+  entries: [
+    { type: "credit", amount: 250.00, balance: 250.00 }
+    { type: "debit", amount: 75.00, balance: 175.00 }
+  ]
+}
+
+gwt 08 "withdrawal request is held for fraud screening"
+  given
+    evt AccountOpened { accountId: "acc-100", balance: 250.00 }
+  when
+    cmd InitiateWithdrawal { accountId: "acc-100", amount: 75.00 }
+  then
+    evt WithdrawalRequested { accountId: "acc-100", amount: 75.00 }
+
+gwt 14 "clear risk lets the withdrawal complete"
+  given
+    evt Core.WithdrawalRequested { requestId: "req-301" }
+  when
+    cmd EvaluateRisk { requestId: "req-301", accountId: "acc-100", amount: 75.00 }
+  then
+    evt RiskEvaluated { requestId: "req-301", isFlagged: false, riskScore: 0.12 }
+
+gwt 14 "elevated risk scores flag the withdrawal for review"
+  given
+    evt Core.WithdrawalRequested { requestId: "req-301", amount: 5000.00 }
+  when
+    cmd EvaluateRisk { requestId: "req-301", accountId: "acc-100", amount: 5000.00 }
+  then
+    evt RiskEvaluated { requestId: "req-301", isFlagged: true, riskScore: 0.91 }
+
+gwt 17 "flagged withdrawal stays in the review queue"
+  given
+    evt RiskEvaluated { isFlagged: true, riskScore: 0.91 }
+  when
+    cmd HoldWithdrawal { requestId: "req-301", reason: "high_risk_pattern" }
+  then
+    evt WithdrawalFlagged { requestId: "req-301", reason: "high_risk_pattern" }
+
+gwt 22 "completed withdrawal posts to the ledger"
+  given
+    evt Fraud.RiskAccepted { requestId: "req-301" }
+  when
+    cmd CompleteWithdrawal { requestId: "req-301", withdrawalId: "wd-401" }
+  then
+    evt WithdrawalCompleted { accountId: "acc-100", amount: 75.00, withdrawalId: "wd-401" }

@@ -1,0 +1,31 @@
+{{define "examples"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Examples — Event Modeling Studio</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/debug.js"></script>
+  <script type="module" src="/static/datastar.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">← Studio</a>
+    <span class="brand examples-title">Examples gallery</span>
+  </header>
+
+  <main class="examples-gallery">
+    {{range .}}
+    <article class="example-card">
+      <div class="example-body">
+        <h3>{{.Title}}</h3>
+        <p class="example-desc">{{.Description}}</p>
+        <a class="example-open" href="/?flow={{.FlowID}}">Open in studio</a>
+      </div>
+      <div class="example-svg">{{.SVG}}</div>
+    </article>
+    {{end}}
+  </main>
+</body>
+</html>
+{{end}}

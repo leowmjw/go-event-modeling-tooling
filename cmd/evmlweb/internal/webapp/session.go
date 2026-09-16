@@ -216,6 +216,7 @@ func (ss *SessionStore) NewDraft(fs *FlowState, source *DraftVersion, now time.T
 		d.EvmlSource = source.EvmlSource
 		d.SVG = source.SVG
 		d.Transcript = append([]ChatMessage(nil), source.Transcript...)
+		d.Questions = forkQuestions(source.Questions)
 	} else {
 		d.EvmlSource = fs.BaselineEvml
 		d.SVG = fs.BaselineSVG
@@ -229,4 +230,15 @@ func (ss *SessionStore) NewDraft(fs *FlowState, source *DraftVersion, now time.T
 	fs.DraftOrder = append(fs.DraftOrder, d.ID)
 	fs.ActiveDraftID = d.ID
 	return d, nil
+}
+
+// forkQuestions deep-copies a draft's staging checklist so a new version
+// carries the still-open questions forward without sharing slice backing
+// arrays with its source.
+func forkQuestions(src []OpenQuestion) []OpenQuestion {
+	out := make([]OpenQuestion, len(src))
+	for i, q := range src {
+		out[i] = q
+	}
+	return out
 }

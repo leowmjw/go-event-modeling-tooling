@@ -9,6 +9,9 @@
 *.dylib
 bin/
 
+# Ignore temp
+tmp/
+
 # Test binary, built with `go test -c`
 *.test
 # Test output
@@ -46,3 +49,6 @@ cmd/evmlweb/cmd/
 cmd/evmlweb/bin/
 cmd/evmlweb/tmp/
 cmd/evmlweb/node_modules/
+
+# Ignore CommandCode
+.commandcode

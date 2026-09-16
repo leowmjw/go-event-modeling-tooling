@@ -22,6 +22,18 @@ type ChatMessage struct {
 	At      time.Time
 }
 
+// OpenQuestion is one outstanding item in a draft's staging checklist — a
+// question the domain expert still needs to settle, or a future goal to plan
+// for. Resolved questions are retained (so the checklist shows what was
+// decided) but excluded from the "still open" view.
+type OpenQuestion struct {
+	ID         string
+	Text       string
+	Resolved   bool
+	FutureGoal bool // true when this is a planned future goal, not a present-tense question
+	CreatedAt  time.Time
+}
+
 // DraftVersion is one dated, numbered iteration of a flow's event model.
 // Its ID has the form "<flow>-<date>-v<seq>", e.g. "hotel-booking-2026-08-10-v2".
 type DraftVersion struct {
@@ -29,10 +41,12 @@ type DraftVersion struct {
 	FlowName   string
 	Date       string // YYYY-MM-DD, the date this draft was created
 	Seq        int
+	Name       string // optional human-friendly version name; empty => "v<N>"
 	EvmlSource string
 	SVG        string
 	ParseError string // non-empty when EvmlSource fails to parse/validate
 	Transcript []ChatMessage
+	Questions  []OpenQuestion
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }

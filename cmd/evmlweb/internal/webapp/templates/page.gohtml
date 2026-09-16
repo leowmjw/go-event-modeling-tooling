@@ -9,8 +9,9 @@
   <script type="module" src="/static/datastar.js"></script>
 </head>
 <body>
-  <header class="topbar" data-signals:model="'{{.ModelID}}'"{{if .ActiveFlow}} data-signals:flow="'{{.ActiveFlow}}'"{{end}}>
+  <header class="topbar" data-signals:model="'{{.ModelID}}'" data-signals:chatTab="'discussion'" data-signals:versionName="" data-signals:qText="" data-signals:qFuture="'open'"{{if .ActiveFlow}} data-signals:flow="'{{.ActiveFlow}}'"{{end}}>
     <div class="brand">Event Modeling Studio</div>
+    <a class="examples-link" href="/examples">Examples</a>
 
     <label class="picker">
       <span>Current model</span>

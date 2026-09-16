@@ -1,0 +1,168 @@
+eventmodeling
+
+// FinTech Enterprise — Payments Platform
+// Version 3: adds Settlement & Reconciliation.
+//
+// Bounded contexts: Core Payments → Fraud → Settlement.
+// Every day, completed withdrawals are batched into a settlement run and
+// reconciled against the partner bank's statement. A mismatch is fed back
+// across the boundary for investigation — the per-context completeness rule:
+// no branch through Settlement leaves without a terminal outcome.
+//
+// Includes everything from v2 (core + fraud).
+// Future goals not yet modeled: async payout-failure recovery (v4).
+
+tf 01 ui DepositScreen
+tf 02 cmd InitiateDeposit { accountId: "acc-100", amount: 250.00, currency: "USD" }
+tf 03 evt DepositReceived { accountId: "acc-100", amount: 250.00, currency: "USD", depositId: "dep-201" }
+tf 04 rmo AccountBalance [[AccountBalance04]]
+tf 05 rmo Ledger [[Ledger05]]
+
+tf 06 ui WithdrawalScreen
+tf 07 cmd InitiateWithdrawal { accountId: "acc-100", amount: 75.00 }
+tf 08 evt WithdrawalRequested { accountId: "acc-100", amount: 75.00, requestId: "req-301" }
+tf 09 rmo PendingWithdrawal [[PendingWithdrawal09]]
+
+rf 11 evt Core.WithdrawalRequested { accountId: "acc-100", amount: 75.00, requestId: "req-301" }
+tf 12 pcr FraudCheckProcessor ->> 11
+tf 13 cmd EvaluateRisk { requestId: "req-301", accountId: "acc-100", amount: 75.00 }
+tf 14 evt RiskEvaluated { requestId: "req-301", riskScore: 0.12, isFlagged: false }
+
+tf 15 pcr FlaggedWithdrawalRouter ->> 14
+tf 16 cmd HoldWithdrawal { requestId: "req-301", reason: "high_risk_pattern" }
+tf 17 evt WithdrawalFlagged { requestId: "req-301", reason: "high_risk_pattern" }
+tf 18 rmo FlaggedWithdrawalQueue [[FlaggedWithdrawalQueue18]]
+
+rf 19 evt Fraud.RiskAccepted { requestId: "req-301" }
+tf 20 pcr WithdrawalProcessor ->> 19
+tf 21 cmd CompleteWithdrawal { requestId: "req-301", withdrawalId: "wd-401" }
+tf 22 evt WithdrawalCompleted { accountId: "acc-100", amount: 75.00, withdrawalId: "wd-401", requestId: "req-301" }
+tf 23 rmo AccountBalance [[AccountBalance23]]
+tf 24 rmo Ledger [[Ledger24]]
+
+// ── Settlement bounded context: daily batch + bank reconciliation ──
+rf 31 evt Core.WithdrawalCompleted { accountId: "acc-100", amount: 75.00, withdrawalId: "wd-401" }
+tf 32 pcr DailySettlementProcessor ->> 31
+tf 33 cmd RunSettlementBatch { date: "2024-06-16", withdrawalCount: 120, totalAmount: 9000.00 }
+tf 34 evt SettlementBatchCreated { batchId: "batch-2024-06-16", date: "2024-06-16", withdrawalCount: 120, totalAmount: 9000.00 }
+tf 35 rmo SettlementReport [[SettlementReport35]]
+tf 36 pcr BankSubmitProcessor ->> 34
+tf 37 cmd SubmitToBank { batchId: "batch-2024-06-16", paymentRails: "ACH" }
+tf 38 evt BankSubmissionReceived { batchId: "batch-2024-06-16" }
+tf 39 rmo SettlementStatus [[SettlementStatus39]]
+
+// Reconciliation: the bank statement doesn't always match the batch total.
+rf 41 evt Bank.StatementReceived { batchId: "batch-2024-06-16", statementTotal: 8925.00 }
+tf 42 pcr ReconciliationProcessor ->> 41
+tf 43 cmd ReconcileBatches { batchId: "batch-2024-06-16", expectedTotal: 9000.00, statementTotal: 8925.00, variance: 75.00 }
+tf 44 evt ReconciliationCompleted { batchId: "batch-2024-06-16", status: "mismatch", variance: 75.00 }
+tf 45 rmo ReconciliationReport [[ReconciliationReport45]]
+
+// Mismatch fed back across the boundary for a correction loop.
+rf 46 evt Settlement.ReconciliationMismatch { batchId: "batch-2024-06-16", variance: 75.00 }
+tf 47 pcr SettlementCorrectionRouter ->> 46
+tf 48 cmd InvestigateDiscrepancy { batchId: "batch-2024-06-16", variance: 75.00 }
+tf 49 evt DiscrepancyInvestigationStarted { batchId: "batch-2024-06-16", variance: 75.00 }
+tf 50 rmo InvestigationQueue [[InvestigationQueue50]]
+
+data AccountBalance04 {
+  accountId: "acc-100"
+  balance: 250.00
+  currency: "USD"
+}
+
+data AccountBalance23 {
+  accountId: "acc-100"
+  balance: 175.00
+  currency: "USD"
+}
+
+data PendingWithdrawal09 {
+  requestId: "req-301"
+  accountId: "acc-100"
+  amount: 75.00
+  status: "pending_fraud_check"
+}
+
+data FlaggedWithdrawalQueue18 {
+  requestId: "req-301"
+  accountId: "acc-100"
+  reason: "high_risk_pattern"
+  status: "awaiting_manual_review"
+}
+
+data Ledger05 {
+  accountId: "acc-100"
+  entries: [
+    { type: "credit", amount: 250.00, balance: 250.00 }
+  ]
+}
+
+data Ledger24 {
+  accountId: "acc-100"
+  entries: [
+    { type: "credit", amount: 250.00, balance: 250.00 }
+    { type: "debit", amount: 75.00, balance: 175.00 }
+  ]
+}
+
+data SettlementReport35 {
+  batchId: "batch-2024-06-16"
+  date: "2024-06-16"
+  withdrawalCount: 120
+  totalAmount: 9000.00
+  status: "batch_created"
+}
+
+data SettlementStatus39 {
+  batchId: "batch-2024-06-16"
+  submittedToBankAt: "2024-06-16T18:00:00Z"
+  paymentRails: "ACH"
+  status: "submitted"
+}
+
+data ReconciliationReport45 {
+  batchId: "batch-2024-06-16"
+  expectedTotal: 9000.00
+  statementTotal: 8925.00
+  variance: 75.00
+  status: "mismatch"
+}
+
+data InvestigationQueue50 {
+  batchId: "batch-2024-06-16"
+  variance: 75.00
+  status: "awaiting_review"
+}
+
+gwt 33 "settlement batch captures completed withdrawals"
+  given
+    evt Core.WithdrawalCompleted { withdrawalId: "wd-401", amount: 75.00 }
+  when
+    cmd RunSettlementBatch { date: "2024-06-16", withdrawalCount: 120, totalAmount: 9000.00 }
+  then
+    evt SettlementBatchCreated { batchId: "batch-2024-06-16", totalAmount: 9000.00 }
+
+gwt 43 "reconcile a matching statement with no variance"
+  given
+    evt Bank.StatementReceived { batchId: "batch-2024-06-16", statementTotal: 9000.00 }
+  when
+    cmd ReconcileBatches { batchId: "batch-2024-06-16", expectedTotal: 9000.00, statementTotal: 9000.00, variance: 0.00 }
+  then
+    evt ReconciliationCompleted { batchId: "batch-2024-06-16", status: "matched", variance: 0.00 }
+
+gwt 43 "reconcile a mismatched statement surfaces a variance"
+  given
+    evt Bank.StatementReceived { batchId: "batch-2024-06-16", statementTotal: 8925.00 }
+  when
+    cmd ReconcileBatches { batchId: "batch-2024-06-16", expectedTotal: 9000.00, statementTotal: 8925.00, variance: 75.00 }
+  then
+    evt ReconciliationCompleted { batchId: "batch-2024-06-16", status: "mismatch", variance: 75.00 }
+
+gwt 47 "a mismatch is fed back across the boundary for investigation"
+  given
+    evt Settlement.ReconciliationMismatch { batchId: "batch-2024-06-16", variance: 75.00 }
+  when
+    cmd InvestigateDiscrepancy { batchId: "batch-2024-06-16", variance: 75.00 }
+  then
+    evt DiscrepancyInvestigationStarted { batchId: "batch-2024-06-16", variance: 75.00 }

@@ -1,0 +1,91 @@
+eventmodeling
+
+// FinTech Enterprise — Payments Platform
+// Version 1: core deposit & withdrawal ledger (single bounded context)
+//
+// Bounded context: Core Payments.
+// This is the agreed happy path every stakeholder signs off on: money comes
+// in, money goes out, and the ledger always balances.
+//
+// Future goals not yet modeled: fraud screening (v2), daily settlement
+// reconciliation (v3), and async payout-failure recovery (v4).
+
+tf 01 ui DepositScreen
+tf 02 cmd InitiateDeposit { accountId: "acc-100", amount: 250.00, currency: "USD" }
+tf 03 evt DepositReceived { accountId: "acc-100", amount: 250.00, currency: "USD", depositId: "dep-201" }
+tf 04 rmo AccountBalance [[AccountBalance04]]
+tf 05 rmo Ledger [[Ledger05]]
+
+tf 06 ui WithdrawalScreen
+tf 07 cmd InitiateWithdrawal { accountId: "acc-100", amount: 75.00 }
+tf 08 evt WithdrawalRequested { accountId: "acc-100", amount: 75.00, requestId: "req-301" }
+tf 09 rmo PendingWithdrawal [[PendingWithdrawal09]]
+tf 10 evt WithdrawalCompleted { accountId: "acc-100", amount: 75.00, withdrawalId: "wd-401", requestId: "req-301" }
+tf 11 rmo AccountBalance [[AccountBalance11]]
+tf 12 rmo Ledger [[Ledger12]]
+
+data AccountBalance04 {
+  accountId: "acc-100"
+  balance: 250.00
+  currency: "USD"
+}
+
+data AccountBalance11 {
+  accountId: "acc-100"
+  balance: 175.00
+  currency: "USD"
+}
+
+data PendingWithdrawal09 {
+  requestId: "req-301"
+  accountId: "acc-100"
+  amount: 75.00
+  status: "pending"
+}
+
+data Ledger05 {
+  accountId: "acc-100"
+  entries: [
+    { type: "credit", amount: 250.00, balance: 250.00 }
+  ]
+}
+
+data Ledger12 {
+  accountId: "acc-100"
+  entries: [
+    { type: "credit", amount: 250.00, balance: 250.00 }
+    { type: "debit", amount: 75.00, balance: 175.00 }
+  ]
+}
+
+gwt 03 "deposit updates the available balance"
+  given
+    evt AccountOpened { accountId: "acc-100", balance: 0.00 }
+  when
+    cmd InitiateDeposit { accountId: "acc-100", amount: 250.00, currency: "USD" }
+  then
+    evt DepositReceived { accountId: "acc-100", amount: 250.00 }
+
+gwt 03 "reject deposit with a non-positive amount"
+  given
+    evt AccountOpened { accountId: "acc-100", balance: 0.00 }
+  when
+    cmd InitiateDeposit { accountId: "acc-100", amount: 0.00 }
+  then
+    evt DepositRejected { accountId: "acc-100", reason: "non_positive_amount" }
+
+gwt 07 "withdrawal reduces the available balance"
+  given
+    evt DepositReceived { accountId: "acc-100", amount: 250.00 }
+  when
+    cmd InitiateWithdrawal { accountId: "acc-100", amount: 75.00 }
+  then
+    evt WithdrawalRequested { accountId: "acc-100", amount: 75.00 }
+
+gwt 07 "reject withdrawal when the balance is insufficient"
+  given
+    evt DepositReceived { accountId: "acc-100", amount: 50.00 }
+  when
+    cmd InitiateWithdrawal { accountId: "acc-100", amount: 75.00 }
+  then
+    evt WithdrawalRejected { accountId: "acc-100", reason: "insufficient_funds" }

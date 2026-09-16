@@ -1,6 +1,8 @@
 package webapp
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -23,6 +25,15 @@ func Slugify(name string) string {
 // NewDraftID formats a dated, numbered draft version ID for flow.
 func NewDraftID(flow, date string, seq int) string {
 	return fmt.Sprintf("%s-%s-v%d", flow, date, seq)
+}
+
+// newQuestionID returns a short, collision-resistant ID for a staging
+// checklist question. IDs are stable across save/load because they're
+// generated at creation time and persisted alongside the draft.
+func newQuestionID() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return "q" + hex.EncodeToString(b)
 }
 
 // ParseDraftID splits a draft ID back into its flow name, date, and

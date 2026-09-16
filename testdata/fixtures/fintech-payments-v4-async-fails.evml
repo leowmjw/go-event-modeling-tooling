@@ -1,0 +1,194 @@
+eventmodeling
+
+// FinTech Enterprise — Payments Platform
+// Version 4: adds Payout & async payout-failure recovery.
+//
+// Bounded contexts: Core Payments → Fraud → Settlement → Compliance/Recovery.
+// Payouts dispatched to external payment rails can fail *asynchronously*
+// (days later) — the model must keep State History honest through every
+// transition: dispatched → failed → reversed → reissued. This is the partial
+// failure / async-integration-failure pattern.
+//
+// Includes everything from v3 (core + fraud + settlement).
+// This is the currently most complete snapshot.
+
+tf 01 ui DepositScreen
+tf 02 cmd InitiateDeposit { accountId: "acc-100", amount: 250.00, currency: "USD" }
+tf 03 evt DepositReceived { accountId: "acc-100", amount: 250.00, currency: "USD", depositId: "dep-201" }
+tf 04 rmo AccountBalance [[AccountBalance04]]
+tf 05 rmo Ledger [[Ledger05]]
+
+tf 06 ui WithdrawalScreen
+tf 07 cmd InitiateWithdrawal { accountId: "acc-100", amount: 75.00 }
+tf 08 evt WithdrawalRequested { accountId: "acc-100", amount: 75.00, requestId: "req-301" }
+tf 09 rmo PendingWithdrawal [[PendingWithdrawal09]]
+
+rf 11 evt Core.WithdrawalRequested { accountId: "acc-100", amount: 75.00, requestId: "req-301" }
+tf 12 pcr FraudCheckProcessor ->> 11
+tf 13 cmd EvaluateRisk { requestId: "req-301", accountId: "acc-100", amount: 75.00 }
+tf 14 evt RiskEvaluated { requestId: "req-301", riskScore: 0.12, isFlagged: false }
+
+tf 15 pcr FlaggedWithdrawalRouter ->> 14
+tf 16 cmd HoldWithdrawal { requestId: "req-301", reason: "high_risk_pattern" }
+tf 17 evt WithdrawalFlagged { requestId: "req-301", reason: "high_risk_pattern" }
+tf 18 rmo FlaggedWithdrawalQueue [[FlaggedWithdrawalQueue18]]
+
+rf 19 evt Fraud.RiskAccepted { requestId: "req-301" }
+tf 20 pcr WithdrawalProcessor ->> 19
+tf 21 cmd CompleteWithdrawal { requestId: "req-301", withdrawalId: "wd-401" }
+tf 22 evt WithdrawalCompleted { accountId: "acc-100", amount: 75.00, withdrawalId: "wd-401", requestId: "req-301" }
+tf 23 rmo AccountBalance [[AccountBalance23]]
+tf 24 rmo Ledger [[Ledger24]]
+
+rf 31 evt Core.WithdrawalCompleted { accountId: "acc-100", amount: 75.00, withdrawalId: "wd-401" }
+tf 32 pcr DailySettlementProcessor ->> 31
+tf 33 cmd RunSettlementBatch { date: "2024-06-16", withdrawalCount: 120, totalAmount: 9000.00 }
+tf 34 evt SettlementBatchCreated { batchId: "batch-2024-06-16", date: "2024-06-16", withdrawalCount: 120, totalAmount: 9000.00 }
+tf 35 rmo SettlementReport [[SettlementReport35]]
+tf 36 pcr BankSubmitProcessor ->> 34
+tf 37 cmd SubmitToBank { batchId: "batch-2024-06-16", paymentRails: "ACH" }
+tf 38 evt BankSubmissionReceived { batchId: "batch-2024-06-16" }
+tf 39 rmo SettlementStatus [[SettlementStatus39]]
+
+rf 41 evt Bank.StatementReceived { batchId: "batch-2024-06-16", statementTotal: 8925.00 }
+tf 42 pcr ReconciliationProcessor ->> 41
+tf 43 cmd ReconcileBatches { batchId: "batch-2024-06-16", expectedTotal: 9000.00, statementTotal: 8925.00, variance: 75.00 }
+tf 44 evt ReconciliationCompleted { batchId: "batch-2024-06-16", status: "mismatch", variance: 75.00 }
+tf 45 rmo ReconciliationReport [[ReconciliationReport45]]
+
+rf 46 evt Settlement.ReconciliationMismatch { batchId: "batch-2024-06-16", variance: 75.00 }
+tf 47 pcr SettlementCorrectionRouter ->> 46
+tf 48 cmd InvestigateDiscrepancy { batchId: "batch-2024-06-16", variance: 75.00 }
+tf 49 evt DiscrepancyInvestigationStarted { batchId: "batch-2024-06-16", variance: 75.00 }
+tf 50 rmo InvestigationQueue [[InvestigationQueue50]]
+
+// ── Payout & async failure recovery ──
+tf 61 pcr PayoutScheduler ->> 38
+tf 62 cmd DispatchPayout { withdrawalId: "wd-401", paymentRails: "ACH", scheduledDate: "2024-06-16" }
+tf 63 evt PayoutDispatched { withdrawalId: "wd-401", paymentRails: "ACH", scheduledDate: "2024-06-16" }
+tf 64 rmo PayoutRegister [[PayoutRegister64]]
+
+// An external bank can fail the payout asynchronously, days after dispatch.
+rf 66 evt Bank.PayoutFailed { withdrawalId: "wd-401", failureCode: "R03", totalAmount: 75.00 }
+tf 67 pcr PayoutRecoveryProcessor ->> 66
+tf 68 cmd ReverseAndReissuePayout { withdrawalId: "wd-401", newPaymentRails: "WIRE", scheduledDate: "2024-06-18" }
+tf 69 evt PayoutReversed { withdrawalId: "wd-401", failureCode: "R03", reversedAt: "2024-06-17T09:00:00Z" }
+tf 70 evt PayoutReissued { withdrawalId: "wd-401", newPaymentRails: "WIRE", scheduledDate: "2024-06-18" }
+tf 71 rmo RecoveryReport [[RecoveryReport71]]
+
+data AccountBalance04 {
+  accountId: "acc-100"
+  balance: 250.00
+  currency: "USD"
+}
+
+data AccountBalance23 {
+  accountId: "acc-100"
+  balance: 175.00
+  currency: "USD"
+}
+
+data PendingWithdrawal09 {
+  requestId: "req-301"
+  accountId: "acc-100"
+  amount: 75.00
+  status: "pending_fraud_check"
+}
+
+data FlaggedWithdrawalQueue18 {
+  requestId: "req-301"
+  accountId: "acc-100"
+  reason: "high_risk_pattern"
+  status: "awaiting_manual_review"
+}
+
+data Ledger05 {
+  accountId: "acc-100"
+  entries: [
+    { type: "credit", amount: 250.00, balance: 250.00 }
+  ]
+}
+
+data Ledger24 {
+  accountId: "acc-100"
+  entries: [
+    { type: "credit", amount: 250.00, balance: 250.00 }
+    { type: "debit", amount: 75.00, balance: 175.00 }
+  ]
+}
+
+data SettlementReport35 {
+  batchId: "batch-2024-06-16"
+  date: "2024-06-16"
+  withdrawalCount: 120
+  totalAmount: 9000.00
+  status: "batch_created"
+}
+
+data SettlementStatus39 {
+  batchId: "batch-2024-06-16"
+  submittedToBankAt: "2024-06-16T18:00:00Z"
+  paymentRails: "ACH"
+  status: "submitted"
+}
+
+data ReconciliationReport45 {
+  batchId: "batch-2024-06-16"
+  expectedTotal: 9000.00
+  statementTotal: 8925.00
+  variance: 75.00
+  status: "mismatch"
+}
+
+data InvestigationQueue50 {
+  batchId: "batch-2024-06-16"
+  variance: 75.00
+  status: "awaiting_review"
+}
+
+data PayoutRegister64 {
+  withdrawalId: "wd-401"
+  paymentRails: "ACH"
+  scheduledDate: "2024-06-16"
+  status: "dispatched"
+}
+
+data RecoveryReport71 {
+  withdrawalId: "wd-401"
+  failureCode: "R03"
+  reversedAt: "2024-06-17T09:00:00Z"
+  newPaymentRails: "WIRE"
+  status: "reissued"
+}
+
+gwt 62 "dispatch a completed withdrawal to the chosen payment rail"
+  given
+    evt BankSubmissionReceived { batchId: "batch-2024-06-16" }
+  when
+    cmd DispatchPayout { withdrawalId: "wd-401", paymentRails: "ACH", scheduledDate: "2024-06-16" }
+  then
+    evt PayoutDispatched { withdrawalId: "wd-401", paymentRails: "ACH", scheduledDate: "2024-06-16" }
+
+gwt 66 "async bank failure is captured as a reset frame"
+  given
+    evt PayoutDispatched { withdrawalId: "wd-401", paymentRails: "ACH" }
+  when
+    evt Bank.PayoutFailed { withdrawalId: "wd-401", failureCode: "R03" }
+  then
+    evt Bank.PayoutFailed { withdrawalId: "wd-401", failureCode: "R03" }
+
+gwt 68 "reverse and reissue a failed payout over a different rail"
+  given
+    evt Bank.PayoutFailed { withdrawalId: "wd-401", failureCode: "R03" }
+  when
+    cmd ReverseAndReissuePayout { withdrawalId: "wd-401", newPaymentRails: "WIRE", scheduledDate: "2024-06-18" }
+  then
+    evt PayoutReversed { withdrawalId: "wd-401", failureCode: "R03", reversedAt: "2024-06-17T09:00:00Z" }
+
+gwt 68 "reject reissuance when the payout is already reversed"
+  given
+    evt PayoutReversed { withdrawalId: "wd-401", failureCode: "R03" }
+  when
+    cmd ReverseAndReissuePayout { withdrawalId: "wd-401", newPaymentRails: "WIRE" }
+  then
+    evt PayoutReissueRejected { withdrawalId: "wd-401", reason: "already_reversed" }

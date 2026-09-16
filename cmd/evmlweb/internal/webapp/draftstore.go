@@ -24,13 +24,15 @@ type DraftStore struct {
 // the .evml source itself, which is stored alongside as plain text so it
 // stays diffable/readable on its own).
 type draftMeta struct {
-	FlowName   string        `json:"flow_name"`
-	Date       string        `json:"date"`
-	Seq        int           `json:"seq"`
-	ParseError string        `json:"parse_error,omitempty"`
-	Transcript []ChatMessage `json:"transcript"`
-	CreatedAt  string        `json:"created_at"`
-	UpdatedAt  string        `json:"updated_at"`
+	FlowName   string         `json:"flow_name"`
+	Date       string         `json:"date"`
+	Seq        int            `json:"seq"`
+	Name       string         `json:"name,omitempty"`
+	ParseError string         `json:"parse_error,omitempty"`
+	Transcript []ChatMessage  `json:"transcript"`
+	Questions  []OpenQuestion `json:"questions,omitempty"`
+	CreatedAt  string         `json:"created_at"`
+	UpdatedAt  string         `json:"updated_at"`
 }
 
 // NewDraftStore creates a store rooted at root, creating the directory if
@@ -73,8 +75,10 @@ func (s *DraftStore) Save(d *DraftVersion) error {
 		FlowName:   d.FlowName,
 		Date:       d.Date,
 		Seq:        d.Seq,
+		Name:       d.Name,
 		ParseError: d.ParseError,
 		Transcript: d.Transcript,
+		Questions:  d.Questions,
 		CreatedAt:  d.CreatedAt.Format(timeLayout),
 		UpdatedAt:  d.UpdatedAt.Format(timeLayout),
 	}
@@ -202,9 +206,11 @@ func (s *DraftStore) load(flow, draftID string) (*DraftVersion, error) {
 		FlowName:   meta.FlowName,
 		Date:       meta.Date,
 		Seq:        meta.Seq,
+		Name:       meta.Name,
 		EvmlSource: string(evml),
 		ParseError: meta.ParseError,
 		Transcript: meta.Transcript,
+		Questions:  meta.Questions,
 	}
 	d.CreatedAt, _ = parseTime(meta.CreatedAt)
 	d.UpdatedAt, _ = parseTime(meta.UpdatedAt)

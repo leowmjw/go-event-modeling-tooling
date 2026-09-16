@@ -54,6 +54,8 @@ func (a *App) buildPage(s *Session) (WorkspacePage, error) {
 	if d, ok := fs.Drafts[fs.ActiveDraftID]; ok {
 		page.ActiveSVG = template.HTML(activeSVG(fs, d))
 		page.Transcript = toChatViews(d.Transcript)
+		page.Questions = toQuestionViews(d.Questions)
+		page.Source = d.EvmlSource
 		page.ParseError = d.ParseError
 	} else {
 		page.ActiveSVG = template.HTML(fs.BaselineSVG)
@@ -113,7 +115,16 @@ func (a *App) resumeActiveFlow(s *Session) {
 
 func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 	s := a.sessions.ForRequest(w, r)
+	// Deep-link from the /examples gallery (or a shared link): open a flow on
+	// first load, without clobbering a flow the session already has open.
+	s.mu.Lock()
+	if s.ActiveFlow == "" && s.PendingFlow == "" {
+		if f := r.URL.Query().Get("flow"); f != "" {
+			s.PendingFlow = f
+		}
+	}
 	needsPersist := s.ModelID == ""
+	s.mu.Unlock()
 	page, err := a.buildPage(s)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -319,4 +330,37 @@ func (a *App) patchWorkspaceSSE(sse *datastar.ServerSentEventGenerator, s *Sessi
 	}
 	s.mu.Unlock()
 	log.Info("action: workspace patched", "flow", flow, "draft_id", draftID, "workspace_len", len(frag), "svg_len", len(svgFrag))
+}
+
+// fintechExamples is the curated set surfaced on the /examples gallery. Each
+// entry maps a fixture's flow slug to a human title and a one-line description.
+// Opening a card deep-links the studio to that fixture (see handleIndex's
+// ?flow= handling) so the diagram opens immediately.
+var fintechExamples = []ExampleView{
+	{FlowID: "fintech-payments-v1-core", Title: "Core Payments", Description: "Deposit, withdrawal and the ledger — the agreed happy path every stakeholder signs off on."},
+	{FlowID: "fintech-payments-v2-fraud", Title: "With Fraud Screening", Description: "A withdrawal crosses into a Fraud context; RiskEvaluated forks into a held (flagged) branch and a cleared branch."},
+	{FlowID: "fintech-payments-v3-reconciliation", Title: "With Settlement and Reconciliation", Description: "Daily batches are submitted to the bank and reconciled; a statement mismatch is fed back across the boundary for investigation."},
+	{FlowID: "fintech-payments-v4-async-fails", Title: "With Async Payout-Failure Recovery", Description: "Payouts can fail asynchronously at the bank; the Recovery context reverses and reissues over a different rail."},
+}
+
+// loadExamples renders the SVG thumbnail for every curated example fixture.
+func (a *App) loadExamples() []ExampleView {
+	out := make([]ExampleView, 0, len(fintechExamples))
+	for _, ex := range fintechExamples {
+		_, svg, err := a.readFixture(ex.FlowID)
+		if err != nil {
+			a.log.Warn("rendering example failed", "flow", ex.FlowID, "error", err)
+			continue
+		}
+		out = append(out, ExampleView{FlowID: ex.FlowID, Title: ex.Title, Description: ex.Description, SVG: template.HTML(svg)})
+	}
+	return out
+}
+
+// handleExamples renders the standalone examples gallery page.
+func (a *App) handleExamples(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := a.tmpl.ExecuteTemplate(w, "examples", a.loadExamples()); err != nil {
+		a.log.Error("render examples failed", "error", err)
+	}
 }

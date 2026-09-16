@@ -78,7 +78,11 @@ needing to read every source file first.
 ### Adding a new fixture
 1. Create `testdata/fixtures/<name>.evml`.
 2. No code changes required — the glob test covers it automatically.
-3. Add a focused `TestRender<Name>` function in `render_test.go` only if you
+3. The app also validates fixtures at load time (`evml.ValidateConnections` via
+   `renderEvml`), so keep every `->>` sourcing an *allowed* entity type — see
+   "Validation semantics" above. The FinTech examples
+   (`fintech-payments-v{N}.evml`) show the progressive, multi-context shape.
+4. Add a focused `TestRender<Name>` function in `render_test.go` only if you
    need to assert specific SVG content beyond the generic smoke test.
 
 ### SVG rendering colours (do not change without updating this file)
@@ -207,6 +211,65 @@ Per-browser state (model, active flow, active draft per flow) is keyed by the
 `handleSelectFlow` must read **both** `model` and `flow` from signals (Open is the atomic
 commit). `resumeActiveFlow` must call `NewDraft` when `DraftOrder == 0`, same as Open.
 
+#### Staging surface for domain experts
+
+The right rail of the workspace is a three-tab staging surface so non-technical
+domain experts can participate without leaning on the LLM for every tweak:
+
+- **Discussion** (default) — the chat transcript, as before.
+- **Source** — a live `.evml` editor. Edit the source directly and hit
+  "Validate & render"; the diagram updates immediately and any parse/validation
+  error shows inline. Use it when the expert knows the shape they want and wants
+  to skip a chat round-trip. (Unsaved source edits are refreshed from the draft
+  after a chat turn, so finish editing before sending a new message.)
+- **Open questions** — a per-draft checklist. Drop in anything you're unsure
+  about (`qText`) as you go; a "future goal" toggle moves the item into a
+  separate future-goals view, so the panel doubles as a lightweight roadmap.
+  Items are persisted with the draft and **forked into new versions** (open
+  questions carry forward), so staging state never silently drops between
+  iterations.
+
+Routes backing this: `GET /examples` (examples gallery), `POST /flow/{flow}/draft/{id}/question`,
+`POST /flow/{flow}/draft/{id}/question/{qid}/toggle`,
+`POST /flow/{flow}/draft/{id}/question/{qid}/delete`,
+`POST /flow/{flow}/draft/{id}/source`, plus an optional `versionName` signal on
+`POST /flow/{flow}/draft/{id}/new-version`. Question IDs are short random tokens
+(`newQuestionID` in `idgen.go`); they survive save/load and are never reused.
+
+This is the app-level answer to the "hotspots" notation sketched in
+`EVENT_MODELING.md` §12: open questions live in the draft's staging metadata
+(`DraftVersion.Questions`) rather than a new DSL keyword, so the `evml`
+parser/renderer stay untouched. Future goals are `OpenQuestion.FutureGoal` —
+also staging metadata, **not** written into the activated fixture (the fixture
+stays pure `.evml`). The version-name field on "+ New version" lets a team label
+versions (`v1: happy path`, `v2: with fraud`) so the timeline reads like a
+backlog.
+
+#### Starter fixtures
+
+Beyond the originals, `testdata/fixtures/fintech-payments-v{N}.evml` illustrate
+a progressive FinTech Enterprise refinement across bounded contexts (each version
+carries the prior model forward, so open them in order):
+
+- **v1-core** — Deposit / Withdrawal / Ledger (Core Payments, single context).
+- **v2-fraud** — withdrawal enters a `Fraud` context; `RiskEvaluated` forks into a
+  flagged (held) branch and a cleared branch.
+- **v3-reconciliation** — daily `Settlement` batch, bank `StatementReceived`
+  reconciliation with a mismatch fed back across the boundary for investigation.
+- **v4-async-fails** — `Compliance/Recovery` context for payouts that fail
+  asynchronously (`Bank.PayoutFailed` → `ReverseAndReissuePayout`).
+
+Each fixture's header comment lists the future goals not yet modeled.
+
+#### Examples gallery
+
+A dedicated `GET /examples` route renders a standalone gallery (`examples.gohtml`)
+of the curated FinTech fixtures — live SVGs with descriptions and an "Open in
+studio" link per card. Each link deep-links the studio via `?flow=<slug>`:
+`handleIndex` reads the `flow` query param into `session.PendingFlow` (only when
+no flow is already open) so `resumeActiveFlow` opens it on first render without
+clobbering an active session. The topbar gained an `Examples` link to the gallery.
+
 #### Debugging client ↔ server
 
 - **Browser:** append `?debug=1` to enable `static/debug.js` (logs fetch bodies and Datastar
@@ -223,3 +286,6 @@ mise run test:ui-model-flow-selection
 ```
 
 Browser debug logging: append `?debug=1` to the URL.
+
+NOTE: Laguna - command-code --resume 3f0ff412-d586-4bf7-8cc8-e66660a1f838
+
