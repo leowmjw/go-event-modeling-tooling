@@ -33,8 +33,13 @@ func main() {
 
 func run() error {
 	var (
-		addr     = flag.String("addr", "localhost:8080", "HTTP listen address")
-		repoRoot = flag.String("repo-root", ".", "root of the go-event-modeling-tooling checkout (contains testdata/fixtures, EVENT_MODELING.md, SKILL.md)")
+		addr = flag.String("addr", "localhost:8080", "HTTP listen address")
+		// Defaults to the repo root derived from this source file's location
+		// (cmd/evmlweb/..), not "." — "." would resolve relative to the
+		// working directory, so launching from inside cmd/evmlweb (e.g. `go
+		// run .`) would wrongly look for testdata/fixtures under
+		// cmd/evmlweb/testdata/fixtures.
+		repoRoot = flag.String("repo-root", filepath.Join(mustSourceDir(), "..", ".."), "root of the go-event-modeling-tooling checkout (contains testdata/fixtures, EVENT_MODELING.md, SKILL.md)")
 		stateDir = flag.String("state-dir", "", "directory to persist in-progress draft versions (default: <evmlweb-module>/.state)")
 		logJSON  = flag.Bool("log-json", false, "emit structured logs as JSON instead of text")
 		useLLM   = flag.Bool("llm", true, "load the local Kronk model catalog for the assistant tab; set -llm=false to run a session without any local model")

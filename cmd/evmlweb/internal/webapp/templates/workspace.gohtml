@@ -59,7 +59,7 @@
       data-on:mousedown="$panning = true; $moved = false; $panStartX = evt.clientX; $panStartY = evt.clientY; $panOrigX = $svgX; $panOrigY = $svgY"
       data-on:mouseup__window="$panning = false"
       data-on:mousemove__window="if ($panning) { if (Math.abs(evt.clientX - $panStartX) + Math.abs(evt.clientY - $panStartY) > 3) $moved = true; $svgX = $panOrigX + (evt.clientX - $panStartX); $svgY = $panOrigY + (evt.clientY - $panStartY) }"
-      data-effect="document.querySelectorAll('#svg-container .box.selected').forEach(e => e.classList.remove('selected')); const el = document.getElementById('frame-' + $sel); if (el) el.classList.add('selected')">
+      data-effect="document.querySelectorAll('#svg-container .box.selected').forEach(e => e.classList.remove('selected')); const selEl = document.getElementById('frame-' + $sel); if (selEl) selEl.classList.add('selected')">
       <div class="svg-toolbar">
         <button data-on:click="$svgScale = 1; $svgX = 0; $svgY = 0">Reset view</button>
         <span class="hint">scroll to zoom · drag to pan · click a step to inspect it</span>
