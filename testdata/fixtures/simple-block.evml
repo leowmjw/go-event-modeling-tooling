@@ -1,9 +1,42 @@
 eventmodeling
 
+tf 01 ui AddItemScreen
 tf 02 cmd AddItem [[AddItem01]]
+tf 03 evt ItemAdded [[ItemAdded03]]
+tf 04 rmo ItemCatalog [[ItemCatalog04]]
 
 data AddItem01 {
+  itemId: 'item-1'
   description: 'john'
   image: 'avatar_john'
   price: 20.4
 }
+
+data ItemAdded03 {
+  itemId: 'item-1'
+  description: 'john'
+  image: 'avatar_john'
+  price: 20.4
+}
+
+data ItemCatalog04 {
+  items: [
+    { itemId: 'item-1', description: 'john', image: 'avatar_john', price: 20.4 }
+  ]
+}
+
+gwt 02 "add a valid item"
+  given
+    evt ItemCatalogOpened { catalogId: 'catalog-1' }
+  when
+    cmd AddItem { itemId: 'item-1', description: 'john', image: 'avatar_john', price: 20.4 }
+  then
+    evt ItemAdded { itemId: 'item-1', description: 'john', image: 'avatar_john', price: 20.4 }
+
+gwt 02 "reject an item with a non-positive price"
+  given
+    evt ItemCatalogOpened { catalogId: 'catalog-1' }
+  when
+    cmd AddItem { itemId: 'item-2', description: 'jane', image: 'avatar_jane', price: 0 }
+  then
+    evt ItemAddRejected { itemId: 'item-2', reason: 'price_must_be_positive' }

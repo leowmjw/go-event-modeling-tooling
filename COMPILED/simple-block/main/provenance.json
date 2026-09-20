@@ -1,24 +1,34 @@
 {
   "schema": "evml-rote-ir-provenance/v1",
   "source_model": "testdata/fixtures/simple-block.evml",
-  "source_sha256": "91f6ce3127cdc8b92c252becbc8e5bf387ac2714f870f0129faa39c6aa30b23d",
+  "source_sha256": "d40f88b73aa4a22da1789fb36bc3de4e452f4c6aecb5a7236b038f59756fe22b",
   "model": "simple-block",
   "context": "main",
   "section_name": "",
   "frames": [
-    "02"
+    "01",
+    "02",
+    "03",
+    "04"
   ],
   "ir": "pipeline.yaml",
   "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
-  "compiled_at": "2026-09-17",
-  "pipeline_version": "0.1.0",
+  "compiled_at": "2026-09-20",
+  "pipeline_version": "1.0.0",
   "sections": {
-    "tf 02 cmd AddItem": "7548bf62292122efbbdcba0217d43dfb02f67eb217190e7565c23a4ec4502ccd"
+    "tf 01 ui AddItemScreen": "4aed278de00b7a0b9ecaab9ca229f6eee2f2b7e1fd4e6015c784b4259415b4c0",
+    "tf 02 cmd AddItem": "1d396fab3fbe80c4f4f5b49752188927b3f7230c19e77d2f9737c8df5e7e77f7",
+    "tf 03 evt ItemAdded": "01f55434280bc8c187cdfb352314ac0ab59b0c8ecb81faff65eb8c5791baad49",
+    "tf 04 rmo ItemCatalog": "f06c71e122ec79b290ceaa13abf2d87725e3eaf36d12978a2d0d5162646a7065"
   },
   "nodes": {
-    "decide_AddItem": {
+    "decide_add_item": {
       "section": "tf 02 cmd AddItem",
-      "content_hash": "7548bf62292122efbbdcba0217d43dfb02f67eb217190e7565c23a4ec4502ccd"
+      "content_hash": "1d396fab3fbe80c4f4f5b49752188927b3f7230c19e77d2f9737c8df5e7e77f7"
+    },
+    "project_item_catalog": {
+      "section": "tf 04 rmo ItemCatalog",
+      "content_hash": "f06c71e122ec79b290ceaa13abf2d87725e3eaf36d12978a2d0d5162646a7065"
     }
   }
 }

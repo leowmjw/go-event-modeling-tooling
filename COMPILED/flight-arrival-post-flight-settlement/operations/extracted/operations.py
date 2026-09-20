@@ -1,22 +1,35 @@
 from __future__ import annotations
 
 
-def project_FlightStatus(event: dict) -> dict:    """Project read model FlightStatus"""    raise NotImplementedError("project_FlightStatus is not implemented")
+def project_flight_status(event: dict) -> dict:
+    return {key: event[key] for key in ("flightId", "origin", "destination", "scheduledArrival", "currentStatus", "aircraftId")}
 
 
-def decide_RecordWheelsDown(command: dict) -> dict:    """Decide the result of command RecordWheelsDown"""    raise NotImplementedError("decide_RecordWheelsDown is not implemented")
+def decide_record_wheels_down(command: dict, prior_events: list[dict]) -> dict:
+    if any(event.get("event") == "WheelsDownRecorded" for event in prior_events):
+        return {"event": "WheelsDownRejected", "flightId": command["flightId"], "reason": "already_recorded"}
+    return {"event": "WheelsDownRecorded", **command, "boundedContext": "Operations"}
 
 
-def decide_RecordGateArrival(command: dict) -> dict:    """Decide the result of command RecordGateArrival"""    raise NotImplementedError("decide_RecordGateArrival is not implemented")
+def decide_record_gate_arrival(command: dict, prior_events: list[dict]) -> dict:
+    if not any(event.get("event") == "WheelsDownRecorded" for event in prior_events):
+        return {"event": "GateArrivalRejected", "flightId": command["flightId"], "reason": "wheels_down_not_recorded"}
+    return {"event": "GateOpened", **command, "boundedContext": "Operations"}
 
 
-def project_ArrivalBoard(event: dict) -> dict:    """Project read model ArrivalBoard"""    raise NotImplementedError("project_ArrivalBoard is not implemented")
+def project_arrival_board(event: dict) -> dict:
+    return {"flightId": event["flightId"], "gateId": event["gateId"], "gateDoorOpenTime": event["gateDoorOpenTime"], "displayStatus": "ARRIVED"}
 
 
-def translate_OntimeVerifier(input: dict) -> dict:    """Translate external event to internal payload"""    raise NotImplementedError("translate_OntimeVerifier is not implemented")
+def translate_ontime_verifier(input: dict) -> dict:
+    return {"flightId": input["flightId"], "closedAt": input["wheelsTouchTime"], "reason": "on_time_wheels_down"}
 
 
-def decide_CloseFlightOnTime(command: dict) -> dict:    """Decide the result of command CloseFlightOnTime"""    raise NotImplementedError("decide_CloseFlightOnTime is not implemented")
+def decide_close_flight_on_time(command: dict, prior_events: list[dict]) -> dict:
+    if not any(event.get("event", "").endswith("WheelsDownRecorded") for event in prior_events):
+        return {"event": "FlightClosureRejected", "flightId": command["flightId"], "reason": "wheels_down_not_recorded"}
+    return {"event": "FlightClosedOnTime", "flightId": command["flightId"], "closedAt": command["closedAt"]}
 
 
-def project_FlightClosureRecord(event: dict) -> dict:    """Project read model FlightClosureRecord"""    raise NotImplementedError("project_FlightClosureRecord is not implemented")
+def project_flight_closure_record(event: dict) -> dict:
+    return {"flightId": event["flightId"], "status": "on_time", "closedAt": event["closedAt"]}

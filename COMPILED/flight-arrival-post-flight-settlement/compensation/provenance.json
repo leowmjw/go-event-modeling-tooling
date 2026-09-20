@@ -1,7 +1,7 @@
 {
   "schema": "evml-rote-ir-provenance/v1",
   "source_model": "testdata/fixtures/flight-arrival-post-flight-settlement.evml",
-  "source_sha256": "63e0ae454394f981424d019c5363393e418ea5c8ad700939fc5725298d8ad505",
+  "source_sha256": "b58f2a593478d8d4918fcc99def78b0276b82296f625d3f66ad2a5d02a973a6c",
   "model": "flight-arrival-post-flight-settlement",
   "context": "compensation",
   "section_name": "Compensation bounded context",
@@ -19,60 +19,82 @@
     "18",
     "19",
     "20",
-    "21"
+    "21",
+    "35",
+    "36",
+    "37",
+    "38",
+    "39"
   ],
   "ir": "pipeline.yaml",
   "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
-  "compiled_at": "2026-09-17",
-  "pipeline_version": "0.1.0",
+  "compiled_at": "2026-09-20",
+  "pipeline_version": "1.0.0",
   "sections": {
-    "rf 08 evt Operations.GateOpened": "7704fe333f91b7debbb6b0f848d30f91f1a36322e36bd6d15563cdcc57a66981",
+    "rf 08 evt Operations.GateOpened": "81574ffd00733569ed63d5d40245ded8a7ccfc02049556f956a068cf0d5e5f46",
     "tf 09 pcr CompensationProcessor": "ecf40f849747add68beb1046a5751d2163c709be92609961fd296d5d5782c94b",
-    "tf 10 cmd EvaluateDelay": "6ad58c1417c0a18c5fe0770769dae716f20d29f3bdad0c8d29290cc0f6a35cbb",
+    "tf 10 cmd EvaluateDelay": "ed9ed207a088ceeeb306ff5603cd585ecc675f3e9ac98b81d1c6098474f36bb9",
     "tf 11 evt DelayEvaluated": "208a2ade3f54ae64b3fb89abb64218a0e636ebfed57c5fc4e4e23614d682df82",
     "tf 12 cmd VerifyPassengerEligibility": "30860600c1e601c82ba8bb187d260e4bb85e21c1923c858f0a746499de7a4fa3",
     "tf 13 evt PassengerEligibilityVerified": "7dac3c42a61c2a223601db9babb39054d517f4b76a43647f2ba82151fc7d537f",
-    "tf 14 cmd CalculateCompensation": "4576f57b68a52be06c27ff781722d49aa93321beeb13fb2820b79e0fac4bfea5",
+    "tf 14 cmd CalculateCompensation": "dd46538f138dcd46a72758ee2706121cbe7d309b1159aafe81b2e8505e08ac0b",
     "tf 15 evt CompensationCalculated": "0b9cb1a62d5f047ca4cad924bde4fac155262ab496bbe003a676b99a5a010495",
     "tf 16 rmo DelayClaimSummary": "1a1d19da71e689e107a421d168ffa913c9a09aa8d9761aaed7b7893cf0308074",
     "rf 17 evt Operations.FlightClosedOnTime": "5b53a79d8cc9dc46e4b4dfebd34e3adf7b03f671743d7ccfc93155df42baf045",
     "tf 18 pcr CompensationClosureProcessor": "4a4dd34747eb83d47f9f8efa286650c7a428097813019b94ffc39a473b1e730a",
     "tf 19 cmd CloseCompensationCase": "4274e3510b21d17c65f2bd8b99b2b2204ee50609abd91b6bcbd0567dd2853f1a",
     "tf 20 evt CompensationCaseClosed": "d90a4b1e36cdbf176cdcede966e0f8bac02dc0feb944c5cf5bcd645441b2eff0",
-    "tf 21 rmo ClosedClaimRecord": "3d47a7d1c998207f68458b091c3e541803cdb253a26e8e6e9a713178eaf00f1a"
+    "tf 21 rmo ClosedClaimRecord": "3d47a7d1c998207f68458b091c3e541803cdb253a26e8e6e9a713178eaf00f1a",
+    "rf 35 evt Finance.PartialDisbursementRejected": "b5f774a0b251af5fb258fc3cca49978d48375b030e9c22de3cdbef80f848e05a",
+    "tf 36 pcr CompensationRecoveryTranslator": "1c89ec47396758d6fcbff65337d490f596fcd9a1bfd63884f810660f14e6fe2e",
+    "tf 37 cmd EscalateUnresolvedClaim": "be4da55ecfb92ffd27dddc279f074bfa70871a88f6612f552cc38ddca8fc22a3",
+    "tf 38 evt ClaimEscalated": "70e1a264f9782852b308a61b48b8422e5a3c10d97e9ce193eab42b0beb654097",
+    "tf 39 rmo EscalatedClaimsQueue": "b64444b5082b21a9d1761a001fa479fe130a9de2ef136fa7d68a2a7b55c3f1a9"
   },
   "nodes": {
-    "translate_CompensationProcessor": {
+    "translate_compensation_processor": {
       "section": "tf 09 pcr CompensationProcessor",
       "content_hash": "ecf40f849747add68beb1046a5751d2163c709be92609961fd296d5d5782c94b"
     },
-    "decide_EvaluateDelay": {
+    "decide_evaluate_delay": {
       "section": "tf 10 cmd EvaluateDelay",
-      "content_hash": "6ad58c1417c0a18c5fe0770769dae716f20d29f3bdad0c8d29290cc0f6a35cbb"
+      "content_hash": "ed9ed207a088ceeeb306ff5603cd585ecc675f3e9ac98b81d1c6098474f36bb9"
     },
-    "decide_VerifyPassengerEligibility": {
+    "decide_verify_passenger_eligibility": {
       "section": "tf 12 cmd VerifyPassengerEligibility",
       "content_hash": "30860600c1e601c82ba8bb187d260e4bb85e21c1923c858f0a746499de7a4fa3"
     },
-    "decide_CalculateCompensation": {
+    "decide_calculate_compensation": {
       "section": "tf 14 cmd CalculateCompensation",
-      "content_hash": "4576f57b68a52be06c27ff781722d49aa93321beeb13fb2820b79e0fac4bfea5"
+      "content_hash": "dd46538f138dcd46a72758ee2706121cbe7d309b1159aafe81b2e8505e08ac0b"
     },
-    "project_DelayClaimSummary": {
+    "project_delay_claim_summary": {
       "section": "tf 16 rmo DelayClaimSummary",
       "content_hash": "1a1d19da71e689e107a421d168ffa913c9a09aa8d9761aaed7b7893cf0308074"
     },
-    "translate_CompensationClosureProcessor": {
+    "translate_compensation_closure_processor": {
       "section": "tf 18 pcr CompensationClosureProcessor",
       "content_hash": "4a4dd34747eb83d47f9f8efa286650c7a428097813019b94ffc39a473b1e730a"
     },
-    "decide_CloseCompensationCase": {
+    "decide_close_compensation_case": {
       "section": "tf 19 cmd CloseCompensationCase",
       "content_hash": "4274e3510b21d17c65f2bd8b99b2b2204ee50609abd91b6bcbd0567dd2853f1a"
     },
-    "project_ClosedClaimRecord": {
+    "project_closed_claim_record": {
       "section": "tf 21 rmo ClosedClaimRecord",
       "content_hash": "3d47a7d1c998207f68458b091c3e541803cdb253a26e8e6e9a713178eaf00f1a"
+    },
+    "translate_compensation_recovery": {
+      "section": "tf 36 pcr CompensationRecoveryTranslator",
+      "content_hash": "1c89ec47396758d6fcbff65337d490f596fcd9a1bfd63884f810660f14e6fe2e"
+    },
+    "decide_escalate_unresolved_claim": {
+      "section": "tf 37 cmd EscalateUnresolvedClaim",
+      "content_hash": "be4da55ecfb92ffd27dddc279f074bfa70871a88f6612f552cc38ddca8fc22a3"
+    },
+    "project_escalated_claims_queue": {
+      "section": "tf 39 rmo EscalatedClaimsQueue",
+      "content_hash": "b64444b5082b21a9d1761a001fa479fe130a9de2ef136fa7d68a2a7b55c3f1a9"
     }
   }
 }

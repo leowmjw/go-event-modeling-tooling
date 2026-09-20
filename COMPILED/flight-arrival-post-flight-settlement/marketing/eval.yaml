@@ -1,1 +1,6 @@
-cases: []
+cases:
+  - {name: tag matching travelers, node: decide_tag_delayed_travelers}
+  - {name: skip empty audience, node: decide_tag_delayed_travelers}
+  - {name: send recovery offers, node: decide_send_recovery_offer}
+  - {name: accept recovery offer, node: decide_respond_to_recovery_offer}
+  - {name: decline recovery offer, node: decide_respond_to_recovery_offer}

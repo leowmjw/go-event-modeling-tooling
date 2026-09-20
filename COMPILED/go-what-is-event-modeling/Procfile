@@ -1,0 +1,2 @@
+temporal: $HOME/go/bin/temporal server start-dev --ip 127.0.0.1
+worker: go run ./cmd/worker

@@ -1,30 +1,45 @@
 name: simple-block-main
-version: 0.1.0
-description: IR for main context of simple-block
+version: 1.0.0
+description: Add a catalog item and project the resulting catalog.
 input:
   type: AddItemCommand
-  required:
-  - payload
+  required: [itemId, description, image, price]
   input_schema:
     type: object
-    properties: {}
-    required: []
-    title: AddItemCommand
+    properties:
+      itemId: {type: string}
+      description: {type: string}
+      image: {type: string}
+      price: {type: number}
+      priorEvents:
+        type: array
+        items: {type: object}
+    required: [itemId, description, image, price]
 nodes:
-- id: decide_AddItem
-  kind: pure_function
-  description: Decide the result of command AddItem
-  source:
-    section: tf 02 cmd AddItem
-  impl: extracted/main.py:decide_AddItem
-  input: &id001
-    command: pipeline.input
-  inputs: *id001
-  output:
-    result: AddItemResult
-  mandatory: false
-edges: []
-entry_nodes:
-- decide_AddItem
-exit_nodes:
-- decide_AddItem
+  - id: decide_add_item
+    kind: pure_function
+    description: Validate and add an item.
+    source: {section: "tf 02 cmd AddItem"}
+    impl: extracted/main.py:decide_add_item
+    input: &add_inputs
+      command: pipeline.input
+      prior_events: pipeline.input.priorEvents
+    inputs: *add_inputs
+    output:
+      result: AddItemResult
+    mandatory: true
+  - id: project_item_catalog
+    kind: pure_function
+    description: Project ItemAdded into the item catalog.
+    source: {section: "tf 04 rmo ItemCatalog"}
+    impl: extracted/main.py:project_item_catalog
+    input: &catalog_inputs
+      result: decide_add_item.output
+    inputs: *catalog_inputs
+    output:
+      view: ItemCatalog
+    mandatory: true
+edges:
+  - {from: decide_add_item, to: project_item_catalog}
+entry_nodes: [decide_add_item]
+exit_nodes: [project_item_catalog]

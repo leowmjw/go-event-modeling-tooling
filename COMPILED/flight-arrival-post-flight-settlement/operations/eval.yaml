@@ -1,1 +1,7 @@
-cases: []
+cases:
+  - {name: record wheels-down, node: decide_record_wheels_down}
+  - {name: reject duplicate wheels-down, node: decide_record_wheels_down}
+  - {name: record gate arrival, node: decide_record_gate_arrival}
+  - {name: reject gate arrival without wheels-down, node: decide_record_gate_arrival}
+  - {name: close flight on time, node: decide_close_flight_on_time}
+  - {name: reject closure without wheels-down, node: decide_close_flight_on_time}

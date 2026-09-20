@@ -168,7 +168,7 @@ banner). Intake is `evml json` output (`COMPILED/<model>/model.json`);
 staleness/provenance is tracked by `scripts/evml_provenance.py`.
 `COMPILED/` is committed.
 
-## `.devin/skills/compile-evml-go-temporal`
+## `.agents/skills/compile-evml-go-temporal`
 
 Combined compiler/emitter that first produces the authoritative rote IR above, then emits a
 **standalone Go + Temporal application** at `COMPILED/go-<model>/`. Use it for requests to

@@ -199,6 +199,18 @@ context (`Sales.OrderPlaced` → `OrderPlaced`) and keep it in the report.
 
 Compile exactly one model.
 
+### Preflight completeness gate
+
+Before trusting existing provenance or writing IR, audit the fresh intake and source model for executable information completeness:
+
+1. Every command must have enough prior state and payload data to determine each declared success/rejection result. Every non-trivial branch must have a GWT with a complete `then` payload.
+2. Every read model/data block must be derivable solely from bound source events; flag any field that would require an invented constant, hidden lookup, wall clock, random ID, or unavailable prior state.
+3. Every processor must have an explicit deterministic rule, named external-system contract, or confirmed LLM classification. LLM-flavoured processors still require the expert to choose `llm_judge`, `agent_loop`, or `pure_function`; never preserve an old guessed classification merely because provenance is current.
+4. Every `rf` automation slice must have deterministic context ownership and a typed producer/consumer contract.
+5. Existing artifacts are not graduated when an implementation/signature is a stub, invalid Python, a multi-node pipeline has no edges without an explicit parallel-flow justification, tests merely import symbols, or the compile report contains generic review placeholders.
+
+Mechanically repair stale compiler artifacts and model defects whose intended value is already explicit elsewhere in the `.evml` (for example, completing a projection payload from an existing data block). If a repair would choose a business rule, LLM behavior, context owner, identifier/timestamp source, or external system that the model does not state, stop with a frame-by-frame list for the expert. Do not emit Go while any preflight item remains unresolved.
+
 1. **Intake.** Resolve `<model>` → `testdata/fixtures/<model>.evml` (or the
    given path). Run
    ```sh

@@ -10,6 +10,7 @@ recompiled without re-deriving unchanged ones.
 """
 
 import argparse
+import ast
 import datetime
 import hashlib
 import json
@@ -169,6 +170,78 @@ def _referenced_files(pipeline):
     return refs
 
 
+def _implementation_issues(ctx_dir, pipeline):
+    issues = []
+    parsed = {}
+    for node in _pipeline_nodes(pipeline):
+        target = node.get("impl")
+        if not isinstance(target, str) or ":" not in target:
+            continue
+        relative, symbol = target.rsplit(":", 1)
+        path = ctx_dir / relative
+        if not path.exists():
+            continue
+        try:
+            tree = parsed.setdefault(path, ast.parse(path.read_text(encoding="utf-8")))
+        except (OSError, SyntaxError) as exc:
+            issues.append(f"{node.get('id', '<unknown>')}: invalid implementation: {exc}")
+            continue
+        functions = {item.name: item for item in tree.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        function = functions.get(symbol)
+        if function is None:
+            issues.append(f"{node.get('id', '<unknown>')}: missing symbol {symbol}")
+            continue
+        if any(
+            isinstance(item, ast.Raise)
+            and isinstance(item.exc, ast.Call)
+            and isinstance(item.exc.func, ast.Name)
+            and item.exc.func.id == "NotImplementedError"
+            for item in ast.walk(function)
+        ):
+            issues.append(f"{node.get('id', '<unknown>')}: NotImplementedError stub")
+    return issues
+
+
+def _graduation_issues(ctx_dir, pipeline):
+    issues = []
+    nodes = _pipeline_nodes(pipeline)
+    if len(nodes) > 1 and not (pipeline.get("edges") or []):
+        issues.append("multi-node pipeline has no edges")
+    for node in nodes:
+        target = node.get("signature")
+        if not isinstance(target, str) or ":" not in target:
+            continue
+        relative, _ = target.rsplit(":", 1)
+        path = ctx_dir / relative
+        if path.exists():
+            text = path.read_text(encoding="utf-8")
+            if "NotImplemented" in text or "stub" in text.lower():
+                issues.append(f"{node.get('id', '<unknown>')}: placeholder signature")
+    report_path = ctx_dir / "compile-report.md"
+    if report_path.exists() and "Generated automatically; review" in report_path.read_text(encoding="utf-8"):
+        issues.append("compile report contains an unresolved review placeholder")
+    return issues
+
+
+def _model_completeness_issues(model, provenance):
+    issues = []
+    frame_ids = set(provenance.get("frames", []))
+    frames = [frame for frame in model.get("frames", []) if frame.get("id") in frame_ids]
+    gwt_frames = {gwt.get("frame") for gwt in model.get("gwts", [])}
+    for frame in frames:
+        if frame.get("type") == "cmd" and frame.get("id") not in gwt_frames:
+            issues.append(f"{section_key(frame)}: no GWT scenarios")
+    notes_by_frame = {note.get("frame") for note in model.get("notes", [])}
+    llm_terms = ("agent", "invokemodel", "classify", "summar", "generate")
+    for frame in frames:
+        name = str(frame.get("name", "")).lower()
+        if frame.get("type") == "pcr" and any(term in name for term in llm_terms) and frame.get("id") not in notes_by_frame:
+            issues.append(f"{section_key(frame)}: LLM classification is not recorded in a note")
+    if any(frame.get("kind") == "rf" for frame in frames) and not model.get("sections"):
+        issues.append("rf automation slice has no named bounded-context banner")
+    return issues
+
+
 def _check_context(ctx_dir, model, hashes):
     prov_path = ctx_dir / "provenance.json"
     with open(prov_path, "r", encoding="utf-8") as f:
@@ -200,6 +273,16 @@ def _check_context(ctx_dir, model, hashes):
                 missing_artifacts.append(ref)
     if missing_artifacts:
         reasons["missing_artifacts"] = sorted(set(missing_artifacts))
+    if pipeline is not None:
+        implementation_issues = _implementation_issues(ctx_dir, pipeline)
+        if implementation_issues:
+            reasons["implementation_issues"] = implementation_issues
+        graduation_issues = _graduation_issues(ctx_dir, pipeline)
+        if graduation_issues:
+            reasons["graduation_issues"] = graduation_issues
+    completeness_issues = _model_completeness_issues(model, prov)
+    if completeness_issues:
+        reasons["model_completeness_issues"] = completeness_issues
 
     model_frames = {f["id"]: f for f in model.get("frames", [])}
     recorded_sections = prov.get("sections", {})

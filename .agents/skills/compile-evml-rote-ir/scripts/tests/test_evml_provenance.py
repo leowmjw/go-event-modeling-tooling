@@ -137,7 +137,8 @@ def write_pipeline(ctx_dir, section_keys):
         + "".join(
             f"  - id: {n['id']}\n    kind: task\n    source:\n      section: \"{n['source']['section']}\"\n"
             for n in nodes
-        ),
+        )
+        + ("edges:\n  - {from: n0, to: n1}\n" if len(nodes) > 1 else "edges: []\n"),
         encoding="utf-8",
     )
     (ctx_dir / "compile-report.md").write_text("# report\n", encoding="utf-8")
@@ -327,3 +328,43 @@ def test_check_missing_eval_set(model_json, tmp_path):
     c = report["contexts"][0]
     assert c["status"] == "stale"
     assert "evals/vet_contact.jsonl" in c["reasons"]["missing_artifacts"]
+
+
+def test_check_marks_not_implemented_impl_stale(model_json, tmp_path):
+    ctx = tmp_path / "COMPILED" / "tiny" / "sales"
+    ctx.mkdir(parents=True, exist_ok=True)
+    (ctx / "pipeline.yaml").write_text(
+        "version: '1.0.0'\nnodes:\n"
+        "  - id: decide_place_order\n    kind: pure_function\n"
+        "    source:\n      section: \"tf 02 cmd PlaceOrder\"\n"
+        "    impl: extracted/sales.py:decide_place_order\n",
+        encoding="utf-8",
+    )
+    (ctx / "compile-report.md").write_text("# report\n", encoding="utf-8")
+    (ctx / "eval.yaml").write_text("cases: []\n", encoding="utf-8")
+    (ctx / "extracted").mkdir()
+    (ctx / "extracted" / "sales.py").write_text(
+        "def decide_place_order(command):\n    raise NotImplementedError('missing')\n",
+        encoding="utf-8",
+    )
+    res = write_prov(model_json, ctx, frames="02")
+    assert res.returncode == 0, res.stderr
+    res = run_script("check", str(model_json), "--compiled", str(tmp_path / "COMPILED" / "tiny"), "--json")
+    assert res.returncode == 0, res.stderr
+    context = json.loads(res.stdout)["contexts"][0]
+    assert context["status"] == "stale"
+    assert context["reasons"]["implementation_issues"] == [
+        "decide_place_order: NotImplementedError stub"
+    ]
+
+
+def test_check_marks_command_without_gwt_stale(model_json, tmp_path):
+    compiled = _compiled(tmp_path, model_json)
+    model = json.loads(model_json.read_text())
+    model["gwts"] = []
+    model_json.write_text(json.dumps(model), encoding="utf-8")
+    res = run_script("check", str(model_json), "--compiled", str(compiled), "--json")
+    assert res.returncode == 0, res.stderr
+    context = json.loads(res.stdout)["contexts"][0]
+    assert context["status"] == "stale"
+    assert "tf 02 cmd PlaceOrder: no GWT scenarios" in context["reasons"]["model_completeness_issues"]
