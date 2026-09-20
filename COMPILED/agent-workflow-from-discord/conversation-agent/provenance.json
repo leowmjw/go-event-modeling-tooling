@@ -1,0 +1,64 @@
+{
+  "schema": "evml-rote-ir-provenance/v1",
+  "source_model": "testdata/fixtures/agent-workflow-from-discord.evml",
+  "source_sha256": "27099d2a7a588bafc82cca25644a9b02e7752d51d31108247b59fec23671c0a9",
+  "model": "agent-workflow-from-discord",
+  "context": "conversation-agent",
+  "section_name": "Conversation Agent bounded context",
+  "frames": [
+    "01",
+    "02",
+    "03",
+    "04",
+    "05",
+    "06",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17"
+  ],
+  "ir": "pipeline.yaml",
+  "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
+  "compiled_at": "2026-09-20",
+  "pipeline_version": "1.0.0",
+  "sections": {
+    "tf 01 ui DiscordScreen": "030a61a1091dc550dbf1d009012e6f85a7642b8b23e4c635a102fdff179ef0e0",
+    "tf 02 cmd AskQuestion": "cfbb349f7502c969936accd1454eeb308d7851f6f1806a562b9391e89ab84ba1",
+    "tf 03 evt QuestionAsked": "273b91353d4cfdb29005ea5ecff16348f647e499fe99d55194d226e5d320ca9f",
+    "tf 04 pcr SelectInvoiceTool": "b12ab4dc0873fbd6b4d7d525d2b580df9507c9375f1cb58106205e563a5404de",
+    "tf 05 cmd RequestInvoiceSearch": "3eeec0a48e14c8957530b72c314b1051693b9e1a172a3c8fdcda8849857b52c4",
+    "tf 06 evt Conversation.InvoiceSearchRequested": "65ff28d3f270da0985795043be135e3c711c73ff4a215189b26badc46bad5e2e",
+    "rf 13 evt InvoiceSearch.InvoicesFound": "fe066c6bd075cc170ba34f69e5abe43be5c7a51b7ab3014ecad985a632b35054",
+    "tf 14 pcr FormatInvoiceAnswer": "c45ac4463d0d5ecd1c7425d66b5641398d04d944ba331f70034713ca4446f883",
+    "tf 15 cmd RecordAnswer": "36c771adae19f2e8a70832a872127b1a64a1daced1426a0c520047da0ed94a28",
+    "tf 16 evt AnswerRecorded": "5bb120471d614a79b5b876a58d6ea3ece8454b0527646c12680752d734d06724",
+    "tf 17 rmo Answers": "1890a4732dea12d4ee452f084f91c135b777b37ef196581fe1a393b9327c87e4"
+  },
+  "nodes": {
+    "decide_ask_question": {
+      "section": "tf 02 cmd AskQuestion",
+      "content_hash": "cfbb349f7502c969936accd1454eeb308d7851f6f1806a562b9391e89ab84ba1"
+    },
+    "judge_select_invoice_tool": {
+      "section": "tf 04 pcr SelectInvoiceTool",
+      "content_hash": "b12ab4dc0873fbd6b4d7d525d2b580df9507c9375f1cb58106205e563a5404de"
+    },
+    "decide_request_invoice_search": {
+      "section": "tf 05 cmd RequestInvoiceSearch",
+      "content_hash": "3eeec0a48e14c8957530b72c314b1051693b9e1a172a3c8fdcda8849857b52c4"
+    },
+    "format_invoice_answer": {
+      "section": "tf 14 pcr FormatInvoiceAnswer",
+      "content_hash": "c45ac4463d0d5ecd1c7425d66b5641398d04d944ba331f70034713ca4446f883"
+    },
+    "decide_record_answer": {
+      "section": "tf 15 cmd RecordAnswer",
+      "content_hash": "36c771adae19f2e8a70832a872127b1a64a1daced1426a0c520047da0ed94a28"
+    },
+    "project_answers": {
+      "section": "tf 17 rmo Answers",
+      "content_hash": "1890a4732dea12d4ee452f084f91c135b777b37ef196581fe1a393b9327c87e4"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schema": "evml-rote-ir-provenance/v1",
+  "source_model": "testdata/fixtures/agent-workflow-from-discord.evml",
+  "source_sha256": "27099d2a7a588bafc82cca25644a9b02e7752d51d31108247b59fec23671c0a9",
+  "model": "agent-workflow-from-discord",
+  "context": "support-operations",
+  "section_name": "Support Operations bounded context",
+  "frames": [
+    "18",
+    "19"
+  ],
+  "ir": "pipeline.yaml",
+  "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
+  "compiled_at": "2026-09-20",
+  "pipeline_version": "1.0.0",
+  "sections": {
+    "rf 18 evt InvoiceSearch.InvoiceSearchFailed": "611f0aab396aac24a3825cb8cf252f74ad1a2be7732b7ed4b7364586cf397ece",
+    "tf 19 rmo SupportReviewInbox": "313240fda17e33c1e44574a394d1852a425faca83a48b2323cc38dcbb82bd813"
+  },
+  "nodes": {
+    "project_support_review_inbox": {
+      "section": "tf 19 rmo SupportReviewInbox",
+      "content_hash": "313240fda17e33c1e44574a394d1852a425faca83a48b2323cc38dcbb82bd813"
+    }
+  }
+}

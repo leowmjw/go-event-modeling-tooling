@@ -1,0 +1,28 @@
+[tools]
+go = "latest"
+overmind = "latest"
+
+[tasks.check]
+run = "go mod tidy -diff && go test -race ./... && go vet ./..."
+
+[tasks.doctor]
+run = '''
+set -eu
+command -v go
+command -v mise
+mise exec -- command -v overmind
+command -v tmux
+test -x "$HOME/go/bin/temporal"
+test -f Procfile
+test -f model.json
+go mod verify
+'''
+
+[tasks.demo]
+run = "mise exec -- overmind start -D"
+
+[tasks.scenario]
+run = "go run ./cmd/starter"
+
+[tasks.'demo:stop']
+run = "mise exec -- overmind quit"
