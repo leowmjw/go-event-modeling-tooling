@@ -1,7 +1,7 @@
 {
   "schema": "evml-rote-ir-provenance/v1",
   "source_model": "testdata/fixtures/bounded-context-order-fulfillment.evml",
-  "source_sha256": "5b12449fa4cbe7b60499bc133cd8f57e8dad47dd962e14c6e1de24d66cc4fa2a",
+  "source_sha256": "b1de67ae47414330d9d67f4ad771f6a3f151585fbf67f8b1a5daf0d451add823",
   "model": "bounded-context-order-fulfillment",
   "context": "billing",
   "section_name": "Billing bounded context",
@@ -10,18 +10,20 @@
     "07",
     "08",
     "09",
-    "10"
+    "10",
+    "22"
   ],
   "ir": "pipeline.yaml",
   "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
-  "compiled_at": "2026-09-17",
-  "pipeline_version": "0.1.0",
+  "compiled_at": "2026-09-20",
+  "pipeline_version": "0.2.0",
   "sections": {
     "rf 06 evt Sales.OrderPlaced": "34d49d7589825a64d48204a7e0a97b83775a98760d38d5972b024aa9de663bb4",
     "tf 07 pcr BillingTranslator": "b653f2eebc88bed36cec14d675d689d97cb8284a74cb6fa7f03e698b39c23c7a",
-    "tf 08 cmd AuthorizePayment": "79da3556ee98386672681af9567defcecf4c5af8b7de9a0c46bc11491449dece",
+    "tf 08 cmd AuthorizePayment": "815240c989f83f89661fda35125568857e53075058bf3d05bca343dc05e9f1e0",
     "tf 09 evt PaymentAuthorized": "67bfb11a97f3a2a10d8fe66021ed0637d029d605098f92c21cb9815161db4472",
-    "tf 10 rmo PaymentStatus": "f7032ca27fcf11ba0aa780a7bf084e7ed1c7750ce52c8a71ff02609eb6443af2"
+    "tf 10 rmo PaymentStatus": "f7032ca27fcf11ba0aa780a7bf084e7ed1c7750ce52c8a71ff02609eb6443af2",
+    "tf 22 evt PaymentDeclined": "abda3e24fb97930431b94cb79f1950c4718ae96374fe56f92bc82ffb0014ff9b"
   },
   "nodes": {
     "translate_billing": {
@@ -30,7 +32,7 @@
     },
     "decide_authorize_payment": {
       "section": "tf 08 cmd AuthorizePayment",
-      "content_hash": "79da3556ee98386672681af9567defcecf4c5af8b7de9a0c46bc11491449dece"
+      "content_hash": "815240c989f83f89661fda35125568857e53075058bf3d05bca343dc05e9f1e0"
     },
     "project_payment_status": {
       "section": "tf 10 rmo PaymentStatus",

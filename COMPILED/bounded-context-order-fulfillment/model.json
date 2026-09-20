@@ -1,7 +1,7 @@
 {
   "schema": "evml-model/v1",
   "source": "testdata/fixtures/bounded-context-order-fulfillment.evml",
-  "sha256": "5b12449fa4cbe7b60499bc133cd8f57e8dad47dd962e14c6e1de24d66cc4fa2a",
+  "sha256": "b1de67ae47414330d9d67f4ad771f6a3f151585fbf67f8b1a5daf0d451add823",
   "sections": [
     {
       "name": "Sales bounded context",
@@ -9,15 +9,15 @@
     },
     {
       "name": "Billing bounded context",
-      "line": 14
+      "line": 15
     },
     {
       "name": "Fulfillment bounded context",
-      "line": 21
+      "line": 24
     },
     {
-      "name": "Billing failure translated back into Sales",
-      "line": 28
+      "name": "Sales: billing failure recovery",
+      "line": 35
     }
   ],
   "entities": [],
@@ -30,10 +30,25 @@
       "namespace": "",
       "line": 8,
       "section": "Sales bounded context",
-      "sources": [],
+      "sources": [
+        "02"
+      ],
       "dataRef": "",
       "dataType": "",
       "data": ""
+    },
+    {
+      "id": "21",
+      "kind": "rf",
+      "type": "evt",
+      "name": "Pricing.CartPriced",
+      "namespace": "Pricing",
+      "line": 9,
+      "section": "Sales bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ cartId: \"c-100\", customerId: \"cust-7\", items: [{ sku: \"sku-1\", qty: 1, unitPrice: 75.00 }, { sku: \"sku-2\", qty: 1, unitPrice: 50.00 }], total: 125.00 }"
     },
     {
       "id": "02",
@@ -41,9 +56,11 @@
       "type": "rmo",
       "name": "CartSummary",
       "namespace": "",
-      "line": 9,
+      "line": 10,
       "section": "Sales bounded context",
-      "sources": [],
+      "sources": [
+        "21"
+      ],
       "dataRef": "CartSummary02",
       "dataType": "",
       "data": ""
@@ -54,7 +71,7 @@
       "type": "cmd",
       "name": "PlaceOrder",
       "namespace": "",
-      "line": 10,
+      "line": 11,
       "section": "Sales bounded context",
       "sources": [],
       "dataRef": "",
@@ -67,7 +84,7 @@
       "type": "evt",
       "name": "OrderPlaced",
       "namespace": "",
-      "line": 11,
+      "line": 12,
       "section": "Sales bounded context",
       "sources": [],
       "dataRef": "",
@@ -80,7 +97,7 @@
       "type": "rmo",
       "name": "OrderStatus",
       "namespace": "",
-      "line": 12,
+      "line": 13,
       "section": "Sales bounded context",
       "sources": [],
       "dataRef": "OrderStatus05",
@@ -93,7 +110,7 @@
       "type": "evt",
       "name": "Sales.OrderPlaced",
       "namespace": "Sales",
-      "line": 15,
+      "line": 16,
       "section": "Billing bounded context",
       "sources": [],
       "dataRef": "",
@@ -106,7 +123,7 @@
       "type": "pcr",
       "name": "BillingTranslator",
       "namespace": "",
-      "line": 16,
+      "line": 17,
       "section": "Billing bounded context",
       "sources": [
         "06"
@@ -121,7 +138,7 @@
       "type": "cmd",
       "name": "AuthorizePayment",
       "namespace": "",
-      "line": 17,
+      "line": 18,
       "section": "Billing bounded context",
       "sources": [],
       "dataRef": "",
@@ -134,7 +151,7 @@
       "type": "evt",
       "name": "PaymentAuthorized",
       "namespace": "",
-      "line": 18,
+      "line": 19,
       "section": "Billing bounded context",
       "sources": [],
       "dataRef": "",
@@ -142,12 +159,25 @@
       "data": "{ orderId: \"ord-100\", authorizationId: \"auth-1\", amount: 125.00 }"
     },
     {
+      "id": "22",
+      "kind": "tf",
+      "type": "evt",
+      "name": "PaymentDeclined",
+      "namespace": "",
+      "line": 20,
+      "section": "Billing bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ orderId: \"ord-100\", reason: \"insufficient_funds\" }"
+    },
+    {
       "id": "10",
       "kind": "tf",
       "type": "rmo",
       "name": "PaymentStatus",
       "namespace": "",
-      "line": 19,
+      "line": 21,
       "section": "Billing bounded context",
       "sources": [],
       "dataRef": "",
@@ -160,7 +190,7 @@
       "type": "evt",
       "name": "Billing.PaymentAuthorized",
       "namespace": "Billing",
-      "line": 22,
+      "line": 25,
       "section": "Fulfillment bounded context",
       "sources": [],
       "dataRef": "",
@@ -173,7 +203,7 @@
       "type": "pcr",
       "name": "FulfillmentTranslator",
       "namespace": "",
-      "line": 23,
+      "line": 26,
       "section": "Fulfillment bounded context",
       "sources": [
         "11"
@@ -188,7 +218,7 @@
       "type": "cmd",
       "name": "AllocateShipment",
       "namespace": "",
-      "line": 24,
+      "line": 27,
       "section": "Fulfillment bounded context",
       "sources": [],
       "dataRef": "",
@@ -201,7 +231,7 @@
       "type": "evt",
       "name": "ShipmentAllocated",
       "namespace": "",
-      "line": 25,
+      "line": 28,
       "section": "Fulfillment bounded context",
       "sources": [],
       "dataRef": "",
@@ -209,15 +239,57 @@
       "data": "{ orderId: \"ord-100\", shipmentId: \"sh-55\", warehouseId: \"wh-1\" }"
     },
     {
+      "id": "23",
+      "kind": "tf",
+      "type": "evt",
+      "name": "ShipmentAllocationDeferred",
+      "namespace": "",
+      "line": 29,
+      "section": "Fulfillment bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ orderId: \"ord-100\", reason: \"inventory_unavailable\" }"
+    },
+    {
       "id": "15",
       "kind": "tf",
       "type": "rmo",
       "name": "ShipmentQueue",
       "namespace": "",
-      "line": 26,
+      "line": 30,
       "section": "Fulfillment bounded context",
       "sources": [],
       "dataRef": "ShipmentQueue15",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "25",
+      "kind": "rf",
+      "type": "evt",
+      "name": "Warehouse.InventoryReplenished",
+      "namespace": "Warehouse",
+      "line": 32,
+      "section": "Fulfillment bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ warehouseId: \"wh-1\", sku: \"sku-1\" }"
+    },
+    {
+      "id": "26",
+      "kind": "tf",
+      "type": "pcr",
+      "name": "AllocationRetrier",
+      "namespace": "",
+      "line": 33,
+      "section": "Fulfillment bounded context",
+      "sources": [
+        "25",
+        "23"
+      ],
+      "dataRef": "",
       "dataType": "",
       "data": ""
     },
@@ -227,8 +299,8 @@
       "type": "evt",
       "name": "Billing.PaymentDeclined",
       "namespace": "Billing",
-      "line": 29,
-      "section": "Billing failure translated back into Sales",
+      "line": 36,
+      "section": "Sales: billing failure recovery",
       "sources": [],
       "dataRef": "",
       "dataType": "",
@@ -240,8 +312,8 @@
       "type": "pcr",
       "name": "SalesRecoveryTranslator",
       "namespace": "",
-      "line": 30,
-      "section": "Billing failure translated back into Sales",
+      "line": 37,
+      "section": "Sales: billing failure recovery",
       "sources": [
         "16"
       ],
@@ -255,8 +327,8 @@
       "type": "cmd",
       "name": "CancelOrder",
       "namespace": "",
-      "line": 31,
-      "section": "Billing failure translated back into Sales",
+      "line": 38,
+      "section": "Sales: billing failure recovery",
       "sources": [],
       "dataRef": "",
       "dataType": "",
@@ -268,12 +340,25 @@
       "type": "evt",
       "name": "OrderCancelled",
       "namespace": "",
-      "line": 32,
-      "section": "Billing failure translated back into Sales",
+      "line": 39,
+      "section": "Sales: billing failure recovery",
       "sources": [],
       "dataRef": "",
       "dataType": "",
       "data": "{ orderId: \"ord-100\", reason: \"payment_declined\" }"
+    },
+    {
+      "id": "24",
+      "kind": "tf",
+      "type": "evt",
+      "name": "OrderCancellationIgnored",
+      "namespace": "",
+      "line": 40,
+      "section": "Sales: billing failure recovery",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ orderId: \"ord-100\", reason: \"already_cancelled\" }"
     },
     {
       "id": "20",
@@ -281,8 +366,8 @@
       "type": "rmo",
       "name": "CancelledOrderStatus",
       "namespace": "",
-      "line": 33,
-      "section": "Billing failure translated back into Sales",
+      "line": 41,
+      "section": "Sales: billing failure recovery",
       "sources": [],
       "dataRef": "",
       "dataType": "",
@@ -294,27 +379,41 @@
       "name": "CartSummary02",
       "dataType": "",
       "value": "{\n  cartId: \"c-100\"\n  customerId: \"cust-7\"\n  items: [\n    { sku: \"sku-1\", qty: 1, unitPrice: 75.00 }\n    { sku: \"sku-2\", qty: 1, unitPrice: 50.00 }\n  ]\n  total: 125.00\n}",
-      "line": 35
+      "line": 43
     },
     {
       "name": "OrderStatus05",
       "dataType": "",
       "value": "{\n  orderId: \"ord-100\"\n  customerId: \"cust-7\"\n  status: \"pending_payment\"\n}",
-      "line": 45
+      "line": 53
     },
     {
       "name": "ShipmentQueue15",
       "dataType": "",
       "value": "{\n  shipmentId: \"sh-55\"\n  orderId: \"ord-100\"\n  warehouseId: \"wh-1\"\n  status: \"queued_for_picking\"\n}",
-      "line": 51
+      "line": 59
     }
   ],
-  "notes": [],
+  "notes": [
+    {
+      "frame": "08",
+      "dataType": "",
+      "value": "{ external_system: \"payment_gateway\", timeout: \"10s\", retry: { max: 3, backoff: exponential } }",
+      "line": 22
+    },
+    {
+      "frame": "13",
+      "dataType": "",
+      "value": "{ external_system: \"warehouse_inventory\", timeout: \"30s\", retry: { max: 3, backoff: exponential } }",
+      "line": 31
+    }
+  ],
+  "hotspots": [],
   "gwts": [
     {
       "frame": "03",
       "label": "place order from a priced cart",
-      "line": 58,
+      "line": 66,
       "given": [
         {
           "type": "evt",
@@ -343,7 +442,7 @@
     {
       "frame": "03",
       "label": "reject order when cart has no priced items",
-      "line": 66,
+      "line": 74,
       "given": [
         {
           "type": "evt",
@@ -372,7 +471,7 @@
     {
       "frame": "08",
       "label": "authorize payment for a newly placed order",
-      "line": 74,
+      "line": 82,
       "given": [
         {
           "type": "evt",
@@ -401,7 +500,7 @@
     {
       "frame": "08",
       "label": "decline payment when issuer rejects the charge",
-      "line": 82,
+      "line": 90,
       "given": [
         {
           "type": "evt",
@@ -430,7 +529,7 @@
     {
       "frame": "13",
       "label": "allocate shipment after payment is authorized",
-      "line": 90,
+      "line": 98,
       "given": [
         {
           "type": "evt",
@@ -459,7 +558,7 @@
     {
       "frame": "13",
       "label": "defer shipment when inventory is not available",
-      "line": 98,
+      "line": 106,
       "given": [
         {
           "type": "evt",
@@ -488,7 +587,7 @@
     {
       "frame": "18",
       "label": "cancel order after payment declines",
-      "line": 106,
+      "line": 114,
       "given": [
         {
           "type": "evt",
@@ -517,7 +616,7 @@
     {
       "frame": "18",
       "label": "ignore cancellation when order is already cancelled",
-      "line": 114,
+      "line": 122,
       "given": [
         {
           "type": "evt",

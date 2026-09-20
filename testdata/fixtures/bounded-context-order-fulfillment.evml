@@ -5,8 +5,9 @@ eventmodeling
 // context through a reset frame.
 
 // ── Sales bounded context ────────────────────────────────────────────────────
-tf 01 ui CheckoutScreen
-tf 02 rmo CartSummary [[CartSummary02]]
+tf 01 ui CheckoutScreen ->> 02
+rf 21 evt Pricing.CartPriced { cartId: "c-100", customerId: "cust-7", items: [{ sku: "sku-1", qty: 1, unitPrice: 75.00 }, { sku: "sku-2", qty: 1, unitPrice: 50.00 }], total: 125.00 }
+tf 02 rmo CartSummary [[CartSummary02]] ->> 21
 tf 03 cmd PlaceOrder { cartId: "c-100", customerId: "cust-7", total: 125.00 }
 tf 04 evt OrderPlaced { orderId: "ord-100", customerId: "cust-7", total: 125.00 }
 tf 05 rmo OrderStatus [[OrderStatus05]]
@@ -16,20 +17,27 @@ rf 06 evt Sales.OrderPlaced { orderId: "ord-100", total: 125.00 }
 tf 07 pcr BillingTranslator ->> 06
 tf 08 cmd AuthorizePayment { orderId: "ord-100", amount: 125.00, paymentMethodId: "pm-9" }
 tf 09 evt PaymentAuthorized { orderId: "ord-100", authorizationId: "auth-1", amount: 125.00 }
+tf 22 evt PaymentDeclined { orderId: "ord-100", reason: "insufficient_funds" } ->> 08
 tf 10 rmo PaymentStatus { orderId: "ord-100", status: "authorized" }
+note 08 { external_system: "payment_gateway", timeout: "10s", retry: { max: 3, backoff: exponential } }
 
 // ── Fulfillment bounded context ──────────────────────────────────────────────
 rf 11 evt Billing.PaymentAuthorized { orderId: "ord-100", amount: 125.00 }
 tf 12 pcr FulfillmentTranslator ->> 11
-tf 13 cmd AllocateShipment { orderId: "ord-100", warehouseId: "wh-1" }
+tf 13 cmd AllocateShipment { orderId: "ord-100", warehouseId: "wh-1" } ->> 12 ->> 26
 tf 14 evt ShipmentAllocated { orderId: "ord-100", shipmentId: "sh-55", warehouseId: "wh-1" }
+tf 23 evt ShipmentAllocationDeferred { orderId: "ord-100", reason: "inventory_unavailable" } ->> 13
 tf 15 rmo ShipmentQueue [[ShipmentQueue15]]
+note 13 { external_system: "warehouse_inventory", timeout: "30s", retry: { max: 3, backoff: exponential } }
+rf 25 evt Warehouse.InventoryReplenished { warehouseId: "wh-1", sku: "sku-1" }
+tf 26 pcr AllocationRetrier ->> 25 ->> 23
 
-// ── Billing failure translated back into Sales ───────────────────────────────
+// ── Sales: billing failure recovery ──────────────────────────────────────────
 rf 16 evt Billing.PaymentDeclined { orderId: "ord-100", reason: "insufficient_funds" }
 tf 17 pcr SalesRecoveryTranslator ->> 16
 tf 18 cmd CancelOrder { orderId: "ord-100", reason: "payment_declined" }
 tf 19 evt OrderCancelled { orderId: "ord-100", reason: "payment_declined" }
+tf 24 evt OrderCancellationIgnored { orderId: "ord-100", reason: "already_cancelled" } ->> 18
 tf 20 rmo CancelledOrderStatus { orderId: "ord-100", status: "cancelled" }
 
 data CartSummary02 {

@@ -1,7 +1,7 @@
 {
   "schema": "evml-rote-ir-provenance/v1",
   "source_model": "testdata/fixtures/bounded-context-order-fulfillment.evml",
-  "source_sha256": "5b12449fa4cbe7b60499bc133cd8f57e8dad47dd962e14c6e1de24d66cc4fa2a",
+  "source_sha256": "b1de67ae47414330d9d67f4ad771f6a3f151585fbf67f8b1a5daf0d451add823",
   "model": "bounded-context-order-fulfillment",
   "context": "fulfillment",
   "section_name": "Fulfillment bounded context",
@@ -10,18 +10,24 @@
     "12",
     "13",
     "14",
-    "15"
+    "15",
+    "23",
+    "25",
+    "26"
   ],
   "ir": "pipeline.yaml",
   "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
-  "compiled_at": "2026-09-17",
-  "pipeline_version": "0.1.0",
+  "compiled_at": "2026-09-20",
+  "pipeline_version": "0.2.0",
   "sections": {
     "rf 11 evt Billing.PaymentAuthorized": "52b12fd68197f9f1087a5d6fbc19056eb8ca945af28e02f68e925b80b22b17c3",
     "tf 12 pcr FulfillmentTranslator": "6586817790e11d56d50fcf55e00ac3ef65e7db36059138c81ec57b140301eece",
-    "tf 13 cmd AllocateShipment": "457a178f011c4b0235273d413242a8a15a0a069bd3440dc59a1eadba8aa707dc",
+    "tf 13 cmd AllocateShipment": "7962d180aad507617691a3ee4b4f50305c361cf58f473b3af2b9e50a7f10a8e8",
     "tf 14 evt ShipmentAllocated": "0b391a62bcf6f86ab7e200f4303ccd33280cc45d25345337e1165fd385d1d4fe",
-    "tf 15 rmo ShipmentQueue": "5095914738b4021342489c87e54c73f23f59db47e0b27de7aa0be0954e294e00"
+    "tf 15 rmo ShipmentQueue": "5095914738b4021342489c87e54c73f23f59db47e0b27de7aa0be0954e294e00",
+    "tf 23 evt ShipmentAllocationDeferred": "4ddac2f90dcc7be8fe27ead20d5c69aa335268804277ab9e3e5ba42855735ac1",
+    "rf 25 evt Warehouse.InventoryReplenished": "c7d72774ae921ceaac36974261e512074bee38d83ffda3e09ccfb1a59af6d6b5",
+    "tf 26 pcr AllocationRetrier": "c7f689b4860a1790e70c1b2ca181e7a54b40478ee08b44ed265381f96370054a"
   },
   "nodes": {
     "translate_fulfillment": {
@@ -30,11 +36,15 @@
     },
     "decide_allocate_shipment": {
       "section": "tf 13 cmd AllocateShipment",
-      "content_hash": "457a178f011c4b0235273d413242a8a15a0a069bd3440dc59a1eadba8aa707dc"
+      "content_hash": "7962d180aad507617691a3ee4b4f50305c361cf58f473b3af2b9e50a7f10a8e8"
     },
     "project_shipment_queue": {
       "section": "tf 15 rmo ShipmentQueue",
       "content_hash": "5095914738b4021342489c87e54c73f23f59db47e0b27de7aa0be0954e294e00"
+    },
+    "retry_allocation": {
+      "section": "tf 26 pcr AllocationRetrier",
+      "content_hash": "c7f689b4860a1790e70c1b2ca181e7a54b40478ee08b44ed265381f96370054a"
     }
   }
 }

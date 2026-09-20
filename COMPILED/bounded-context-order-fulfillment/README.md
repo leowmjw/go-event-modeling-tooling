@@ -2,12 +2,13 @@
 
 | context | pipeline | version | input event/command | exit events |
 |---|---|---|---|---|
-| sales | bounded-context-order-fulfillment-sales | 0.1.0 | PlaceOrderCommand | OrderPlaced / OrderPlacementRejected |
-| billing | bounded-context-order-fulfillment-billing | 0.1.0 | Sales.OrderPlaced | PaymentAuthorized / PaymentDeclined |
-| fulfillment | bounded-context-order-fulfillment-fulfillment | 0.1.0 | Billing.PaymentAuthorized | ShipmentAllocated / ShipmentAllocationDeferred |
-| sales-recovery | bounded-context-order-fulfillment-sales-recovery | 0.1.0 | Billing.PaymentDeclined | OrderCancelled / OrderCancellationIgnored |
+| sales | bounded-context-order-fulfillment-sales | 0.2.0 | PlaceOrderCommand · Pricing.CartPriced · Billing.PaymentDeclined | OrderPlaced / OrderPlacementRejected · OrderCancelled / OrderCancellationIgnored |
+| billing | bounded-context-order-fulfillment-billing | 0.2.0 | Sales.OrderPlaced | PaymentAuthorized / PaymentDeclined |
+| fulfillment | bounded-context-order-fulfillment-fulfillment | 0.2.0 | Billing.PaymentAuthorized · Warehouse.InventoryReplenished | ShipmentAllocated / ShipmentAllocationDeferred · AllocateShipmentCommand (retry) |
 
 Cross-context links:
-- sales produces `OrderPlaced` which is the `rf 06` input to billing.
-- billing produces `PaymentAuthorized` which is the `rf 11` input to fulfillment.
-- billing produces `PaymentDeclined` which is the `rf 16` input to sales-recovery.
+- pricing (external) produces `CartPriced` — `rf 21` input to sales.
+- sales produces `OrderPlaced` — `rf 06` input to billing.
+- billing produces `PaymentAuthorized` — `rf 11` input to fulfillment.
+- billing produces `PaymentDeclined` — `rf 16` input to sales (recovery slice).
+- warehouse (external) produces `InventoryReplenished` — `rf 25` input to fulfillment.

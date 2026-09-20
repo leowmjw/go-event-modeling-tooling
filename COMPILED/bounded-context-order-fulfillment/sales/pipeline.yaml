@@ -1,42 +1,96 @@
 name: bounded-context-order-fulfillment-sales
-version: 0.1.0
-description: IR for sales context of bounded-context-order-fulfillment
+version: 0.2.0
+description: IR for sales context of bounded-context-order-fulfillment (checkout + billing failure recovery slices)
 input:
-  type: PlaceOrderCommand
+  type: SalesInput
   required:
   - payload
   input_schema:
     type: object
-    title: PlaceOrderCommand
+    title: SalesInput
+    description: Union entry — PlaceOrderCommand (ui), Pricing.CartPriced (rf 21), or Billing.PaymentDeclined (rf 16)
     properties:
       payload:
         type: object
 nodes:
 - id: decide_place_order
   kind: pure_function
-  description: pure_function decide_place_order
+  description: cmd PlaceOrder -> OrderPlaced or OrderPlacementRejected (total <= 0)
   source:
     section: tf 03 cmd PlaceOrder
   impl: extracted/sales.py:decide_place_order
-  input: PlaceOrderCommand
+  input:
+    command: PlaceOrderCommand
   inputs:
     command: pipeline.input
   output: PlaceOrderResult
   mandatory: true
+- id: project_cart_summary
+  kind: pure_function
+  description: Fold Pricing.CartPriced (rf 21) into rmo CartSummary view
+  source:
+    section: tf 02 rmo CartSummary
+  impl: extracted/sales.py:project_cart_summary
+  input:
+    event: Pricing_CartPriced
+  inputs:
+    event: pipeline.input
+  output: CartSummaryView
 - id: project_order_status
   kind: pure_function
-  description: pure_function project_order_status
+  description: Fold OrderPlaced/OrderPlacementRejected into rmo OrderStatus view
   source:
     section: tf 05 rmo OrderStatus
   impl: extracted/sales.py:project_order_status
-  input: OrderPlaced
+  input:
+    event: PlaceOrderResult
   inputs:
     event: decide_place_order.output
   output: OrderStatusView
+- id: translate_sales_recovery
+  kind: pure_function
+  description: pcr SalesRecoveryTranslator — map Billing.PaymentDeclined (rf 16) to CancelOrderCommand
+  source:
+    section: tf 17 pcr SalesRecoveryTranslator
+  impl: extracted/sales.py:translate_sales_recovery
+  input:
+    event: Billing_PaymentDeclined
+  inputs:
+    event: pipeline.input
+  output: CancelOrderCommand
+- id: decide_cancel_order
+  kind: pure_function
+  description: cmd CancelOrder -> OrderCancelled or OrderCancellationIgnored (idempotent on prior OrderCancelled)
+  source:
+    section: tf 18 cmd CancelOrder
+  impl: extracted/sales.py:decide_cancel_order
+  input:
+    command: CancelOrderCommand
+  inputs:
+    command: translate_sales_recovery.output
+  output: OrderCancellationResult
+  mandatory: true
+- id: project_cancelled_order_status
+  kind: pure_function
+  description: Fold OrderCancelled into rmo CancelledOrderStatus view
+  source:
+    section: tf 20 rmo CancelledOrderStatus
+  impl: extracted/sales.py:project_cancelled_order_status
+  input:
+    event: OrderCancellationResult
+  inputs:
+    event: decide_cancel_order.output
+  output: CancelledOrderStatusView
 edges:
-- - decide_place_order
-  - project_order_status
+- { from: decide_place_order, to: project_order_status }
+- { from: translate_sales_recovery, to: decide_cancel_order }
+- { from: decide_cancel_order, to: project_cancelled_order_status }
 entry_nodes:
 - decide_place_order
+- project_cart_summary
+- translate_sales_recovery
 exit_nodes:
+- project_cart_summary
 - project_order_status
+- decide_place_order
+- project_cancelled_order_status
