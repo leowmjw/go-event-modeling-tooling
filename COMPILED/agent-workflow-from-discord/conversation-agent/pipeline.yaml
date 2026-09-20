@@ -1,0 +1,88 @@
+name: agent-workflow-from-discord-conversation-agent
+version: 1.0.0
+description: Accept a Discord question, select a bounded invoice tool, request lookup, and record the returned answer.
+input:
+  type: ConversationAgentInput
+  required: [payload]
+  input_schema:
+    type: object
+    title: ConversationAgentInput
+    properties:
+      payload: { type: object }
+nodes:
+- id: decide_ask_question
+  kind: pure_function
+  description: Accept the Discord question as QuestionAsked.
+  source: { section: "tf 02 cmd AskQuestion" }
+  impl: extracted/conversation_agent.py:decide_ask_question
+  input: { command: AskQuestionCommand }
+  inputs: { command: pipeline.input }
+  output: QuestionAsked
+- id: judge_select_invoice_tool
+  kind: llm_judge
+  description: Select findInvoices and resolve yesterday from the supplied timestamp and timezone.
+  source: { section: "tf 04 pcr SelectInvoiceTool" }
+  signature: signatures/judge_select_invoice_tool.py:SelectInvoiceToolJudge
+  signature_spec:
+    input_schema:
+      type: object
+      properties:
+        question: { type: string }
+        requestedAt: { type: string, format: date-time }
+        businessTimezone: { type: string }
+      required: [question, requestedAt, businessTimezone]
+    output_schema:
+      type: object
+      properties:
+        conversationId: { type: string }
+        tool: { type: string, enum: [findInvoices] }
+        fromDate: { type: string, format: date }
+        toDate: { type: string, format: date }
+      required: [conversationId, tool, fromDate, toDate]
+    prompt: Select the only allowed tool and resolve yesterday using the supplied request timestamp and timezone.
+  input: { question: string, requestedAt: string, businessTimezone: string }
+  inputs:
+    question: decide_ask_question.output.question
+    requestedAt: decide_ask_question.output.requestedAt
+    businessTimezone: decide_ask_question.output.businessTimezone
+  output: InvoiceToolSelection
+  mandatory: true
+- id: decide_request_invoice_search
+  kind: pure_function
+  description: Emit Conversation.InvoiceSearchRequested from the bounded selection.
+  source: { section: "tf 05 cmd RequestInvoiceSearch" }
+  impl: extracted/conversation_agent.py:decide_request_invoice_search
+  input: { command: RequestInvoiceSearchCommand }
+  inputs: { command: judge_select_invoice_tool.output }
+  output: InvoiceSearchRequested
+- id: format_invoice_answer
+  kind: pure_function
+  description: Deterministically format InvoicesFound as an operator-facing answer.
+  source: { section: "tf 14 pcr FormatInvoiceAnswer" }
+  impl: extracted/conversation_agent.py:format_invoice_answer
+  input: { event: InvoicesFound }
+  inputs: { event: pipeline.input }
+  output: RecordAnswerCommand
+- id: decide_record_answer
+  kind: pure_function
+  description: Record the exact formatted answer.
+  source: { section: "tf 15 cmd RecordAnswer" }
+  impl: extracted/conversation_agent.py:decide_record_answer
+  input: { command: RecordAnswerCommand }
+  inputs: { command: format_invoice_answer.output }
+  output: AnswerRecorded
+- id: project_answers
+  kind: pure_function
+  description: Project AnswerRecorded into the Answers view.
+  source: { section: "tf 17 rmo Answers" }
+  impl: extracted/conversation_agent.py:project_answers
+  input: { event: AnswerRecorded }
+  inputs: { event: decide_record_answer.output }
+  output: AnswersView
+edges:
+- { from: decide_ask_question, to: judge_select_invoice_tool }
+- { from: judge_select_invoice_tool, to: decide_request_invoice_search }
+- { from: format_invoice_answer, to: decide_record_answer }
+- { from: decide_record_answer, to: project_answers }
+entry_nodes: [decide_ask_question, format_invoice_answer]
+exit_nodes: [decide_request_invoice_search, project_answers]

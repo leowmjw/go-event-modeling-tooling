@@ -1,0 +1,43 @@
+name: translation-pattern-main
+version: 0.1.0
+description: IR for main context of translation-pattern
+input:
+  type: InventoryProcessorInput
+  required:
+  - payload
+  input_schema:
+    type: object
+    properties: {}
+    title: InventoryProcessorInput
+nodes:
+- id: InventoryProcessor
+  kind: pure_function
+  description: Processor InventoryProcessor
+  source:
+    section: tf 02 pcr InventoryProcessor
+  impl: extracted/main.py:InventoryProcessor
+  input: &id001
+    input: pipeline.input
+  inputs: *id001
+  output:
+    result: InventoryProcessorResult
+  mandatory: false
+- id: decide_ChangeInventory
+  kind: pure_function
+  description: Decide the result of command ChangeInventory
+  source:
+    section: tf 04 cmd ChangeInventory
+  impl: extracted/main.py:decide_ChangeInventory
+  input: &id002
+    command: pipeline.input
+  inputs: *id002
+  output:
+    result: ChangeInventoryResult
+  mandatory: false
+edges: []
+entry_nodes:
+- InventoryProcessor
+- decide_ChangeInventory
+exit_nodes:
+- InventoryProcessor
+- decide_ChangeInventory

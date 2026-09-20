@@ -1,0 +1,35 @@
+[tools]
+go = "latest"
+overmind = "latest"
+
+[tasks.doctor]
+run = '''
+set -eu
+go version
+mise exec -- overmind --version
+tmux -V
+"$HOME/go/bin/temporal" --version
+go mod verify
+for file in Procfile go.mod go.sum model.json cmd/worker/main.go cmd/starter/main.go; do test -f "$file"; done
+'''
+
+[tasks.check]
+run = '''
+set -eu
+test -z "$(gofmt -l .)"
+go mod tidy -diff
+go test -race ./...
+go vet ./...
+'''
+
+[tasks.demo]
+run = "mise exec -- overmind start -f Procfile"
+
+[tasks."demo:stop"]
+run = "mise exec -- overmind quit"
+
+[tasks.start]
+run = "go run ./cmd/starter"
+
+[tasks.query]
+run = '"$HOME/go/bin/temporal" workflow query --workflow-id simple-block-item-1 --type item_catalog'

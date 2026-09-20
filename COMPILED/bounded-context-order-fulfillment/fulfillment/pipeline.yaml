@@ -1,0 +1,77 @@
+name: bounded-context-order-fulfillment-fulfillment
+version: 0.2.0
+description: IR for fulfillment context of bounded-context-order-fulfillment
+input:
+  type: FulfillmentInput
+  required:
+  - payload
+  input_schema:
+    type: object
+    title: FulfillmentInput
+    description: Union entry — Billing.PaymentAuthorized (rf 11) or Warehouse.InventoryReplenished (rf 25)
+    properties:
+      payload:
+        type: object
+nodes:
+- id: translate_fulfillment
+  kind: pure_function
+  description: pcr FulfillmentTranslator — map Billing.PaymentAuthorized (rf 11) to AllocateShipmentCommand
+  source:
+    section: tf 12 pcr FulfillmentTranslator
+  impl: extracted/fulfillment.py:translate_fulfillment
+  input:
+    event: Billing_PaymentAuthorized
+  inputs:
+    event: pipeline.input
+  output: AllocateShipmentCommand
+- id: decide_allocate_shipment
+  kind: pure_function
+  description: cmd AllocateShipment -> ShipmentAllocated or ShipmentAllocationDeferred; inventory check injected
+  source:
+    section: tf 13 cmd AllocateShipment
+  impl: extracted/fulfillment.py:decide_allocate_shipment
+  input:
+    command: AllocateShipmentCommand
+  inputs:
+    command: translate_fulfillment.output
+  output: ShipmentAllocationResult
+  mandatory: true
+  timeout: 30s
+  retry:
+    max: 3
+    backoff: exponential
+  constants:
+    external_system: warehouse_inventory
+- id: project_shipment_queue
+  kind: pure_function
+  description: Fold ShipmentAllocated/ShipmentAllocationDeferred into rmo ShipmentQueue view
+  source:
+    section: tf 15 rmo ShipmentQueue
+  impl: extracted/fulfillment.py:project_shipment_queue
+  input:
+    event: ShipmentAllocationResult
+  inputs:
+    event: decide_allocate_shipment.output
+  output: ShipmentQueueView
+- id: retry_allocation
+  kind: pure_function
+  description: pcr AllocationRetrier — on Warehouse.InventoryReplenished (rf 25) re-issue AllocateShipmentCommand for the deferred order
+  source:
+    section: tf 26 pcr AllocationRetrier
+  impl: extracted/fulfillment.py:retry_allocation
+  input:
+    replenished: Warehouse_InventoryReplenished
+    deferred: ShipmentAllocationDeferred
+  inputs:
+    replenished: pipeline.input
+    deferred: decide_allocate_shipment.output
+  output: AllocateShipmentCommand
+edges:
+- { from: translate_fulfillment, to: decide_allocate_shipment }
+- { from: decide_allocate_shipment, to: project_shipment_queue }
+- { from: decide_allocate_shipment, to: retry_allocation }
+entry_nodes:
+- translate_fulfillment
+exit_nodes:
+- project_shipment_queue
+- retry_allocation

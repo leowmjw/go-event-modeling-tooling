@@ -46,3 +46,20 @@ cmd/evmlweb/cmd/
 cmd/evmlweb/bin/
 cmd/evmlweb/tmp/
 cmd/evmlweb/node_modules/
+
+# Ignore CommandCode
+.commandcode
+
+# Ignore ROTE
+ROTE
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/

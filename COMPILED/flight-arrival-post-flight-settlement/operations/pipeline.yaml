@@ -1,0 +1,85 @@
+name: flight-arrival-post-flight-settlement-operations
+version: 1.0.0
+description: Record arrival facts and close on-time flights.
+input:
+  type: OperationsInput
+  required: [flight]
+  input_schema:
+    type: object
+    properties:
+      flight: {type: object}
+      recordWheelsDown: {type: object}
+      recordGateArrival: {type: object}
+      priorEvents: {type: array, items: {type: object}}
+      wheelsDownRecorded: {type: object}
+    required: [flight]
+nodes:
+  - id: project_flight_status
+    kind: pure_function
+    description: Project the current flight status.
+    source: {section: "tf 02 rmo FlightStatus"}
+    impl: extracted/operations.py:project_flight_status
+    input: &a {event: pipeline.input.flight}
+    inputs: *a
+    output: {view: FlightStatus}
+    mandatory: true
+  - id: decide_record_wheels_down
+    kind: pure_function
+    description: Record wheels-down once.
+    source: {section: "tf 03 cmd RecordWheelsDown"}
+    impl: extracted/operations.py:decide_record_wheels_down
+    input: &b {command: pipeline.input.recordWheelsDown, prior_events: pipeline.input.priorEvents}
+    inputs: *b
+    output: {result: RecordWheelsDownResult}
+    mandatory: true
+  - id: decide_record_gate_arrival
+    kind: pure_function
+    description: Record gate arrival after wheels-down.
+    source: {section: "tf 05 cmd RecordGateArrival"}
+    impl: extracted/operations.py:decide_record_gate_arrival
+    input: &c {command: pipeline.input.recordGateArrival, prior_events: pipeline.input.priorEvents}
+    inputs: *c
+    output: {result: RecordGateArrivalResult}
+    mandatory: true
+  - id: project_arrival_board
+    kind: pure_function
+    description: Project the arrival board.
+    source: {section: "tf 07 rmo ArrivalBoard"}
+    impl: extracted/operations.py:project_arrival_board
+    input: &d {event: decide_record_gate_arrival.output}
+    inputs: *d
+    output: {view: ArrivalBoard}
+    mandatory: true
+  - id: translate_ontime_verifier
+    kind: pure_function
+    description: Translate wheels-down into an on-time closure command.
+    source: {section: "tf 52 pcr OntimeVerifier"}
+    impl: extracted/operations.py:translate_ontime_verifier
+    input: &e {input: pipeline.input.wheelsDownRecorded}
+    inputs: *e
+    output: {command: CloseFlightOnTimeCommand}
+    mandatory: true
+  - id: decide_close_flight_on_time
+    kind: pure_function
+    description: Close an on-time flight when wheels-down exists.
+    source: {section: "tf 53 cmd CloseFlightOnTime"}
+    impl: extracted/operations.py:decide_close_flight_on_time
+    input: &f {command: translate_ontime_verifier.output, prior_events: pipeline.input.priorEvents}
+    inputs: *f
+    output: {result: CloseFlightOnTimeResult}
+    mandatory: true
+  - id: project_flight_closure_record
+    kind: pure_function
+    description: Project on-time closure state.
+    source: {section: "tf 55 rmo FlightClosureRecord"}
+    impl: extracted/operations.py:project_flight_closure_record
+    input: &g {event: decide_close_flight_on_time.output}
+    inputs: *g
+    output: {view: FlightClosureRecord}
+    mandatory: true
+edges:
+  - {from: decide_record_gate_arrival, to: project_arrival_board}
+  - {from: translate_ontime_verifier, to: decide_close_flight_on_time}
+  - {from: decide_close_flight_on_time, to: project_flight_closure_record}
+entry_nodes: [project_flight_status, decide_record_wheels_down, decide_record_gate_arrival, translate_ontime_verifier]
+exit_nodes: [decide_record_wheels_down, decide_record_gate_arrival, project_arrival_board, decide_close_flight_on_time, project_flight_closure_record]

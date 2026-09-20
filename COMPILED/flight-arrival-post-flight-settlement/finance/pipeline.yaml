@@ -1,0 +1,29 @@
+name: flight-arrival-post-flight-settlement-finance
+version: 1.0.0
+description: Approve and issue disbursements and recover failed payouts.
+input:
+  type: FinanceInput
+  required: [priorEvents]
+  input_schema:
+    type: object
+    properties:
+      compensationCalculated: {type: object}
+      issuePayout: {type: object}
+      payoutFailed: {type: object}
+      priorEvents: {type: array, items: {type: object}}
+    required: [priorEvents]
+nodes:
+  - {id: translate_finance, kind: pure_function, description: Translate compensation to disbursement approval, source: {section: "tf 23 pcr FinanceTranslator"}, impl: "extracted/finance.py:translate_finance", input: &a {input: pipeline.input.compensationCalculated}, inputs: *a, output: {command: ApproveDisbursementCommand}, mandatory: true}
+  - {id: decide_approve_disbursement, kind: pure_function, description: Approve or reject uncovered passengers, source: {section: "tf 24 cmd ApproveDisbursement"}, impl: "extracted/finance.py:decide_approve_disbursement", input: &b {command: translate_finance.output}, inputs: *b, output: {result: ApproveDisbursementResult}, mandatory: true}
+  - {id: decide_issue_payout, kind: pure_function, description: Issue only an approved payout, source: {section: "tf 26 cmd IssuePayout"}, impl: "extracted/finance.py:decide_issue_payout", input: &c {command: pipeline.input.issuePayout, prior_events: pipeline.input.priorEvents}, inputs: *c, output: {result: IssuePayoutResult}, mandatory: true}
+  - {id: project_finance_settlement_report, kind: pure_function, description: Project settlement details, source: {section: "tf 28 rmo FinanceSettlementReport"}, impl: "extracted/finance.py:project_finance_settlement_report", input: &d {event: decide_issue_payout.output}, inputs: *d, output: {view: FinanceSettlementReport}, mandatory: true}
+  - {id: translate_payout_recovery, kind: pure_function, description: Translate failed payout recovery settings, source: {section: "tf 30 pcr PayoutRecoveryProcessor"}, impl: "extracted/finance.py:translate_payout_recovery", input: &e {input: pipeline.input.payoutFailed}, inputs: *e, output: {command: ReverseAndReissuePayoutCommand}, mandatory: true}
+  - {id: decide_reverse_and_reissue, kind: pure_function, description: Reverse and reissue once, source: {section: "tf 31 cmd ReverseAndReissuePayout"}, impl: "extracted/finance.py:decide_reverse_and_reissue", input: &f {command: translate_payout_recovery.output, prior_events: pipeline.input.priorEvents}, inputs: *f, output: {result: PayoutRecoveryResult}, mandatory: true}
+  - {id: project_payout_recovery_report, kind: pure_function, description: Project payout recovery, source: {section: "tf 34 rmo PayoutRecoveryReport"}, impl: "extracted/finance.py:project_payout_recovery_report", input: &g {result: decide_reverse_and_reissue.output}, inputs: *g, output: {view: PayoutRecoveryReport}, mandatory: true}
+edges:
+  - {from: translate_finance, to: decide_approve_disbursement}
+  - {from: decide_issue_payout, to: project_finance_settlement_report}
+  - {from: translate_payout_recovery, to: decide_reverse_and_reissue}
+  - {from: decide_reverse_and_reissue, to: project_payout_recovery_report}
+entry_nodes: [translate_finance, decide_issue_payout, translate_payout_recovery]
+exit_nodes: [decide_approve_disbursement, decide_issue_payout, project_finance_settlement_report, project_payout_recovery_report]

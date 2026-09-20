@@ -17,6 +17,7 @@ needing to read every source file first.
 ├── parse.go         Hand-written recursive-descent parser
 ├── render.go        SVG renderer + layout helpers
 ├── validate.go      Post-parse validation helpers
+├── json.go          ModelJSON — evml-model/v1 JSON serializer for tooling
 ├── cli.go           CLI wiring (Cobra / flag parsing)
 ├── cli_test.go
 ├── parse_test.go
@@ -43,6 +44,7 @@ needing to read every source file first.
 | Re-render changed fixture SVGs into `out/` | `mise run svg` (`-- --all` forces every fixture) |
 | Direct test run | `go test ./...` |
 | Direct build | `go build -o bin/evml ./cmd/evml` |
+| Emit model JSON (for the compile skill) | `go run ./cmd/evml json <file> [-o out]` |
 
 ---
 
@@ -101,6 +103,23 @@ needing to read every source file first.
 4. Add a `case` in `SwimlaneBand` in `model.go`.
 5. Add at least one fixture and a targeted test.
 
+### Adding a new frame annotation (sibling of `note` / `hotspot`)
+Annotations attach to a frame by id and are *not* `EntityType`s, so
+`allowedSources` is untouched. Follow the `hotspot` implementation:
+1. Add the `XxxEntity` struct + `Model.XxxEntities` slice in `model.go`.
+2. Add `parseXxxEntity` in `parse.go` (mirror `parseNoteEntity`), a
+   `hasKeyword(trimmed, "xxx")` case in `parse`, the keyword in
+   `isTopLevel`, and a resolution loop in `resolveReferences`.
+3. Add the `xxxJSON` type + array to `modelJSON` in `json.go` —
+   `make(...)` it so the JSON emits `[]` and not `null`.
+4. Add `xxxStackHeight` + `renderXxx` in `render.go` and one more
+   `stackBand` call in `RenderSVG`.
+5. Include it in the compile skill's provenance hash (`frame_content` in
+   `.agents/skills/compile-evml-rote-ir/scripts/evml_provenance.py`) if a
+   change to it should invalidate compiled IR.
+6. Document it in `EVENT_MODELING.md` (own section + BNF `Statement`
+   alternative), and add a fixture plus parser/JSON tests.
+
 ---
 
 ## Validation semantics (learned 2026-08, cross-checked against eventmodelers.ai)
@@ -123,10 +142,13 @@ needing to read every source file first.
 - When touching `allowedSources` or the four-pattern descriptions, update
   both `validate.go`'s error strings and the corresponding prose in
   `EVENT_MODELING.md` / `SKILL.md` together — they're expected to agree.
-- Four notation features from the eventmodelers.ai cheat sheet have no DSL
-  equivalent yet: hotspots, actor lanes, chapters, slice status tags. Grammar
-  sketches and rationale live in `EVENT_MODELING.md` §12 — read that before
-  proposing new keywords for any of these.
+- Of the four notation features from the eventmodelers.ai cheat sheet that
+  had no DSL equivalent, **`hotspot` is now implemented** (`EVENT_MODELING.md`
+  §6): a sibling of `note` for *unresolved* questions, rendered in a red box
+  and included in the compile skill's provenance hash. Three remain
+  unimplemented: actor lanes, chapters, slice status tags. Grammar sketches
+  and rationale live in `EVENT_MODELING.md` §13 — read that before proposing
+  new keywords for any of these.
 
 ---
 
@@ -135,6 +157,51 @@ needing to read every source file first.
 - Add a `//nolint` directive without a comment explaining why.
 - Commit binary output (`bin/`, `tmp/`) — they are gitignored.
 - Change the `.evml` DSL grammar without updating `EVENT_MODELING.md`.
+
+---
+
+## `.agents/skills/compile-evml-rote-ir`
+
+Skill that compiles a `.evml` model into rote IR — one
+`COMPILED/<model>/<context>/pipeline.yaml` per bounded context (section
+banner). Intake is `evml json` output (`COMPILED/<model>/model.json`);
+staleness/provenance is tracked by `scripts/evml_provenance.py`.
+`COMPILED/` is committed.
+
+## `.agents/skills/compile-evml-go-temporal`
+
+Combined compiler/emitter that first produces the authoritative rote IR above, then emits a
+**standalone Go + Temporal application** at `COMPILED/go-<model>/`. Use it for requests to
+compile an event model directly to runnable Go workflows, refresh Go output after IR changes,
+or demo a model on local Temporal. Generated apps are nested Go modules, so the root library
+remains zero-dependency; they may depend on the public Temporal Go SDK.
+
+Load-bearing rules:
+
+- `.evml` → validated `model.json` → `pipeline.yaml` → Go; never bypass or hand-diverge from
+  the IR. Provenance must be current before emission.
+- Every IR node, edge, binding, entry/exit, retry, timeout, mandatory flag, `gwt`, and referenced
+  `data` block needs a typed Go mapping and executable test. The generated README carries the
+  exact node-coverage table; unmapped/report-only nodes block emission.
+- One child workflow per bounded context; a parent coordinates cross-context facts. External I/O
+  is activity-only. Feedback edges use durable Signals/Updates, waiting read models use Queries,
+  and idempotency comes from workflow state/prior events—not caller booleans.
+- Workflow-reachable code must be deterministic and use only public Temporal SDK packages.
+  Version workflow types for incompatible behavior unless public-replayer coverage proves
+  compatibility with saved histories.
+- Generated tests use `go.temporal.io/sdk/testsuite`; prefer anonymous activities registered with
+  `RegisterActivityWithOptions`. Assert complete event payloads and exact data-block projections,
+  not only event names.
+- Generated apps use the latest stable Go (`go = "latest"` in local mise; current language version
+  in `go.mod`), mise-managed Overmind, and `$HOME/go/bin/temporal` (not assumed on `PATH`). They
+  include `mise run doctor`, `check`, `demo`, `demo:stop`, scenario, signal, and query tasks plus a
+  `Procfile` and demo README.
+- Completion requires `gofmt`, `go mod tidy -diff`, `go test -race ./...`, `go vet ./...`, current
+  provenance, and a bounded live Overmind demo.
+
+Reference implementation/demo:
+`COMPILED/go-bounded-context-order-fulfillment/` (parent + Sales/Billing/Fulfillment children,
+read-model projections, inventory-replenishment Signal/Query feedback, worker/starter commands).
 
 ---
 

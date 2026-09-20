@@ -1,0 +1,1 @@
+{"input":{"conversationId":"conv-1001","question":"How many invoices were sent out yesterday?","requestedAt":"2026-09-20T13:00:00Z","businessTimezone":"America/New_York"},"expected":{"conversationId":"conv-1001","tool":"findInvoices","fromDate":"2026-09-19","toDate":"2026-09-19"}}

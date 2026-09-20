@@ -1,0 +1,108 @@
+{
+  "schema": "evml-rote-ir-provenance/v1",
+  "source_model": "testdata/fixtures/what-is-event-modeling.evml",
+  "source_sha256": "fb82b18e69f6114b9641dd8af14daa8dae6103f6f4e6cc5ac87b90940fb9c337",
+  "model": "what-is-event-modeling",
+  "context": "main",
+  "section_name": "",
+  "frames": [
+    "01",
+    "02",
+    "03",
+    "04",
+    "05",
+    "06",
+    "07",
+    "08",
+    "09",
+    "10",
+    "11",
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "18",
+    "19"
+  ],
+  "ir": "pipeline.yaml",
+  "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
+  "compiled_at": "2026-09-20",
+  "pipeline_version": "1.0.0",
+  "sections": {
+    "tf 01 ui SearchRoomsScreen": "8cde26086a2eccd4824839146bf7c1d147646432efbaae6be12fb22f46ba0f69",
+    "tf 02 cmd SearchRooms": "b07d80c125dabf35fece316b637b80e6ab5952c18a34b2db9efe9d41ae999266",
+    "tf 03 evt RoomsSearched": "3270f19b1436af526cd2993e6b817d77ced116f9d580f431fab8977aef4fa1e6",
+    "tf 04 rmo RoomList": "216f13ed1ce0216ae7c1810a3ffece4c65977e94af92fb815d623c6486c77ca5",
+    "tf 05 ui BookRoomScreen": "8e23fed4071c7f2882521b430e4296c8e419cbbcce5df2eb193c5f01f6cae868",
+    "tf 06 cmd BookRoom": "17c4866aa06211e8d1e430cc9778da434cdde9b472fa258f5b4c4e1984907ca8",
+    "tf 07 evt RoomBooked": "fd80b5f4fae33bd2e2828e015ae7eb71ec7a27ed51a5dbafbd5c0ce588b6b5f3",
+    "tf 08 rmo BookingConfirmation": "c821d888e9f16db110badeb05edcfb6388e5630d8f53f7b8269344dbc1d581fc",
+    "tf 09 ui CheckInDesk": "30001966eebd08f11f1c32691ce15bc1ed0e5ff449fb1eb42d91ed0463ab840e",
+    "tf 10 cmd CheckIn": "936b12533f6659f8401827015351f71d6e3f4bd596e44e93159322e0f235cdb2",
+    "tf 11 evt GuestCheckedIn": "df2d318918a771f476ff7be06cc8e99fd78db8302363670b10cdaa011df85efc",
+    "tf 12 rmo RoomStatus": "a217948afa9ce575cbff6ab1c469148f44a994761506e635b99349c207c8a400",
+    "tf 13 ui CheckOutDesk": "bc12496ec8995645b374ba06035cdc30307eb73c421ce69a7f190b612e46a9d9",
+    "tf 14 cmd CheckOut": "ef9cf207ca76122354f36bafcfa20a7b69e61ca9e52dd7e7965dee4aea6b72ae",
+    "tf 15 evt GuestCheckedOut": "01440a4876fc15585298b22daacf406f0a67ee731ca6c050995b9078fc0f3f28",
+    "tf 16 pcr BillingProcessor": "0c1b13a607118201b94444ddacb012ba8b9df4076088313af445d0bc009c6371",
+    "tf 17 cmd TakePayment": "430dcbca7d77a4295c540adc79363d47f5c4deb44685f5c37be3257930faf1c6",
+    "tf 18 evt PaymentTaken": "9472d24e6be90000c47cdcb578f75b03e6d5c43112d5b97435001e3d0a460eb9",
+    "tf 19 rmo Invoice": "15824cfc16b17a407677fef9e51b705efcd9657713bdc791e2c04771aca392d0"
+  },
+  "nodes": {
+    "decide_search_rooms": {
+      "section": "tf 02 cmd SearchRooms",
+      "content_hash": "b07d80c125dabf35fece316b637b80e6ab5952c18a34b2db9efe9d41ae999266"
+    },
+    "project_room_list": {
+      "section": "tf 04 rmo RoomList",
+      "content_hash": "216f13ed1ce0216ae7c1810a3ffece4c65977e94af92fb815d623c6486c77ca5"
+    },
+    "gate_book_room": {
+      "section": "tf 05 ui BookRoomScreen",
+      "content_hash": "8e23fed4071c7f2882521b430e4296c8e419cbbcce5df2eb193c5f01f6cae868"
+    },
+    "decide_book_room": {
+      "section": "tf 06 cmd BookRoom",
+      "content_hash": "17c4866aa06211e8d1e430cc9778da434cdde9b472fa258f5b4c4e1984907ca8"
+    },
+    "project_booking_confirmation": {
+      "section": "tf 08 rmo BookingConfirmation",
+      "content_hash": "c821d888e9f16db110badeb05edcfb6388e5630d8f53f7b8269344dbc1d581fc"
+    },
+    "gate_check_in": {
+      "section": "tf 09 ui CheckInDesk",
+      "content_hash": "30001966eebd08f11f1c32691ce15bc1ed0e5ff449fb1eb42d91ed0463ab840e"
+    },
+    "decide_check_in": {
+      "section": "tf 10 cmd CheckIn",
+      "content_hash": "936b12533f6659f8401827015351f71d6e3f4bd596e44e93159322e0f235cdb2"
+    },
+    "project_room_status": {
+      "section": "tf 12 rmo RoomStatus",
+      "content_hash": "a217948afa9ce575cbff6ab1c469148f44a994761506e635b99349c207c8a400"
+    },
+    "gate_check_out": {
+      "section": "tf 13 ui CheckOutDesk",
+      "content_hash": "bc12496ec8995645b374ba06035cdc30307eb73c421ce69a7f190b612e46a9d9"
+    },
+    "decide_check_out": {
+      "section": "tf 14 cmd CheckOut",
+      "content_hash": "ef9cf207ca76122354f36bafcfa20a7b69e61ca9e52dd7e7965dee4aea6b72ae"
+    },
+    "billing_processor": {
+      "section": "tf 16 pcr BillingProcessor",
+      "content_hash": "0c1b13a607118201b94444ddacb012ba8b9df4076088313af445d0bc009c6371"
+    },
+    "decide_take_payment": {
+      "section": "tf 17 cmd TakePayment",
+      "content_hash": "430dcbca7d77a4295c540adc79363d47f5c4deb44685f5c37be3257930faf1c6"
+    },
+    "project_invoice": {
+      "section": "tf 19 rmo Invoice",
+      "content_hash": "15824cfc16b17a407677fef9e51b705efcd9657713bdc791e2c04771aca392d0"
+    }
+  }
+}

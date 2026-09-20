@@ -1,0 +1,71 @@
+{
+  "schema": "evml-model/v1",
+  "source": "testdata/fixtures/multiple-source-frames.evml",
+  "sha256": "aec4cd2e67312047e154b7e9968635c286cab0ee6db88987eaff8ef553a50e84",
+  "sections": [],
+  "entities": [],
+  "frames": [
+    {
+      "id": "01",
+      "kind": "tf",
+      "type": "evt",
+      "name": "Start",
+      "namespace": "",
+      "line": 2,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "02",
+      "kind": "tf",
+      "type": "evt",
+      "name": "End",
+      "namespace": "",
+      "line": 3,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "03",
+      "kind": "rf",
+      "type": "rmo",
+      "name": "ReadModel01",
+      "namespace": "",
+      "line": 4,
+      "section": "",
+      "sources": [
+        "01",
+        "02"
+      ],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ a: true }"
+    },
+    {
+      "id": "04",
+      "kind": "rf",
+      "type": "rmo",
+      "name": "ReadModel02",
+      "namespace": "",
+      "line": 5,
+      "section": "",
+      "sources": [
+        "01",
+        "02"
+      ],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    }
+  ],
+  "data": [],
+  "notes": [],
+  "hotspots": [],
+  "gwts": []
+}

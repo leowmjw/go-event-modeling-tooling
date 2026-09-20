@@ -30,6 +30,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "svg":
 		return runSVG(args[1:], stdout, stderr)
+	case "json":
+		return runJSON(args[1:], stdout, stderr)
 	default:
 		_, _ = fmt.Fprintf(stderr, "unknown command %q\n", args[0])
 		printUsage(stderr)
@@ -118,6 +120,79 @@ func runSVG(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runJSON(args []string, stdout, stderr io.Writer) int {
+	var (
+		inputPath    string
+		output       string
+		showHelpFlag bool
+	)
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-h", "--help":
+			showHelpFlag = true
+		case "-o", "--output":
+			i++
+			if i >= len(args) {
+				_, _ = fmt.Fprintln(stderr, "missing value for output")
+				return 2
+			}
+			output = args[i]
+		default:
+			if strings.HasPrefix(args[i], "-") {
+				_, _ = fmt.Fprintf(stderr, "unknown flag %q\n", args[i])
+				return 2
+			}
+			if inputPath != "" {
+				_, _ = fmt.Fprintln(stderr, "json requires exactly one input file")
+				return 2
+			}
+			inputPath = args[i]
+		}
+	}
+	if showHelpFlag {
+		printUsage(stdout)
+		return 0
+	}
+	if inputPath == "" {
+		_, _ = fmt.Fprintln(stderr, "json requires exactly one input file")
+		return 2
+	}
+	content, err := readFile(inputPath)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "read input: %v\n", err)
+		return 1
+	}
+	model, err := Parse(string(content))
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "parse evml: %v\n", err)
+		return 1
+	}
+	if validationErrors := ValidateConnections(model); len(validationErrors) > 0 {
+		_, _ = fmt.Fprintf(stderr, "invalid model: %v\n", validationErrors[0])
+		return 1
+	}
+	doc, err := ModelJSON(model, inputPath, content)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "marshal json: %v\n", err)
+		return 1
+	}
+	if output == "" {
+		_, _ = stdout.Write(doc)
+		_, _ = fmt.Fprintln(stdout)
+		return 0
+	}
+	if err := makeDirAll(filepath.Dir(output), 0o755); err != nil {
+		_, _ = fmt.Fprintf(stderr, "create output directory: %v\n", err)
+		return 1
+	}
+	if err := writeFile(output, doc, 0o644); err != nil {
+		_, _ = fmt.Fprintf(stderr, "write output: %v\n", err)
+		return 1
+	}
+	_, _ = fmt.Fprintf(stdout, "JSON generated successfully: %s\n", output)
+	return 0
+}
+
 func defaultOutputPath(inputPath, destination string) string {
 	base := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath)) + ".svg"
 	if destination != "" {
@@ -129,5 +204,6 @@ func defaultOutputPath(inputPath, destination string) string {
 func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Usage:")
 	_, _ = fmt.Fprintln(w, "  evml svg <file> [-d <dir>]")
+	_, _ = fmt.Fprintln(w, "  evml json <file> [-o <out>]")
 	_, _ = fmt.Fprintln(w, "  evml --version")
 }

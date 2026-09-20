@@ -1,0 +1,56 @@
+eventmodeling
+
+// Room booking with unresolved business rules captured as hotspots rather
+// than as comments the parser throws away. Every hotspot is a question the
+// domain expert still owes an answer to; the compile skill refuses to guess
+// at them and reports them as open questions instead.
+
+// ── Reservations bounded context ─────────────────────────────────────────────
+tf 01 ui SearchRoomsScreen
+tf 02 rmo AvailableRooms [[AvailableRooms02]]
+tf 03 cmd BookRoom { roomId: "room-12", guestId: "guest-7", checkIn: "2024-07-01", checkOut: "2024-07-04" }
+tf 04 evt RoomBooked { bookingId: "bk-900", roomId: "room-12", guestId: "guest-7", nights: 3 }
+tf 05 rmo BookingConfirmation { bookingId: "bk-900", roomId: "room-12", status: "confirmed" }
+
+data AvailableRooms02 {
+  checkIn: "2024-07-01"
+  checkOut: "2024-07-04"
+  rooms: [
+    { roomId: "room-12", rate: 180.00, beds: 1 }
+    { roomId: "room-31", rate: 240.00, beds: 2 }
+  ]
+}
+
+note 03 `md` {
+  # Settled
+  Rate is locked at search time, not at booking time.
+}
+
+hotspot 03 {
+  concurrent booking on the same room: last write wins, or reject the second?
+}
+
+hotspot 03 `md` {
+  Does an **overbooking** emit a rejection event, or is it silently queued
+  for the front desk to resolve manually?
+}
+
+hotspot 05 {
+  is BookingConfirmation readable before payment settles, or only after?
+}
+
+gwt 03 "book an available room"
+  given
+    evt RoomListed { roomId: "room-12", rate: 180.00 }
+  when
+    cmd BookRoom { roomId: "room-12", guestId: "guest-7", checkIn: "2024-07-01", checkOut: "2024-07-04" }
+  then
+    evt RoomBooked { bookingId: "bk-900", roomId: "room-12", nights: 3 }
+
+gwt 03 "reject booking for an already-booked room"
+  given
+    evt RoomBooked { bookingId: "bk-899", roomId: "room-12", nights: 2 }
+  when
+    cmd BookRoom { roomId: "room-12", guestId: "guest-9", checkIn: "2024-07-01", checkOut: "2024-07-04" }
+  then
+    evt RoomBookingRejected { roomId: "room-12", reason: "already_booked" }

@@ -1,0 +1,62 @@
+name: bounded-context-order-fulfillment-billing
+version: 0.2.0
+description: IR for billing context of bounded-context-order-fulfillment
+input:
+  type: Sales_OrderPlaced
+  required:
+  - payload
+  input_schema:
+    type: object
+    title: Sales_OrderPlaced
+    properties:
+      payload:
+        type: object
+nodes:
+- id: translate_billing
+  kind: pure_function
+  description: pcr BillingTranslator — map Sales.OrderPlaced (rf 06) to AuthorizePaymentCommand
+  source:
+    section: tf 07 pcr BillingTranslator
+  impl: extracted/billing.py:translate_billing
+  input:
+    event: Sales_OrderPlaced
+  inputs:
+    event: pipeline.input
+  output: AuthorizePaymentCommand
+- id: decide_authorize_payment
+  kind: pure_function
+  description: cmd AuthorizePayment -> PaymentAuthorized or PaymentDeclined; issuer decision injected as issuer_result
+  source:
+    section: tf 08 cmd AuthorizePayment
+  impl: extracted/billing.py:decide_authorize_payment
+  input:
+    command: AuthorizePaymentCommand
+  inputs:
+    command: translate_billing.output
+  output: PaymentAuthorizationResult
+  mandatory: true
+  timeout: 10s
+  retry:
+    max: 3
+    backoff: exponential
+  constants:
+    external_system: payment_gateway
+- id: project_payment_status
+  kind: pure_function
+  description: Fold PaymentAuthorized/PaymentDeclined into rmo PaymentStatus view
+  source:
+    section: tf 10 rmo PaymentStatus
+  impl: extracted/billing.py:project_payment_status
+  input:
+    event: PaymentAuthorizationResult
+  inputs:
+    event: decide_authorize_payment.output
+  output: PaymentStatusView
+edges:
+- { from: translate_billing, to: decide_authorize_payment }
+- { from: decide_authorize_payment, to: project_payment_status }
+entry_nodes:
+- translate_billing
+exit_nodes:
+- project_payment_status
+- decide_authorize_payment

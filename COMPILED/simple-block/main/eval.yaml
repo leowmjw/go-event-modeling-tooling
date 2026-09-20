@@ -1,0 +1,5 @@
+cases:
+  - name: add a valid item
+    node: decide_add_item
+  - name: reject an item with a non-positive price
+    node: decide_add_item

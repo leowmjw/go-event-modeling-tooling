@@ -1,0 +1,72 @@
+{
+  "schema": "evml-rote-ir-provenance/v1",
+  "source_model": "testdata/fixtures/flight-arrival-post-flight-settlement.evml",
+  "source_sha256": "b58f2a593478d8d4918fcc99def78b0276b82296f625d3f66ad2a5d02a973a6c",
+  "model": "flight-arrival-post-flight-settlement",
+  "context": "finance",
+  "section_name": "Finance bounded context",
+  "frames": [
+    "22",
+    "23",
+    "24",
+    "25",
+    "26",
+    "27",
+    "28",
+    "29",
+    "30",
+    "31",
+    "32",
+    "33",
+    "34"
+  ],
+  "ir": "pipeline.yaml",
+  "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
+  "compiled_at": "2026-09-20",
+  "pipeline_version": "1.0.0",
+  "sections": {
+    "rf 22 evt Compensation.CompensationCalculated": "b8742df24d7d7f3267918f6c335ff99c86bb5d895cc0b4736b1ba38a387212dd",
+    "tf 23 pcr FinanceTranslator": "626b480354fe65e6a2b214c9e593d90e1695490aec4a5a7ad1b54b4f56976331",
+    "tf 24 cmd ApproveDisbursement": "3757f01ec800927ecd6999805e8e2901b09af4aaeadba1f9154cfefc0e3eaa3e",
+    "tf 25 evt DisbursementApproved": "ca95987ccb0060c9adc3408175c37eb07e1715ed34c990dafb552543035b01f2",
+    "tf 26 cmd IssuePayout": "d3806398493c4372a47bb81c47475947640d5881390726c320757644ec09e520",
+    "tf 27 evt PayoutIssued": "b53c4a38e23aaa416a86f578fae7013dd3c281d23f217fa69e7d666c0bf23ab7",
+    "tf 28 rmo FinanceSettlementReport": "6f68f2c8f8d503270093fcfb7e22014bff23998e4b9066440c5ea732f1a7ead2",
+    "rf 29 evt Finance.PayoutFailed": "57696c8ea33a4871253dade9e3b1c67a085e8651db73b052a40252caca4df190",
+    "tf 30 pcr PayoutRecoveryProcessor": "7ef6b95484044e9758c12fde06883ff8e7a98d00a81a81248b5a6d4a917e8bf0",
+    "tf 31 cmd ReverseAndReissuePayout": "f8d3c1782b9efa5d7d086d6519c44226c0d1996cb2dacfdd90428bf71de91821",
+    "tf 32 evt PayoutReversed": "2ec7ffe22773e60cec91d12ea89c4ce1144df5149f089a4d045dff72367e551e",
+    "tf 33 evt PayoutReissued": "835c75c55ffeedfa33fed2b345d2ebb83416e27dc4b2f91d2815d1d56b2881ec",
+    "tf 34 rmo PayoutRecoveryReport": "f1a668f24b6dd9de348c524f539637c2bd2bd7b228432cd24a6677b875b5f697"
+  },
+  "nodes": {
+    "translate_finance": {
+      "section": "tf 23 pcr FinanceTranslator",
+      "content_hash": "626b480354fe65e6a2b214c9e593d90e1695490aec4a5a7ad1b54b4f56976331"
+    },
+    "decide_approve_disbursement": {
+      "section": "tf 24 cmd ApproveDisbursement",
+      "content_hash": "3757f01ec800927ecd6999805e8e2901b09af4aaeadba1f9154cfefc0e3eaa3e"
+    },
+    "decide_issue_payout": {
+      "section": "tf 26 cmd IssuePayout",
+      "content_hash": "d3806398493c4372a47bb81c47475947640d5881390726c320757644ec09e520"
+    },
+    "project_finance_settlement_report": {
+      "section": "tf 28 rmo FinanceSettlementReport",
+      "content_hash": "6f68f2c8f8d503270093fcfb7e22014bff23998e4b9066440c5ea732f1a7ead2"
+    },
+    "translate_payout_recovery": {
+      "section": "tf 30 pcr PayoutRecoveryProcessor",
+      "content_hash": "7ef6b95484044e9758c12fde06883ff8e7a98d00a81a81248b5a6d4a917e8bf0"
+    },
+    "decide_reverse_and_reissue": {
+      "section": "tf 31 cmd ReverseAndReissuePayout",
+      "content_hash": "f8d3c1782b9efa5d7d086d6519c44226c0d1996cb2dacfdd90428bf71de91821"
+    },
+    "project_payout_recovery_report": {
+      "section": "tf 34 rmo PayoutRecoveryReport",
+      "content_hash": "f1a668f24b6dd9de348c524f539637c2bd2bd7b228432cd24a6677b875b5f697"
+    }
+  }
+}

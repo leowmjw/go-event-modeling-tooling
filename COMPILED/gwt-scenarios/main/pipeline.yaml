@@ -1,0 +1,40 @@
+name: gwt-scenarios-main
+version: 0.1.0
+description: IR for main context of gwt-scenarios
+input:
+  type: AddToCartCommand
+  required:
+  - payload
+  input_schema:
+    type: object
+    properties: {}
+    title: AddToCartCommand
+nodes:
+- id: decide_AddToCart
+  kind: pure_function
+  description: Decide the result of command AddToCart
+  source:
+    section: tf 01 cmd AddToCart
+  impl: extracted/main.py:decide_AddToCart
+  input: &id001
+    command: pipeline.input
+  inputs: *id001
+  output:
+    result: CartUpdated
+  mandatory: false
+- id: project_CartReadModel
+  kind: pure_function
+  description: Project read model CartReadModel
+  impl: extracted/main.py:project_CartReadModel
+  input:
+    event: pipeline.input
+  inputs:
+    event: pipeline.input
+  output:
+    view: CartReadModel
+edges: []
+entry_nodes:
+- decide_AddToCart
+exit_nodes:
+- decide_AddToCart
+- project_CartReadModel

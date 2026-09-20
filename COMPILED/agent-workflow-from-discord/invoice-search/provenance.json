@@ -1,0 +1,42 @@
+{
+  "schema": "evml-rote-ir-provenance/v1",
+  "source_model": "testdata/fixtures/agent-workflow-from-discord.evml",
+  "source_sha256": "27099d2a7a588bafc82cca25644a9b02e7752d51d31108247b59fec23671c0a9",
+  "model": "agent-workflow-from-discord",
+  "context": "invoice-search",
+  "section_name": "Invoice Search bounded context",
+  "frames": [
+    "07",
+    "08",
+    "09",
+    "10",
+    "11",
+    "12"
+  ],
+  "ir": "pipeline.yaml",
+  "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
+  "compiled_at": "2026-09-20",
+  "pipeline_version": "1.0.0",
+  "sections": {
+    "rf 07 evt Conversation.InvoiceSearchRequested": "b350dac27524878c4d3c41a12792780e902e84dbfafc5fe18be01770fcd2c959",
+    "tf 08 pcr InvoiceRepository": "7e2f5048211ec5d547771e991a9018ed225df2fe5dfdf09d71a250ebba57618f",
+    "tf 09 cmd RecordInvoiceSearchResult": "b58b66861a1304038178fcded5b956bb9734359589235b6ed3c0e39b40a9d8db",
+    "tf 10 evt InvoiceSearch.InvoicesFound": "3ecd3b3cc2353ec2d693108ea8316df935e339265dafe79381790a613b3158d9",
+    "tf 11 evt InvoiceSearch.InvoiceSearchFailed": "8ec65a121b544aaca1afb4cc0cd3438817e643f354d5df9bd83f6c8fbcd9ec9c",
+    "tf 12 rmo InvoiceSearchResult": "4ab34b27740bedb5a7ee60e8aff41cd889509ac818be8b1e64687d32d6ef6971"
+  },
+  "nodes": {
+    "invoice_repository": {
+      "section": "tf 08 pcr InvoiceRepository",
+      "content_hash": "7e2f5048211ec5d547771e991a9018ed225df2fe5dfdf09d71a250ebba57618f"
+    },
+    "decide_record_invoice_search_result": {
+      "section": "tf 09 cmd RecordInvoiceSearchResult",
+      "content_hash": "b58b66861a1304038178fcded5b956bb9734359589235b6ed3c0e39b40a9d8db"
+    },
+    "project_invoice_search_result": {
+      "section": "tf 12 rmo InvoiceSearchResult",
+      "content_hash": "4ab34b27740bedb5a7ee60e8aff41cd889509ac818be8b1e64687d32d6ef6971"
+    }
+  }
+}

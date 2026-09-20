@@ -1,0 +1,70 @@
+{
+  "schema": "evml-rote-ir-provenance/v1",
+  "source_model": "testdata/fixtures/flight-arrival-post-flight-settlement.evml",
+  "source_sha256": "b58f2a593478d8d4918fcc99def78b0276b82296f625d3f66ad2a5d02a973a6c",
+  "model": "flight-arrival-post-flight-settlement",
+  "context": "operations",
+  "section_name": "Operations bounded context",
+  "frames": [
+    "01",
+    "02",
+    "03",
+    "04",
+    "05",
+    "06",
+    "07",
+    "51",
+    "52",
+    "53",
+    "54",
+    "55"
+  ],
+  "ir": "pipeline.yaml",
+  "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
+  "compiled_at": "2026-09-20",
+  "pipeline_version": "1.0.0",
+  "sections": {
+    "tf 01 ui FlightDeck": "5533b914841aa36c529e0678ebc4db93e541f983d53ab45cd5e7296a5d017fdd",
+    "tf 02 rmo FlightStatus": "e31ffe5347df1719e790fdcf8ad221b2b94f9eae2195636e9298d2b6279dd58d",
+    "tf 03 cmd RecordWheelsDown": "c7cd67c73fcedfe97fe308ee1c3833681e4bb819974c01a5807ec0c250bedce3",
+    "tf 04 evt WheelsDownRecorded": "01eff89d83010bf41325f39c2a0d3ab1b3cde997803543075f498d1fa11e18dd",
+    "tf 05 cmd RecordGateArrival": "1643098518511e2ae94e675f058acd5e3ed8bd1c7b3372b30fff524a030df8e0",
+    "tf 06 evt GateOpened": "dbb34849dfd673205b15bacab612b6f04e0221c99cf3ad81590ddf8692987753",
+    "tf 07 rmo ArrivalBoard": "70ac4aa41faa546ae61c801467f5501853e3c42a7841e328f5cecefbc5e4f0c4",
+    "rf 51 evt Operations.WheelsDownRecorded": "66238bef012cd7ed42b11db5c5f5c4792fe16711fa8b60e59fe9dec45b7d4b29",
+    "tf 52 pcr OntimeVerifier": "813b52aa307c62c063fd42b4e1d8414b542b2c35b8d012a92b3c594d626d086e",
+    "tf 53 cmd CloseFlightOnTime": "fdc278c9351fafc7b504fe589303e40b6c97ef74345d6515438c38ed5de41f9f",
+    "tf 54 evt FlightClosedOnTime": "1defe6aa819ad247731f1f6296c22d0c4e9e518955592ef92b9c2c18f2569e12",
+    "tf 55 rmo FlightClosureRecord": "327ff59e45ef4111edcf56f37e095b51d78379a52223e27bec4084cf725448c8"
+  },
+  "nodes": {
+    "project_flight_status": {
+      "section": "tf 02 rmo FlightStatus",
+      "content_hash": "e31ffe5347df1719e790fdcf8ad221b2b94f9eae2195636e9298d2b6279dd58d"
+    },
+    "decide_record_wheels_down": {
+      "section": "tf 03 cmd RecordWheelsDown",
+      "content_hash": "c7cd67c73fcedfe97fe308ee1c3833681e4bb819974c01a5807ec0c250bedce3"
+    },
+    "decide_record_gate_arrival": {
+      "section": "tf 05 cmd RecordGateArrival",
+      "content_hash": "1643098518511e2ae94e675f058acd5e3ed8bd1c7b3372b30fff524a030df8e0"
+    },
+    "project_arrival_board": {
+      "section": "tf 07 rmo ArrivalBoard",
+      "content_hash": "70ac4aa41faa546ae61c801467f5501853e3c42a7841e328f5cecefbc5e4f0c4"
+    },
+    "translate_ontime_verifier": {
+      "section": "tf 52 pcr OntimeVerifier",
+      "content_hash": "813b52aa307c62c063fd42b4e1d8414b542b2c35b8d012a92b3c594d626d086e"
+    },
+    "decide_close_flight_on_time": {
+      "section": "tf 53 cmd CloseFlightOnTime",
+      "content_hash": "fdc278c9351fafc7b504fe589303e40b6c97ef74345d6515438c38ed5de41f9f"
+    },
+    "project_flight_closure_record": {
+      "section": "tf 55 rmo FlightClosureRecord",
+      "content_hash": "327ff59e45ef4111edcf56f37e095b51d78379a52223e27bec4084cf725448c8"
+    }
+  }
+}

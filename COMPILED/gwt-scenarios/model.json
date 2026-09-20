@@ -1,0 +1,129 @@
+{
+  "schema": "evml-model/v1",
+  "source": "testdata/fixtures/gwt-scenarios.evml",
+  "sha256": "72214130943f669994d694ba5f9b50b6540b628a8e70ad2a8581619115308a0c",
+  "sections": [],
+  "entities": [],
+  "frames": [
+    {
+      "id": "01",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "AddToCart",
+      "namespace": "",
+      "line": 3,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ id: \"p-1\" }"
+    },
+    {
+      "id": "02",
+      "kind": "tf",
+      "type": "evt",
+      "name": "CartUpdated",
+      "namespace": "",
+      "line": 4,
+      "section": "",
+      "sources": [
+        "01"
+      ],
+      "dataRef": "CartUpdated02",
+      "dataType": "",
+      "data": ""
+    }
+  ],
+  "data": [
+    {
+      "name": "CartUpdated02",
+      "dataType": "",
+      "value": "{\n  items: [\n    { id: \"p-1\", qty: 1 }\n  ]\n}",
+      "line": 6
+    }
+  ],
+  "notes": [],
+  "hotspots": [],
+  "gwts": [
+    {
+      "frame": "01",
+      "label": "happy path",
+      "line": 12,
+      "given": [
+        {
+          "type": "evt",
+          "name": "CartCreated",
+          "dataType": "",
+          "data": ""
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "AddToCart",
+          "dataType": "",
+          "data": "{ id: \"p-1\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "CartUpdated",
+          "dataType": "",
+          "data": "{\n      items: [\n        { id: \"p-1\", qty: 1 }\n      ]\n    }"
+        }
+      ]
+    },
+    {
+      "frame": "01",
+      "label": "duplicate add increments qty",
+      "line": 24,
+      "given": [
+        {
+          "type": "evt",
+          "name": "CartUpdated",
+          "dataType": "",
+          "data": "{ items: [ { id: \"p-1\", qty: 1 } ] }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "AddToCart",
+          "dataType": "",
+          "data": "{ id: \"p-1\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "CartUpdated",
+          "dataType": "",
+          "data": "{ items: [ { id: \"p-1\", qty: 2 } ] }"
+        }
+      ]
+    },
+    {
+      "frame": "02",
+      "label": "audit",
+      "line": 32,
+      "given": [
+        {
+          "type": "evt",
+          "name": "CartUpdated",
+          "dataType": "",
+          "data": ""
+        }
+      ],
+      "when": [],
+      "then": [
+        {
+          "type": "rmo",
+          "name": "CartReadModel",
+          "dataType": "",
+          "data": ""
+        }
+      ]
+    }
+  ]
+}

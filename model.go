@@ -18,11 +18,18 @@ const (
 )
 
 type Model struct {
-	Frames       []*Frame
-	DataEntities []*DataEntity
-	NoteEntities []*NoteEntity
-	GWTs         []*GWT
-	Entities     []string
+	Frames          []*Frame
+	DataEntities    []*DataEntity
+	NoteEntities    []*NoteEntity
+	HotspotEntities []*HotspotEntity
+	GWTs            []*GWT
+	Entities        []string
+	Sections        []*Section
+}
+
+type Section struct {
+	Name string
+	Line int
 }
 
 type Frame struct {
@@ -37,12 +44,15 @@ type Frame struct {
 	DataType      string
 	Data          string
 	DeclarationIx int
+	Line          int
+	Section       string
 }
 
 type DataEntity struct {
 	Name     string
 	DataType string
 	Value    string
+	Line     int
 }
 
 type NoteEntity struct {
@@ -50,6 +60,15 @@ type NoteEntity struct {
 	Source   *Frame
 	DataType string
 	Value    string
+	Line     int
+}
+
+type HotspotEntity struct {
+	SourceID string
+	Source   *Frame
+	DataType string
+	Value    string
+	Line     int
 }
 
 type GWT struct {
@@ -59,6 +78,7 @@ type GWT struct {
 	Given    []Statement
 	When     []Statement
 	Then     []Statement
+	Line     int
 }
 
 type Statement struct {

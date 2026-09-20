@@ -1,0 +1,44 @@
+{
+  "schema": "evml-rote-ir-provenance/v1",
+  "source_model": "testdata/fixtures/resetting-flow.evml",
+  "source_sha256": "fe711e4fe5161716c25ad509b1950d812f2e85a2c3d52269340015bc964aaae4",
+  "model": "resetting-flow",
+  "context": "main",
+  "section_name": "",
+  "frames": [
+    "01",
+    "02",
+    "03",
+    "04",
+    "05",
+    "06",
+    "07"
+  ],
+  "ir": "pipeline.yaml",
+  "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
+  "compiled_at": "2026-09-17",
+  "pipeline_version": "0.1.0",
+  "sections": {
+    "tf 01 ui CartScreen": "0928db63c17093066e0b24316ee790526c4d3841bacc9d0fd69569b8b30ae7bd",
+    "tf 02 cmd AddItem": "1260d87ed3e128fd282f590b0dd8b20926f246ce710adfadb1c8ee1d0a92b6b6",
+    "tf 03 evt ItemAdded": "5c72ea1662d327cf1d1277e9642f2dd16d1ba43cfd5990b104b62b0471bae270",
+    "rf 04 evt External.InventoryChanged": "e6f2c9e708acf92970163472251b4e56f7cc7fd2f073ff11052ee157e99fbc2e",
+    "tf 05 pcr InventoryProcessor": "861e8152a86f59c1dd980de4a79e9b1615c78b42e732020ce6a6541f3735c4b0",
+    "tf 06 cmd ChangeInventory": "65ea23186e0f9daa4a185392ccdc5b77c6d560326eb9629fc8c78af163451797",
+    "tf 07 evt Cart.InventoryChanged": "232511aecf216b46860ebe6ca2294e23fd15f91eb2a31c25b8fda12ec6b3e0eb"
+  },
+  "nodes": {
+    "decide_AddItem": {
+      "section": "tf 02 cmd AddItem",
+      "content_hash": "1260d87ed3e128fd282f590b0dd8b20926f246ce710adfadb1c8ee1d0a92b6b6"
+    },
+    "InventoryProcessor": {
+      "section": "tf 05 pcr InventoryProcessor",
+      "content_hash": "861e8152a86f59c1dd980de4a79e9b1615c78b42e732020ce6a6541f3735c4b0"
+    },
+    "decide_ChangeInventory": {
+      "section": "tf 06 cmd ChangeInventory",
+      "content_hash": "65ea23186e0f9daa4a185392ccdc5b77c6d560326eb9629fc8c78af163451797"
+    }
+  }
+}

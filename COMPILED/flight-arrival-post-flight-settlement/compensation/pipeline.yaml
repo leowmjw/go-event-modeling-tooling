@@ -1,0 +1,47 @@
+name: flight-arrival-post-flight-settlement-compensation
+version: 1.0.0
+description: Evaluate delay, calculate claims, close on-time cases, and escalate rejected disbursements.
+input:
+  type: CompensationInput
+  required: [priorEvents]
+  input_schema:
+    type: object
+    properties:
+      gateOpened: {type: object}
+      passengerIds: {type: array, items: {type: string}}
+      priorEvents: {type: array, items: {type: object}}
+      flightClosedOnTime: {type: object}
+      partialDisbursementRejected: {type: object}
+    required: [priorEvents]
+nodes:
+  - {id: translate_compensation_processor, kind: pure_function, description: Translate GateOpened, source: {section: "tf 09 pcr CompensationProcessor"}, impl: "extracted/compensation.py:translate_compensation_processor", input: &a {input: pipeline.input.gateOpened}, inputs: *a, output: {command: EvaluateDelayCommand}, mandatory: true}
+  - {id: decide_evaluate_delay, kind: pure_function, description: Evaluate gate-door delay, source: {section: "tf 10 cmd EvaluateDelay"}, impl: "extracted/compensation.py:decide_evaluate_delay", input: &b {command: translate_compensation_processor.output}, inputs: *b, output: {result: DelayEvaluated}, mandatory: true}
+  - {id: decide_verify_passenger_eligibility, kind: pure_function, description: Exclude previously compensated passengers, source: {section: "tf 12 cmd VerifyPassengerEligibility"}, impl: "extracted/compensation.py:decide_verify_passenger_eligibility", input: &c {command: pipeline.input, prior_events: pipeline.input.priorEvents}, inputs: *c, output: {result: PassengerEligibilityVerified}, mandatory: true}
+  - {id: decide_calculate_compensation, kind: pure_function, description: Calculate USD 170 per eligible passenger, source: {section: "tf 14 cmd CalculateCompensation"}, impl: "extracted/compensation.py:decide_calculate_compensation", input: &d {command: decide_verify_passenger_eligibility.output}, inputs: *d, output: {result: CompensationCalculated}, mandatory: true}
+  - id: project_delay_claim_summary
+    kind: pure_function
+    description: Project exact delay claim summary.
+    source: {section: "tf 16 rmo DelayClaimSummary"}
+    impl: extracted/compensation.py:project_delay_claim_summary
+    input: &e {delay: decide_evaluate_delay.output, eligibility: decide_verify_passenger_eligibility.output, compensation: decide_calculate_compensation.output}
+    inputs: *e
+    output: {view: DelayClaimSummary}
+    mandatory: true
+  - {id: translate_compensation_closure_processor, kind: pure_function, description: Translate on-time closure, source: {section: "tf 18 pcr CompensationClosureProcessor"}, impl: "extracted/compensation.py:translate_compensation_closure_processor", input: &f {input: pipeline.input.flightClosedOnTime}, inputs: *f, output: {command: CloseCompensationCaseCommand}, mandatory: true}
+  - {id: decide_close_compensation_case, kind: pure_function, description: Close an on-time case once, source: {section: "tf 19 cmd CloseCompensationCase"}, impl: "extracted/compensation.py:decide_close_compensation_case", input: &g {command: translate_compensation_closure_processor.output, prior_events: pipeline.input.priorEvents}, inputs: *g, output: {result: CloseCompensationCaseResult}, mandatory: true}
+  - {id: project_closed_claim_record, kind: pure_function, description: Project closed claim state, source: {section: "tf 21 rmo ClosedClaimRecord"}, impl: "extracted/compensation.py:project_closed_claim_record", input: &h {event: decide_close_compensation_case.output}, inputs: *h, output: {view: ClosedClaimRecord}, mandatory: true}
+  - {id: translate_compensation_recovery, kind: pure_function, description: Translate rejected disbursement, source: {section: "tf 36 pcr CompensationRecoveryTranslator"}, impl: "extracted/compensation.py:translate_compensation_recovery", input: &i {input: pipeline.input.partialDisbursementRejected}, inputs: *i, output: {command: EscalateUnresolvedClaimCommand}, mandatory: true}
+  - {id: decide_escalate_unresolved_claim, kind: pure_function, description: Escalate an unresolved claim once, source: {section: "tf 37 cmd EscalateUnresolvedClaim"}, impl: "extracted/compensation.py:decide_escalate_unresolved_claim", input: &j {command: translate_compensation_recovery.output, prior_events: pipeline.input.priorEvents}, inputs: *j, output: {result: EscalateUnresolvedClaimResult}, mandatory: true}
+  - {id: project_escalated_claims_queue, kind: pure_function, description: Project escalated claims, source: {section: "tf 39 rmo EscalatedClaimsQueue"}, impl: "extracted/compensation.py:project_escalated_claims_queue", input: &k {event: decide_escalate_unresolved_claim.output}, inputs: *k, output: {view: EscalatedClaimsQueue}, mandatory: true}
+edges:
+  - {from: translate_compensation_processor, to: decide_evaluate_delay}
+  - {from: decide_verify_passenger_eligibility, to: decide_calculate_compensation}
+  - {from: decide_evaluate_delay, to: project_delay_claim_summary}
+  - {from: decide_verify_passenger_eligibility, to: project_delay_claim_summary}
+  - {from: decide_calculate_compensation, to: project_delay_claim_summary}
+  - {from: translate_compensation_closure_processor, to: decide_close_compensation_case}
+  - {from: decide_close_compensation_case, to: project_closed_claim_record}
+  - {from: translate_compensation_recovery, to: decide_escalate_unresolved_claim}
+  - {from: decide_escalate_unresolved_claim, to: project_escalated_claims_queue}
+entry_nodes: [translate_compensation_processor, decide_verify_passenger_eligibility, translate_compensation_closure_processor, translate_compensation_recovery]
+exit_nodes: [decide_calculate_compensation, project_delay_claim_summary, project_closed_claim_record, project_escalated_claims_queue]

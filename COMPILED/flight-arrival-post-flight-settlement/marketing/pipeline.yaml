@@ -1,0 +1,37 @@
+name: flight-arrival-post-flight-settlement-marketing
+version: 1.0.0
+description: Tag delayed travelers, send recovery offers, and record responses.
+input:
+  type: MarketingInput
+  required: [payoutIssued, sendRecoveryOffer]
+  input_schema:
+    type: object
+    properties:
+      payoutIssued: {type: object}
+      sendRecoveryOffer: {type: object}
+      priorResponses: {type: array, items: {type: object}}
+    required: [payoutIssued, sendRecoveryOffer]
+nodes:
+  - {id: translate_marketing, kind: pure_function, description: Translate payout to traveler tagging, source: {section: "tf 41 pcr MarketingTranslator"}, impl: "extracted/marketing.py:translate_marketing", input: &a {input: pipeline.input.payoutIssued}, inputs: *a, output: {command: TagDelayedTravelersCommand}, mandatory: true}
+  - {id: decide_tag_delayed_travelers, kind: pure_function, description: Tag matching visitors or skip an empty audience, source: {section: "tf 42 cmd TagDelayedTravelers"}, impl: "extracted/marketing.py:decide_tag_delayed_travelers", input: &b {command: translate_marketing.output}, inputs: *b, output: {result: TagDelayedTravelersResult}, mandatory: true}
+  - {id: decide_send_recovery_offer, kind: pure_function, description: Record one offer per tagged traveler, source: {section: "tf 44 cmd SendRecoveryOffer"}, impl: "extracted/marketing.py:decide_send_recovery_offer", input: &c {command: pipeline.input.sendRecoveryOffer}, inputs: *c, output: {result: RecoveryOfferSent}, mandatory: true}
+  - {id: project_marketing_campaign_dashboard, kind: pure_function, description: Fold campaign metrics, source: {section: "tf 46 rmo MarketingCampaignDashboard"}, impl: "extracted/marketing.py:project_marketing_campaign_dashboard", input: &d {tagged: decide_tag_delayed_travelers.output, sent: decide_send_recovery_offer.output, responses: pipeline.input.priorResponses}, inputs: *d, output: {view: MarketingCampaignDashboard}, mandatory: true}
+  - id: gate_recovery_offer_response
+    kind: hitl_gate
+    description: Wait for a traveler response.
+    source: {section: "tf 47 ui RecoveryOfferResponseScreen"}
+    signal: respond_to_recovery_offer
+    timeout: 7d
+    input: {offer: decide_send_recovery_offer.output}
+    output: {command: RespondToRecoveryOfferCommand}
+    mandatory: true
+  - {id: decide_respond_to_recovery_offer, kind: pure_function, description: Record accepted or declined response, source: {section: "tf 48 cmd RespondToRecoveryOffer"}, impl: "extracted/marketing.py:decide_respond_to_recovery_offer", input: &e {command: gate_recovery_offer_response.output}, inputs: *e, output: {result: RecoveryOfferResponseResult}, mandatory: true}
+  - {id: project_marketing_conversion_report, kind: pure_function, description: Fold offer responses into conversion counts, source: {section: "tf 50 rmo MarketingConversionReport"}, impl: "extracted/marketing.py:project_marketing_conversion_report", input: &f {responses: pipeline.input.priorResponses}, inputs: *f, output: {view: MarketingConversionReport}, mandatory: true}
+edges:
+  - {from: translate_marketing, to: decide_tag_delayed_travelers}
+  - {from: decide_tag_delayed_travelers, to: project_marketing_campaign_dashboard}
+  - {from: decide_send_recovery_offer, to: project_marketing_campaign_dashboard}
+  - {from: decide_send_recovery_offer, to: gate_recovery_offer_response}
+  - {from: gate_recovery_offer_response, to: decide_respond_to_recovery_offer}
+entry_nodes: [translate_marketing, decide_send_recovery_offer, project_marketing_conversion_report]
+exit_nodes: [project_marketing_campaign_dashboard, decide_respond_to_recovery_offer, project_marketing_conversion_report]

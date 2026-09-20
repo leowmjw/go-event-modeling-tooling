@@ -1,0 +1,8 @@
+cases:
+  - {name: approve full disbursement, node: decide_approve_disbursement}
+  - {name: partially reject disbursement, node: decide_approve_disbursement}
+  - {name: reject full disbursement, node: decide_approve_disbursement}
+  - {name: issue approved payout, node: decide_issue_payout}
+  - {name: reject unapproved payout, node: decide_issue_payout}
+  - {name: reverse and reissue failed payout, node: decide_reverse_and_reissue}
+  - {name: reject duplicate reversal, node: decide_reverse_and_reissue}

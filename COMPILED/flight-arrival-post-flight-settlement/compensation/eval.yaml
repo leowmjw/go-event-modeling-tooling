@@ -1,0 +1,10 @@
+cases:
+  - {name: evaluate delayed, node: decide_evaluate_delay}
+  - {name: evaluate on time, node: decide_evaluate_delay}
+  - {name: verify eligible passengers, node: decide_verify_passenger_eligibility}
+  - {name: exclude previously compensated passenger, node: decide_verify_passenger_eligibility}
+  - {name: calculate compensation, node: decide_calculate_compensation}
+  - {name: close on-time case, node: decide_close_compensation_case}
+  - {name: reject duplicate close, node: decide_close_compensation_case}
+  - {name: escalate unresolved claim, node: decide_escalate_unresolved_claim}
+  - {name: reject duplicate escalation, node: decide_escalate_unresolved_claim}

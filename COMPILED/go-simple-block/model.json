@@ -1,0 +1,143 @@
+{
+  "schema": "evml-model/v1",
+  "source": "testdata/fixtures/simple-block.evml",
+  "sha256": "d40f88b73aa4a22da1789fb36bc3de4e452f4c6aecb5a7236b038f59756fe22b",
+  "sections": [],
+  "entities": [],
+  "frames": [
+    {
+      "id": "01",
+      "kind": "tf",
+      "type": "ui",
+      "name": "AddItemScreen",
+      "namespace": "",
+      "line": 3,
+      "section": "",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "02",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "AddItem",
+      "namespace": "",
+      "line": 4,
+      "section": "",
+      "sources": [],
+      "dataRef": "AddItem01",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "03",
+      "kind": "tf",
+      "type": "evt",
+      "name": "ItemAdded",
+      "namespace": "",
+      "line": 5,
+      "section": "",
+      "sources": [],
+      "dataRef": "ItemAdded03",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "04",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "ItemCatalog",
+      "namespace": "",
+      "line": 6,
+      "section": "",
+      "sources": [],
+      "dataRef": "ItemCatalog04",
+      "dataType": "",
+      "data": ""
+    }
+  ],
+  "data": [
+    {
+      "name": "AddItem01",
+      "dataType": "",
+      "value": "{\n  itemId: 'item-1'\n  description: 'john'\n  image: 'avatar_john'\n  price: 20.4\n}",
+      "line": 8
+    },
+    {
+      "name": "ItemAdded03",
+      "dataType": "",
+      "value": "{\n  itemId: 'item-1'\n  description: 'john'\n  image: 'avatar_john'\n  price: 20.4\n}",
+      "line": 15
+    },
+    {
+      "name": "ItemCatalog04",
+      "dataType": "",
+      "value": "{\n  items: [\n    { itemId: 'item-1', description: 'john', image: 'avatar_john', price: 20.4 }\n  ]\n}",
+      "line": 22
+    }
+  ],
+  "notes": [],
+  "hotspots": [],
+  "gwts": [
+    {
+      "frame": "02",
+      "label": "add a valid item",
+      "line": 28,
+      "given": [
+        {
+          "type": "evt",
+          "name": "ItemCatalogOpened",
+          "dataType": "",
+          "data": "{ catalogId: 'catalog-1' }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "AddItem",
+          "dataType": "",
+          "data": "{ itemId: 'item-1', description: 'john', image: 'avatar_john', price: 20.4 }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "ItemAdded",
+          "dataType": "",
+          "data": "{ itemId: 'item-1', description: 'john', image: 'avatar_john', price: 20.4 }"
+        }
+      ]
+    },
+    {
+      "frame": "02",
+      "label": "reject an item with a non-positive price",
+      "line": 36,
+      "given": [
+        {
+          "type": "evt",
+          "name": "ItemCatalogOpened",
+          "dataType": "",
+          "data": "{ catalogId: 'catalog-1' }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "AddItem",
+          "dataType": "",
+          "data": "{ itemId: 'item-2', description: 'jane', image: 'avatar_jane', price: 0 }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "ItemAddRejected",
+          "dataType": "",
+          "data": "{ itemId: 'item-2', reason: 'price_must_be_positive' }"
+        }
+      ]
+    }
+  ]
+}

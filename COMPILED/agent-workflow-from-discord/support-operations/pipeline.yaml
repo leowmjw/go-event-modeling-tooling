@@ -1,0 +1,26 @@
+name: agent-workflow-from-discord-support-operations
+version: 1.0.0
+description: Project exhausted invoice lookup failures into the morning support review inbox.
+input:
+  type: InvoiceSearchFailed
+  required: [payload]
+  input_schema:
+    type: object
+    title: InvoiceSearchFailed
+    properties:
+      conversationId: { type: string }
+      reason: { type: string, enum: [repository_unavailable] }
+    required: [conversationId, reason]
+nodes:
+- id: project_support_review_inbox
+  kind: pure_function
+  description: Add the failed conversation to the support review inbox.
+  source: { section: "tf 19 rmo SupportReviewInbox" }
+  impl: extracted/support_operations.py:project_support_review_inbox
+  input: { event: InvoiceSearchFailed }
+  inputs: { event: pipeline.input }
+  output: SupportReviewInboxView
+  mandatory: true
+edges: []
+entry_nodes: [project_support_review_inbox]
+exit_nodes: [project_support_review_inbox]

@@ -1,0 +1,1621 @@
+{
+  "schema": "evml-model/v1",
+  "source": "testdata/fixtures/flight-arrival-post-flight-settlement.evml",
+  "sha256": "b58f2a593478d8d4918fcc99def78b0276b82296f625d3f66ad2a5d02a973a6c",
+  "sections": [
+    {
+      "name": "Operations bounded context",
+      "line": 20
+    },
+    {
+      "name": "Compensation bounded context",
+      "line": 29
+    },
+    {
+      "name": "Finance bounded context",
+      "line": 51
+    },
+    {
+      "name": "Compensation: disbursement recovery",
+      "line": 68
+    },
+    {
+      "name": "Marketing bounded context",
+      "line": 77
+    },
+    {
+      "name": "Operations: no-delay path (Gap-1)",
+      "line": 93
+    },
+    {
+      "name": "GWT scenarios",
+      "line": 154
+    }
+  ],
+  "entities": [],
+  "frames": [
+    {
+      "id": "01",
+      "kind": "tf",
+      "type": "ui",
+      "name": "FlightDeck",
+      "namespace": "",
+      "line": 21,
+      "section": "Operations bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "02",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "FlightStatus",
+      "namespace": "",
+      "line": 22,
+      "section": "Operations bounded context",
+      "sources": [],
+      "dataRef": "FlightStatus02",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "03",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "RecordWheelsDown",
+      "namespace": "",
+      "line": 23,
+      "section": "Operations bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", wheelsTouchTime: \"2024-06-15T14:32:00Z\", aircraftId: \"N42HL\" }"
+    },
+    {
+      "id": "04",
+      "kind": "tf",
+      "type": "evt",
+      "name": "WheelsDownRecorded",
+      "namespace": "",
+      "line": 24,
+      "section": "Operations bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", wheelsTouchTime: \"2024-06-15T14:32:00Z\", aircraftId: \"N42HL\", boundedContext: \"Operations\" }"
+    },
+    {
+      "id": "05",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "RecordGateArrival",
+      "namespace": "",
+      "line": 25,
+      "section": "Operations bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", gateDoorOpenTime: \"2024-06-15T14:47:00Z\", gateId: \"B12\" }"
+    },
+    {
+      "id": "06",
+      "kind": "tf",
+      "type": "evt",
+      "name": "GateOpened",
+      "namespace": "",
+      "line": 26,
+      "section": "Operations bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", gateDoorOpenTime: \"2024-06-15T14:47:00Z\", gateId: \"B12\", boundedContext: \"Operations\" }"
+    },
+    {
+      "id": "07",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "ArrivalBoard",
+      "namespace": "",
+      "line": 27,
+      "section": "Operations bounded context",
+      "sources": [],
+      "dataRef": "ArrivalBoard07",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "08",
+      "kind": "rf",
+      "type": "evt",
+      "name": "Operations.GateOpened",
+      "namespace": "Operations",
+      "line": 32,
+      "section": "Compensation bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", scheduledArrival: \"2024-06-15T14:30:00Z\", gateDoorOpenTime: \"2024-06-15T14:47:00Z\", onTimeThresholdMinutes: 15 }"
+    },
+    {
+      "id": "09",
+      "kind": "tf",
+      "type": "pcr",
+      "name": "CompensationProcessor",
+      "namespace": "",
+      "line": 33,
+      "section": "Compensation bounded context",
+      "sources": [
+        "08"
+      ],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "10",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "EvaluateDelay",
+      "namespace": "",
+      "line": 34,
+      "section": "Compensation bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", scheduledArrival: \"2024-06-15T14:30:00Z\", actualArrivalTime: \"2024-06-15T14:47:00Z\", onTimeDefinition: \"gate_door_open\", onTimeThresholdMinutes: 15 }"
+    },
+    {
+      "id": "11",
+      "kind": "tf",
+      "type": "evt",
+      "name": "DelayEvaluated",
+      "namespace": "",
+      "line": 35,
+      "section": "Compensation bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", delayMinutes: 17, isDelayed: true, onTimeThresholdMinutes: 15, boundedContext: \"Compensation\" }"
+    },
+    {
+      "id": "12",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "VerifyPassengerEligibility",
+      "namespace": "",
+      "line": 38,
+      "section": "Compensation bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", passengerIds: [\"pax-1\", \"pax-2\", \"pax-3\"] }"
+    },
+    {
+      "id": "13",
+      "kind": "tf",
+      "type": "evt",
+      "name": "PassengerEligibilityVerified",
+      "namespace": "",
+      "line": 39,
+      "section": "Compensation bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", eligibleIds: [\"pax-1\", \"pax-2\", \"pax-3\"], ineligibleIds: [] }"
+    },
+    {
+      "id": "14",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "CalculateCompensation",
+      "namespace": "",
+      "line": 40,
+      "section": "Compensation bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", delayMinutes: 17, eligiblePassengerIds: [\"pax-1\", \"pax-2\", \"pax-3\"] }"
+    },
+    {
+      "id": "15",
+      "kind": "tf",
+      "type": "evt",
+      "name": "CompensationCalculated",
+      "namespace": "",
+      "line": 41,
+      "section": "Compensation bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", totalCompensationAmount: 510.00, perPassengerAmount: 170.00, currency: \"USD\", eligiblePassengerIds: [\"pax-1\", \"pax-2\", \"pax-3\"] }"
+    },
+    {
+      "id": "16",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "DelayClaimSummary",
+      "namespace": "",
+      "line": 42,
+      "section": "Compensation bounded context",
+      "sources": [],
+      "dataRef": "DelayClaimSummary16",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "17",
+      "kind": "rf",
+      "type": "evt",
+      "name": "Operations.FlightClosedOnTime",
+      "namespace": "Operations",
+      "line": 45,
+      "section": "Compensation bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", closedAt: \"2024-06-15T14:28:00Z\" }"
+    },
+    {
+      "id": "18",
+      "kind": "tf",
+      "type": "pcr",
+      "name": "CompensationClosureProcessor",
+      "namespace": "",
+      "line": 46,
+      "section": "Compensation bounded context",
+      "sources": [
+        "17"
+      ],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "19",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "CloseCompensationCase",
+      "namespace": "",
+      "line": 47,
+      "section": "Compensation bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", reason: \"on_time_no_claim\" }"
+    },
+    {
+      "id": "20",
+      "kind": "tf",
+      "type": "evt",
+      "name": "CompensationCaseClosed",
+      "namespace": "",
+      "line": 48,
+      "section": "Compensation bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", reason: \"on_time_no_claim\", closedAt: \"2024-06-15T14:30:00Z\" }"
+    },
+    {
+      "id": "21",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "ClosedClaimRecord",
+      "namespace": "",
+      "line": 49,
+      "section": "Compensation bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", status: \"closed_no_claim\" }"
+    },
+    {
+      "id": "22",
+      "kind": "rf",
+      "type": "evt",
+      "name": "Compensation.CompensationCalculated",
+      "namespace": "Compensation",
+      "line": 52,
+      "section": "Finance bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", totalCompensationAmount: 510.00, perPassengerAmount: 170.00, eligiblePassengerIds: [\"pax-1\", \"pax-2\", \"pax-3\"], billingAccounts: [{ passengerId: \"pax-1\", accountId: \"acc-pax1\" }, { passengerId: \"pax-2\", accountId: \"acc-pax2\" }, { passengerId: \"pax-3\", accountId: \"acc-pax3\" }] }"
+    },
+    {
+      "id": "23",
+      "kind": "tf",
+      "type": "pcr",
+      "name": "FinanceTranslator",
+      "namespace": "",
+      "line": 53,
+      "section": "Finance bounded context",
+      "sources": [
+        "22"
+      ],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "24",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "ApproveDisbursement",
+      "namespace": "",
+      "line": 54,
+      "section": "Finance bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", disbursementId: \"disb-9901\", totalAmount: 510.00, perPassengerAmount: 170.00, eligiblePassengerIds: [\"pax-1\", \"pax-2\", \"pax-3\"], billingAccounts: [{ passengerId: \"pax-1\", accountId: \"acc-pax1\" }, { passengerId: \"pax-2\", accountId: \"acc-pax2\" }, { passengerId: \"pax-3\", accountId: \"acc-pax3\" }], customerDefinition: \"billable_account\", approvedAt: \"2024-06-15T15:10:00Z\" }"
+    },
+    {
+      "id": "25",
+      "kind": "tf",
+      "type": "evt",
+      "name": "DisbursementApproved",
+      "namespace": "",
+      "line": 55,
+      "section": "Finance bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", disbursementId: \"disb-9901\", totalAmount: 510.00, approvedAt: \"2024-06-15T15:10:00Z\", boundedContext: \"Finance\" }"
+    },
+    {
+      "id": "26",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "IssuePayout",
+      "namespace": "",
+      "line": 56,
+      "section": "Finance bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ disbursementId: \"disb-9901\", flightId: \"HLT-421\", paymentRails: \"ACH\", scheduledDate: \"2024-06-16\", totalAmount: 510.00, billingAccountIds: [\"acc-pax1\", \"acc-pax2\", \"acc-pax3\"] }"
+    },
+    {
+      "id": "27",
+      "kind": "tf",
+      "type": "evt",
+      "name": "PayoutIssued",
+      "namespace": "",
+      "line": 57,
+      "section": "Finance bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ disbursementId: \"disb-9901\", flightId: \"HLT-421\", paymentRails: \"ACH\", scheduledDate: \"2024-06-16\", totalAmount: 510.00, billingAccountIds: [\"acc-pax1\", \"acc-pax2\", \"acc-pax3\"] }"
+    },
+    {
+      "id": "28",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "FinanceSettlementReport",
+      "namespace": "",
+      "line": 58,
+      "section": "Finance bounded context",
+      "sources": [],
+      "dataRef": "FinanceSettlementReport28",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "29",
+      "kind": "rf",
+      "type": "evt",
+      "name": "Finance.PayoutFailed",
+      "namespace": "Finance",
+      "line": 61,
+      "section": "Finance bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ disbursementId: \"disb-9901\", failureCode: \"R03\", totalAmount: 510.00, failedAt: \"2024-06-16T09:00:00Z\", recoveryPaymentRails: \"WIRE\", recoveryScheduledDate: \"2024-06-17\" }"
+    },
+    {
+      "id": "30",
+      "kind": "tf",
+      "type": "pcr",
+      "name": "PayoutRecoveryProcessor",
+      "namespace": "",
+      "line": 62,
+      "section": "Finance bounded context",
+      "sources": [
+        "29"
+      ],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "31",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "ReverseAndReissuePayout",
+      "namespace": "",
+      "line": 63,
+      "section": "Finance bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ disbursementId: \"disb-9901\", failureCode: \"R03\", totalAmount: 510.00, reversedAt: \"2024-06-16T09:00:00Z\", newPaymentRails: \"WIRE\", scheduledDate: \"2024-06-17\" }"
+    },
+    {
+      "id": "32",
+      "kind": "tf",
+      "type": "evt",
+      "name": "PayoutReversed",
+      "namespace": "",
+      "line": 64,
+      "section": "Finance bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ disbursementId: \"disb-9901\", failureCode: \"R03\", reversedAt: \"2024-06-16T09:00:00Z\" }"
+    },
+    {
+      "id": "33",
+      "kind": "tf",
+      "type": "evt",
+      "name": "PayoutReissued",
+      "namespace": "",
+      "line": 65,
+      "section": "Finance bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ disbursementId: \"disb-9901\", newPaymentRails: \"WIRE\", scheduledDate: \"2024-06-17\", totalAmount: 510.00 }"
+    },
+    {
+      "id": "34",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "PayoutRecoveryReport",
+      "namespace": "",
+      "line": 66,
+      "section": "Finance bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ disbursementId: \"disb-9901\", status: \"reissued_via_wire\", scheduledDate: \"2024-06-17\" }"
+    },
+    {
+      "id": "35",
+      "kind": "rf",
+      "type": "evt",
+      "name": "Finance.PartialDisbursementRejected",
+      "namespace": "Finance",
+      "line": 71,
+      "section": "Compensation: disbursement recovery",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", rejectedPassengerIds: [\"pax-3\"], rejectedAmount: 170.00, reason: \"no_billable_account\", escalatedAt: \"2024-06-16T10:00:00Z\" }"
+    },
+    {
+      "id": "36",
+      "kind": "tf",
+      "type": "pcr",
+      "name": "CompensationRecoveryTranslator",
+      "namespace": "",
+      "line": 72,
+      "section": "Compensation: disbursement recovery",
+      "sources": [
+        "35"
+      ],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "37",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "EscalateUnresolvedClaim",
+      "namespace": "",
+      "line": 73,
+      "section": "Compensation: disbursement recovery",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", passengerIds: [\"pax-3\"], amount: 170.00, escalatedAt: \"2024-06-16T10:00:00Z\" }"
+    },
+    {
+      "id": "38",
+      "kind": "tf",
+      "type": "evt",
+      "name": "ClaimEscalated",
+      "namespace": "",
+      "line": 74,
+      "section": "Compensation: disbursement recovery",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", passengerIds: [\"pax-3\"], amount: 170.00, escalatedAt: \"2024-06-16T10:00:00Z\" }"
+    },
+    {
+      "id": "39",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "EscalatedClaimsQueue",
+      "namespace": "",
+      "line": 75,
+      "section": "Compensation: disbursement recovery",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", pendingPassengers: [\"pax-3\"], pendingAmount: 170.00 }"
+    },
+    {
+      "id": "40",
+      "kind": "rf",
+      "type": "evt",
+      "name": "Finance.PayoutIssued",
+      "namespace": "Finance",
+      "line": 78,
+      "section": "Marketing bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ disbursementId: \"disb-9901\", flightId: \"HLT-421\", totalAmount: 510.00, travelerIds: [\"visitor-a\", \"visitor-b\", \"visitor-c\"], segmentTag: \"delayed_flight_2024_06\" }"
+    },
+    {
+      "id": "41",
+      "kind": "tf",
+      "type": "pcr",
+      "name": "MarketingTranslator",
+      "namespace": "",
+      "line": 79,
+      "section": "Marketing bounded context",
+      "sources": [
+        "40"
+      ],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "42",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "TagDelayedTravelers",
+      "namespace": "",
+      "line": 80,
+      "section": "Marketing bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", travelerIds: [\"visitor-a\", \"visitor-b\", \"visitor-c\"], segmentTag: \"delayed_flight_2024_06\", customerDefinition: \"booking_page_visitor\" }"
+    },
+    {
+      "id": "43",
+      "kind": "tf",
+      "type": "evt",
+      "name": "DelayedTravelerTagged",
+      "namespace": "",
+      "line": 81,
+      "section": "Marketing bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", segmentTag: \"delayed_flight_2024_06\", travelerCount: 3 }"
+    },
+    {
+      "id": "44",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "SendRecoveryOffer",
+      "namespace": "",
+      "line": 82,
+      "section": "Marketing bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ segmentTag: \"delayed_flight_2024_06\", offerId: \"offer-77\", travelerIds: [\"visitor-a\", \"visitor-b\", \"visitor-c\"], channel: \"email\", sentAt: \"2024-06-15T16:00:00Z\" }"
+    },
+    {
+      "id": "45",
+      "kind": "tf",
+      "type": "evt",
+      "name": "RecoveryOfferSent",
+      "namespace": "",
+      "line": 83,
+      "section": "Marketing bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ segmentTag: \"delayed_flight_2024_06\", offerId: \"offer-77\", travelerIds: [\"visitor-a\", \"visitor-b\", \"visitor-c\"], channel: \"email\", offersSent: 3, sentAt: \"2024-06-15T16:00:00Z\" }"
+    },
+    {
+      "id": "46",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "MarketingCampaignDashboard",
+      "namespace": "",
+      "line": 84,
+      "section": "Marketing bounded context",
+      "sources": [],
+      "dataRef": "MarketingCampaignDashboard46",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "47",
+      "kind": "tf",
+      "type": "ui",
+      "name": "RecoveryOfferResponseScreen",
+      "namespace": "",
+      "line": 88,
+      "section": "Marketing bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "48",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "RespondToRecoveryOffer",
+      "namespace": "",
+      "line": 89,
+      "section": "Marketing bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ offerId: \"offer-77\", travelerId: \"visitor-a\", response: \"accepted\", respondedAt: \"2024-06-15T17:05:00Z\" }"
+    },
+    {
+      "id": "49",
+      "kind": "tf",
+      "type": "evt",
+      "name": "RecoveryOfferAccepted",
+      "namespace": "",
+      "line": 90,
+      "section": "Marketing bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ offerId: \"offer-77\", travelerId: \"visitor-a\", acceptedAt: \"2024-06-15T17:05:00Z\" }"
+    },
+    {
+      "id": "50",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "MarketingConversionReport",
+      "namespace": "",
+      "line": 91,
+      "section": "Marketing bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ offerId: \"offer-77\", acceptedCount: 1, declinedCount: 0 }"
+    },
+    {
+      "id": "51",
+      "kind": "rf",
+      "type": "evt",
+      "name": "Operations.WheelsDownRecorded",
+      "namespace": "Operations",
+      "line": 94,
+      "section": "Operations: no-delay path (Gap-1)",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", wheelsTouchTime: \"2024-06-15T14:28:00Z\" }"
+    },
+    {
+      "id": "52",
+      "kind": "tf",
+      "type": "pcr",
+      "name": "OntimeVerifier",
+      "namespace": "",
+      "line": 95,
+      "section": "Operations: no-delay path (Gap-1)",
+      "sources": [
+        "51"
+      ],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "53",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "CloseFlightOnTime",
+      "namespace": "",
+      "line": 96,
+      "section": "Operations: no-delay path (Gap-1)",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", closedAt: \"2024-06-15T14:28:00Z\", reason: \"on_time_wheels_down\" }"
+    },
+    {
+      "id": "54",
+      "kind": "tf",
+      "type": "evt",
+      "name": "FlightClosedOnTime",
+      "namespace": "",
+      "line": 97,
+      "section": "Operations: no-delay path (Gap-1)",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", closedAt: \"2024-06-15T14:28:00Z\" }"
+    },
+    {
+      "id": "55",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "FlightClosureRecord",
+      "namespace": "",
+      "line": 98,
+      "section": "Operations: no-delay path (Gap-1)",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ flightId: \"HLT-421\", status: \"on_time\", closedAt: \"2024-06-15T14:28:00Z\" }"
+    }
+  ],
+  "data": [
+    {
+      "name": "FlightStatus02",
+      "dataType": "",
+      "value": "{\n  flightId: \"HLT-421\"\n  origin: \"JFK\"\n  destination: \"LAX\"\n  scheduledArrival: \"2024-06-15T14:30:00Z\"\n  currentStatus: \"in_flight\"\n  aircraftId: \"N42HL\"\n}",
+      "line": 100
+    },
+    {
+      "name": "ArrivalBoard07",
+      "dataType": "",
+      "value": "{\n  flightId: \"HLT-421\"\n  gateId: \"B12\"\n  gateDoorOpenTime: \"2024-06-15T14:47:00Z\"\n  displayStatus: \"ARRIVED\"\n}",
+      "line": 109
+    },
+    {
+      "name": "DelayClaimSummary16",
+      "dataType": "",
+      "value": "{\n  flightId: \"HLT-421\"\n  delayMinutes: 17\n  eligiblePassengers: [\n    { passengerId: \"pax-1\", compensationAmount: 170.00 }\n    { passengerId: \"pax-2\", compensationAmount: 170.00 }\n    { passengerId: \"pax-3\", compensationAmount: 170.00 }\n  ]\n  ineligiblePassengers: []\n  totalCompensation: 510.00\n  currency: \"USD\"\n  status: \"pending_disbursement\"\n}",
+      "line": 116
+    },
+    {
+      "name": "FinanceSettlementReport28",
+      "dataType": "",
+      "value": "{\n  disbursementId: \"disb-9901\"\n  flightId: \"HLT-421\"\n  totalAmount: 510.00\n  paymentRails: \"ACH\"\n  scheduledDate: \"2024-06-16\"\n  status: \"approved\"\n  billingAccounts: [\n    { accountId: \"acc-pax1\", amount: 170.00 }\n    { accountId: \"acc-pax2\", amount: 170.00 }\n    { accountId: \"acc-pax3\", amount: 170.00 }\n  ]\n}",
+      "line": 130
+    },
+    {
+      "name": "MarketingCampaignDashboard46",
+      "dataType": "",
+      "value": "{\n  segmentTag: \"delayed_flight_2024_06\"\n  activeCampaigns: 1\n  targetedTravelers: 3\n  offersSent: 3\n  offersAccepted: 0\n  offersDeclined: 0\n  conversionRate: 0.00\n}",
+      "line": 144
+    }
+  ],
+  "notes": [],
+  "hotspots": [],
+  "gwts": [
+    {
+      "frame": "03",
+      "label": "record wheels-down for an in-flight aircraft",
+      "line": 156,
+      "given": [
+        {
+          "type": "evt",
+          "name": "FlightDeparted",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", origin: \"JFK\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "RecordWheelsDown",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", wheelsTouchTime: \"2024-06-15T14:32:00Z\", aircraftId: \"N42HL\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "WheelsDownRecorded",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", wheelsTouchTime: \"2024-06-15T14:32:00Z\", aircraftId: \"N42HL\", boundedContext: \"Operations\" }"
+        }
+      ]
+    },
+    {
+      "frame": "03",
+      "label": "reject duplicate wheels-down recording",
+      "line": 164,
+      "given": [
+        {
+          "type": "evt",
+          "name": "WheelsDownRecorded",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", wheelsTouchTime: \"2024-06-15T14:32:00Z\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "RecordWheelsDown",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", wheelsTouchTime: \"2024-06-15T14:33:00Z\", aircraftId: \"N42HL\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "WheelsDownRejected",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", reason: \"already_recorded\" }"
+        }
+      ]
+    },
+    {
+      "frame": "05",
+      "label": "record gate arrival after wheels-down",
+      "line": 172,
+      "given": [
+        {
+          "type": "evt",
+          "name": "WheelsDownRecorded",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", wheelsTouchTime: \"2024-06-15T14:32:00Z\", aircraftId: \"N42HL\", boundedContext: \"Operations\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "RecordGateArrival",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", gateDoorOpenTime: \"2024-06-15T14:47:00Z\", gateId: \"B12\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "GateOpened",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", gateDoorOpenTime: \"2024-06-15T14:47:00Z\", gateId: \"B12\", boundedContext: \"Operations\" }"
+        }
+      ]
+    },
+    {
+      "frame": "05",
+      "label": "reject gate arrival without prior wheels-down",
+      "line": 180,
+      "given": [
+        {
+          "type": "evt",
+          "name": "FlightDeparted",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", origin: \"JFK\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "RecordGateArrival",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", gateDoorOpenTime: \"2024-06-15T14:47:00Z\", gateId: \"B12\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "GateArrivalRejected",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", reason: \"wheels_down_not_recorded\" }"
+        }
+      ]
+    },
+    {
+      "frame": "10",
+      "label": "evaluate as delayed when gate-door time exceeds threshold (Compensation context)",
+      "line": 188,
+      "given": [
+        {
+          "type": "evt",
+          "name": "Operations.GateOpened",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", gateDoorOpenTime: \"2024-06-15T14:47:00Z\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "EvaluateDelay",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", scheduledArrival: \"2024-06-15T14:30:00Z\", actualArrivalTime: \"2024-06-15T14:47:00Z\", onTimeDefinition: \"gate_door_open\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "DelayEvaluated",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", delayMinutes: 17, isDelayed: true }"
+        }
+      ]
+    },
+    {
+      "frame": "10",
+      "label": "evaluate as on-time when gate-door time is within threshold",
+      "line": 196,
+      "given": [
+        {
+          "type": "evt",
+          "name": "Operations.GateOpened",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", gateDoorOpenTime: \"2024-06-15T14:44:00Z\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "EvaluateDelay",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", scheduledArrival: \"2024-06-15T14:30:00Z\", actualArrivalTime: \"2024-06-15T14:44:00Z\", onTimeDefinition: \"gate_door_open\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "DelayEvaluated",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", delayMinutes: 14, isDelayed: false }"
+        }
+      ]
+    },
+    {
+      "frame": "12",
+      "label": "verify all passengers eligible for compensation",
+      "line": 204,
+      "given": [
+        {
+          "type": "evt",
+          "name": "DelayEvaluated",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", delayMinutes: 17, isDelayed: true }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "VerifyPassengerEligibility",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", passengerIds: [\"pax-1\", \"pax-2\", \"pax-3\"] }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "PassengerEligibilityVerified",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", eligibleIds: [\"pax-1\", \"pax-2\", \"pax-3\"], ineligibleIds: [] }"
+        }
+      ]
+    },
+    {
+      "frame": "12",
+      "label": "mark passenger ineligible when already compensated for this flight",
+      "line": 212,
+      "given": [
+        {
+          "type": "evt",
+          "name": "CompensationCalculated",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", eligiblePassengerIds: [\"pax-3\"] }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "VerifyPassengerEligibility",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", passengerIds: [\"pax-3\"] }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "PassengerEligibilityVerified",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", eligibleIds: [], ineligibleIds: [\"pax-3\"] }"
+        }
+      ]
+    },
+    {
+      "frame": "14",
+      "label": "calculate compensation for eligible passengers",
+      "line": 220,
+      "given": [
+        {
+          "type": "evt",
+          "name": "PassengerEligibilityVerified",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", eligibleIds: [\"pax-1\", \"pax-2\", \"pax-3\"], ineligibleIds: [] }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "CalculateCompensation",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", delayMinutes: 17, eligiblePassengerIds: [\"pax-1\", \"pax-2\", \"pax-3\"] }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "CompensationCalculated",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", totalCompensationAmount: 510.00, perPassengerAmount: 170.00, currency: \"USD\", eligiblePassengerIds: [\"pax-1\", \"pax-2\", \"pax-3\"] }"
+        }
+      ]
+    },
+    {
+      "frame": "09",
+      "label": "CompensationProcessor suppresses EvaluateDelay for on-time arrivals",
+      "line": 228,
+      "given": [
+        {
+          "type": "evt",
+          "name": "Operations.GateOpened",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", gateDoorOpenTime: \"2024-06-15T14:44:00Z\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "EvaluateDelay",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", scheduledArrival: \"2024-06-15T14:30:00Z\", actualArrivalTime: \"2024-06-15T14:44:00Z\", onTimeDefinition: \"gate_door_open\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "DelayEvaluationSuppressed",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", reason: \"within_on_time_threshold\", delayMinutes: 14 }"
+        }
+      ]
+    },
+    {
+      "frame": "24",
+      "label": "approve disbursement for billable account holders (Finance context)",
+      "line": 236,
+      "given": [
+        {
+          "type": "evt",
+          "name": "Compensation.CompensationCalculated",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", totalCompensationAmount: 510.00 }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "ApproveDisbursement",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", totalAmount: 510.00, billingAccountIds: [\"acc-pax1\", \"acc-pax2\", \"acc-pax3\"], customerDefinition: \"billable_account\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "DisbursementApproved",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", disbursementId: \"disb-9901\", totalAmount: 510.00 }"
+        }
+      ]
+    },
+    {
+      "frame": "24",
+      "label": "partially reject disbursement for passengers without billable accounts",
+      "line": 244,
+      "given": [
+        {
+          "type": "evt",
+          "name": "Compensation.CompensationCalculated",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", totalCompensationAmount: 510.00 }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "ApproveDisbursement",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", totalAmount: 510.00, billingAccountIds: [\"acc-pax1\", \"acc-pax2\"], customerDefinition: \"billable_account\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "PartialDisbursementRejected",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", rejectedPassengerIds: [\"pax-3\"], rejectedAmount: 170.00, reason: \"no_billable_account\" }"
+        }
+      ]
+    },
+    {
+      "frame": "24",
+      "label": "reject full disbursement when no billable account exists",
+      "line": 252,
+      "given": [
+        {
+          "type": "evt",
+          "name": "Compensation.CompensationCalculated",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", totalCompensationAmount: 170.00 }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "ApproveDisbursement",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", totalAmount: 170.00, billingAccountIds: [], customerDefinition: \"billable_account\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "DisbursementRejected",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", reason: \"no_billable_account\" }"
+        }
+      ]
+    },
+    {
+      "frame": "26",
+      "label": "issue payout via ACH after disbursement approval",
+      "line": 260,
+      "given": [
+        {
+          "type": "evt",
+          "name": "DisbursementApproved",
+          "dataType": "",
+          "data": "{ disbursementId: \"disb-9901\", totalAmount: 510.00 }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "IssuePayout",
+          "dataType": "",
+          "data": "{ disbursementId: \"disb-9901\", paymentRails: \"ACH\", scheduledDate: \"2024-06-16\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "PayoutIssued",
+          "dataType": "",
+          "data": "{ disbursementId: \"disb-9901\", totalAmount: 510.00, scheduledDate: \"2024-06-16\" }"
+        }
+      ]
+    },
+    {
+      "frame": "26",
+      "label": "reject payout when disbursement is not yet approved",
+      "line": 268,
+      "given": [
+        {
+          "type": "evt",
+          "name": "Compensation.CompensationCalculated",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", totalCompensationAmount: 510.00 }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "IssuePayout",
+          "dataType": "",
+          "data": "{ disbursementId: \"disb-9901\", paymentRails: \"ACH\", scheduledDate: \"2024-06-16\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "PayoutRejected",
+          "dataType": "",
+          "data": "{ disbursementId: \"disb-9901\", reason: \"disbursement_not_approved\" }"
+        }
+      ]
+    },
+    {
+      "frame": "31",
+      "label": "reverse and reissue payout after ACH return (R03)",
+      "line": 276,
+      "given": [
+        {
+          "type": "evt",
+          "name": "Finance.PayoutFailed",
+          "dataType": "",
+          "data": "{ disbursementId: \"disb-9901\", failureCode: \"R03\", totalAmount: 510.00, failedAt: \"2024-06-16T09:00:00Z\", recoveryPaymentRails: \"WIRE\", recoveryScheduledDate: \"2024-06-17\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "ReverseAndReissuePayout",
+          "dataType": "",
+          "data": "{ disbursementId: \"disb-9901\", failureCode: \"R03\", totalAmount: 510.00, reversedAt: \"2024-06-16T09:00:00Z\", newPaymentRails: \"WIRE\", scheduledDate: \"2024-06-17\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "PayoutReversed",
+          "dataType": "",
+          "data": "{ disbursementId: \"disb-9901\", failureCode: \"R03\", reversedAt: \"2024-06-16T09:00:00Z\" }"
+        },
+        {
+          "type": "evt",
+          "name": "PayoutReissued",
+          "dataType": "",
+          "data": "{ disbursementId: \"disb-9901\", newPaymentRails: \"WIRE\", scheduledDate: \"2024-06-17\", totalAmount: 510.00 }"
+        }
+      ]
+    },
+    {
+      "frame": "31",
+      "label": "reject reissuance when disbursement is already reversed",
+      "line": 285,
+      "given": [
+        {
+          "type": "evt",
+          "name": "PayoutReversed",
+          "dataType": "",
+          "data": "{ disbursementId: \"disb-9901\", failureCode: \"R03\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "ReverseAndReissuePayout",
+          "dataType": "",
+          "data": "{ disbursementId: \"disb-9901\", newPaymentRails: \"WIRE\", scheduledDate: \"2024-06-17\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "PayoutReversalRejected",
+          "dataType": "",
+          "data": "{ disbursementId: \"disb-9901\", reason: \"already_reversed\" }"
+        }
+      ]
+    },
+    {
+      "frame": "37",
+      "label": "escalate unresolved claim for passenger without billable account",
+      "line": 293,
+      "given": [
+        {
+          "type": "evt",
+          "name": "Finance.PartialDisbursementRejected",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", rejectedPassengerIds: [\"pax-3\"], rejectedAmount: 170.00 }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "EscalateUnresolvedClaim",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", passengerIds: [\"pax-3\"], amount: 170.00 }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "ClaimEscalated",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", passengerIds: [\"pax-3\"], amount: 170.00 }"
+        }
+      ]
+    },
+    {
+      "frame": "37",
+      "label": "reject escalation when claim is already escalated",
+      "line": 301,
+      "given": [
+        {
+          "type": "evt",
+          "name": "ClaimEscalated",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", passengerIds: [\"pax-3\"], amount: 170.00 }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "EscalateUnresolvedClaim",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", passengerIds: [\"pax-3\"], amount: 170.00 }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "ClaimEscalationRejected",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", reason: \"already_escalated\" }"
+        }
+      ]
+    },
+    {
+      "frame": "42",
+      "label": "tag delayed travelers as booking-page visitors (Marketing context)",
+      "line": 309,
+      "given": [
+        {
+          "type": "evt",
+          "name": "Finance.PayoutIssued",
+          "dataType": "",
+          "data": "{ disbursementId: \"disb-9901\", flightId: \"HLT-421\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "TagDelayedTravelers",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", travelerIds: [\"visitor-a\", \"visitor-b\", \"visitor-c\"], segmentTag: \"delayed_flight_2024_06\", customerDefinition: \"booking_page_visitor\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "DelayedTravelerTagged",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", segmentTag: \"delayed_flight_2024_06\", travelerCount: 3 }"
+        }
+      ]
+    },
+    {
+      "frame": "42",
+      "label": "skip tagging when no visitors match the flight",
+      "line": 317,
+      "given": [
+        {
+          "type": "evt",
+          "name": "Finance.PayoutIssued",
+          "dataType": "",
+          "data": "{ disbursementId: \"disb-9901\", flightId: \"HLT-421\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "TagDelayedTravelers",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", travelerIds: [], segmentTag: \"delayed_flight_2024_06\", customerDefinition: \"booking_page_visitor\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "TravelerTaggingSkipped",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", reason: \"no_matching_visitors\" }"
+        }
+      ]
+    },
+    {
+      "frame": "44",
+      "label": "send one recovery offer to each tagged traveler",
+      "line": 325,
+      "given": [
+        {
+          "type": "evt",
+          "name": "DelayedTravelerTagged",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", segmentTag: \"delayed_flight_2024_06\", travelerCount: 3 }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "SendRecoveryOffer",
+          "dataType": "",
+          "data": "{ segmentTag: \"delayed_flight_2024_06\", offerId: \"offer-77\", travelerIds: [\"visitor-a\", \"visitor-b\", \"visitor-c\"], channel: \"email\", sentAt: \"2024-06-15T16:00:00Z\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "RecoveryOfferSent",
+          "dataType": "",
+          "data": "{ segmentTag: \"delayed_flight_2024_06\", offerId: \"offer-77\", travelerIds: [\"visitor-a\", \"visitor-b\", \"visitor-c\"], channel: \"email\", offersSent: 3, sentAt: \"2024-06-15T16:00:00Z\" }"
+        }
+      ]
+    },
+    {
+      "frame": "48",
+      "label": "traveler accepts recovery offer",
+      "line": 333,
+      "given": [
+        {
+          "type": "evt",
+          "name": "RecoveryOfferSent",
+          "dataType": "",
+          "data": "{ offerId: \"offer-77\", segmentTag: \"delayed_flight_2024_06\", travelerIds: [\"visitor-a\", \"visitor-b\", \"visitor-c\"], channel: \"email\", offersSent: 3, sentAt: \"2024-06-15T16:00:00Z\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "RespondToRecoveryOffer",
+          "dataType": "",
+          "data": "{ offerId: \"offer-77\", travelerId: \"visitor-a\", response: \"accepted\", respondedAt: \"2024-06-15T17:05:00Z\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "RecoveryOfferAccepted",
+          "dataType": "",
+          "data": "{ offerId: \"offer-77\", travelerId: \"visitor-a\", acceptedAt: \"2024-06-15T17:05:00Z\" }"
+        }
+      ]
+    },
+    {
+      "frame": "48",
+      "label": "traveler declines recovery offer",
+      "line": 341,
+      "given": [
+        {
+          "type": "evt",
+          "name": "RecoveryOfferSent",
+          "dataType": "",
+          "data": "{ offerId: \"offer-77\", segmentTag: \"delayed_flight_2024_06\", travelerIds: [\"visitor-a\", \"visitor-b\", \"visitor-c\"], channel: \"email\", offersSent: 3, sentAt: \"2024-06-15T16:00:00Z\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "RespondToRecoveryOffer",
+          "dataType": "",
+          "data": "{ offerId: \"offer-77\", travelerId: \"visitor-b\", response: \"declined\", respondedAt: \"2024-06-15T17:10:00Z\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "RecoveryOfferDeclined",
+          "dataType": "",
+          "data": "{ offerId: \"offer-77\", travelerId: \"visitor-b\", declinedAt: \"2024-06-15T17:10:00Z\" }"
+        }
+      ]
+    },
+    {
+      "frame": "19",
+      "label": "close compensation case when flight is confirmed on time",
+      "line": 349,
+      "given": [
+        {
+          "type": "evt",
+          "name": "Operations.FlightClosedOnTime",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", closedAt: \"2024-06-15T14:28:00Z\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "CloseCompensationCase",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", reason: \"on_time_no_claim\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "CompensationCaseClosed",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", reason: \"on_time_no_claim\" }"
+        }
+      ]
+    },
+    {
+      "frame": "19",
+      "label": "reject closure when compensation case is already closed",
+      "line": 357,
+      "given": [
+        {
+          "type": "evt",
+          "name": "CompensationCaseClosed",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", reason: \"on_time_no_claim\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "CloseCompensationCase",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", reason: \"on_time_no_claim\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "CompensationCaseClosureRejected",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", reason: \"already_closed\" }"
+        }
+      ]
+    },
+    {
+      "frame": "53",
+      "label": "close flight on-time via wheels-down path",
+      "line": 365,
+      "given": [
+        {
+          "type": "evt",
+          "name": "Operations.WheelsDownRecorded",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", wheelsTouchTime: \"2024-06-15T14:28:00Z\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "CloseFlightOnTime",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", closedAt: \"2024-06-15T14:28:00Z\", reason: \"on_time_wheels_down\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "FlightClosedOnTime",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", closedAt: \"2024-06-15T14:28:00Z\" }"
+        }
+      ]
+    },
+    {
+      "frame": "53",
+      "label": "reject closure when wheels-down is missing",
+      "line": 373,
+      "given": [
+        {
+          "type": "evt",
+          "name": "FlightDeparted",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", origin: \"JFK\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "CloseFlightOnTime",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", closedAt: \"2024-06-15T14:28:00Z\", reason: \"on_time_wheels_down\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "FlightClosureRejected",
+          "dataType": "",
+          "data": "{ flightId: \"HLT-421\", reason: \"wheels_down_not_recorded\" }"
+        }
+      ]
+    }
+  ]
+}

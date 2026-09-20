@@ -1,0 +1,48 @@
+name: agent-workflow-from-discord-invoice-search
+version: 1.0.0
+description: Query the invoice repository and preserve typed success or support-routed failure.
+input:
+  type: InvoiceSearchRequested
+  required: [payload]
+  input_schema:
+    type: object
+    title: InvoiceSearchRequested
+    properties:
+      conversationId: { type: string }
+      fromDate: { type: string, format: date }
+      toDate: { type: string, format: date }
+    required: [conversationId, fromDate, toDate]
+nodes:
+- id: invoice_repository
+  kind: external_call
+  description: Query InvoiceRepository for the concrete inclusive date interval.
+  source: { section: "tf 08 pcr InvoiceRepository" }
+  impl: extracted/invoice_search.py:invoice_repository
+  input: { request: InvoiceSearchRequested }
+  inputs: { request: pipeline.input }
+  output: InvoiceRepositoryResult
+  timeout: 30s
+  retry: { max: 2, backoff: exponential }
+  mandatory: true
+- id: decide_record_invoice_search_result
+  kind: pure_function
+  description: Convert repository success/failure into InvoicesFound or InvoiceSearchFailed.
+  source: { section: "tf 09 cmd RecordInvoiceSearchResult" }
+  impl: extracted/invoice_search.py:decide_record_invoice_search_result
+  input: { command: InvoiceRepositoryResult }
+  inputs: { command: invoice_repository.output }
+  output: InvoiceSearchResult
+  mandatory: true
+- id: project_invoice_search_result
+  kind: pure_function
+  description: Project successful invoice results.
+  source: { section: "tf 12 rmo InvoiceSearchResult" }
+  impl: extracted/invoice_search.py:project_invoice_search_result
+  input: { event: InvoiceSearchResult }
+  inputs: { event: decide_record_invoice_search_result.output }
+  output: InvoiceSearchResultView
+edges:
+- { from: invoice_repository, to: decide_record_invoice_search_result }
+- { from: decide_record_invoice_search_result, to: project_invoice_search_result }
+entry_nodes: [invoice_repository]
+exit_nodes: [decide_record_invoice_search_result, project_invoice_search_result]

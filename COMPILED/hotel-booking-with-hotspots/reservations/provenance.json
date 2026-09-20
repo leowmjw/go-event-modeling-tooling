@@ -1,0 +1,40 @@
+{
+  "schema": "evml-rote-ir-provenance/v1",
+  "source_model": "testdata/fixtures/hotel-booking-with-hotspots.evml",
+  "source_sha256": "e66059d6593cd9a1345485495d08e4591a03036d0bb70bbf57a16784ca0ade55",
+  "model": "hotel-booking-with-hotspots",
+  "context": "reservations",
+  "section_name": "Reservations bounded context",
+  "frames": [
+    "01",
+    "02",
+    "03",
+    "04",
+    "05"
+  ],
+  "ir": "pipeline.yaml",
+  "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
+  "compiled_at": "2026-09-17",
+  "pipeline_version": "0.1.0",
+  "sections": {
+    "tf 01 ui SearchRoomsScreen": "8cde26086a2eccd4824839146bf7c1d147646432efbaae6be12fb22f46ba0f69",
+    "tf 02 rmo AvailableRooms": "aa69cda6e9a4f89494f23f2419be8bdcbd96ea0297182103c3e111756294c293",
+    "tf 03 cmd BookRoom": "56e601d26f535023a7774e2d4c71234ac12d785c88af42ab4756d4027dc9e96c",
+    "tf 04 evt RoomBooked": "558ab62d9dc34142024bbd0a29a5723e0333bbd28ba442022d9f827865163179",
+    "tf 05 rmo BookingConfirmation": "7e5a8735d627d27254b5c33e641460678554d23a3cffb6d0dede3f8d088f34f8"
+  },
+  "nodes": {
+    "project_AvailableRooms": {
+      "section": "tf 02 rmo AvailableRooms",
+      "content_hash": "aa69cda6e9a4f89494f23f2419be8bdcbd96ea0297182103c3e111756294c293"
+    },
+    "decide_BookRoom": {
+      "section": "tf 03 cmd BookRoom",
+      "content_hash": "56e601d26f535023a7774e2d4c71234ac12d785c88af42ab4756d4027dc9e96c"
+    },
+    "project_BookingConfirmation": {
+      "section": "tf 05 rmo BookingConfirmation",
+      "content_hash": "7e5a8735d627d27254b5c33e641460678554d23a3cffb6d0dede3f8d088f34f8"
+    }
+  }
+}

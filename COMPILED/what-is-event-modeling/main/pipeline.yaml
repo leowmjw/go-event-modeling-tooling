@@ -1,0 +1,155 @@
+name: what-is-event-modeling-main
+version: 1.0.0
+description: Search, book, check in, check out, bill, and invoice a hotel stay.
+input:
+  type: SearchRoomsCommand
+  required: [roomType, checkIn, checkOut]
+  input_schema:
+    type: object
+    properties:
+      roomType: {type: string}
+      checkIn: {type: string, format: date}
+      checkOut: {type: string, format: date}
+    required: [roomType, checkIn, checkOut]
+nodes:
+  - id: decide_search_rooms
+    kind: pure_function
+    description: Search the fixed hotel inventory for matching rooms.
+    source: {section: "tf 02 cmd SearchRooms"}
+    impl: extracted/main.py:decide_search_rooms
+    input: &search_inputs {command: pipeline.input}
+    inputs: *search_inputs
+    output: {event: RoomsSearched}
+    mandatory: true
+  - id: project_room_list
+    kind: pure_function
+    description: Project searched rooms into RoomList.
+    source: {section: "tf 04 rmo RoomList"}
+    impl: extracted/main.py:project_room_list
+    input: &room_list_inputs {event: decide_search_rooms.output}
+    inputs: *room_list_inputs
+    output: {view: RoomList}
+    mandatory: true
+  - id: gate_book_room
+    kind: hitl_gate
+    description: Wait for the guest to select an available room.
+    source: {section: "tf 05 ui BookRoomScreen"}
+    signal: book_room
+    timeout: 7d
+    input: {room_list: project_room_list.output}
+    output: {command: BookRoomCommand}
+    mandatory: true
+  - id: decide_book_room
+    kind: pure_function
+    description: Book an available room or reject an unavailable selection.
+    source: {section: "tf 06 cmd BookRoom"}
+    impl: extracted/main.py:decide_book_room
+    input: &book_inputs
+      command: gate_book_room.output
+      search: decide_search_rooms.output
+    inputs: *book_inputs
+    output: {result: BookRoomResult}
+    mandatory: true
+  - id: project_booking_confirmation
+    kind: pure_function
+    description: Project a successful booking confirmation.
+    source: {section: "tf 08 rmo BookingConfirmation"}
+    impl: extracted/main.py:project_booking_confirmation
+    input: &confirmation_inputs {event: decide_book_room.output}
+    inputs: *confirmation_inputs
+    output: {view: BookingConfirmation}
+    mandatory: true
+  - id: gate_check_in
+    kind: hitl_gate
+    description: Wait for check-in desk input.
+    source: {section: "tf 09 ui CheckInDesk"}
+    signal: check_in
+    timeout: 7d
+    input: {confirmation: project_booking_confirmation.output}
+    output: {command: CheckInCommand}
+    mandatory: true
+  - id: decide_check_in
+    kind: pure_function
+    description: Check in a booked guest or reject duplicate check-in.
+    source: {section: "tf 10 cmd CheckIn"}
+    impl: extracted/main.py:decide_check_in
+    input: &check_in_inputs
+      command: gate_check_in.output
+      booking: decide_book_room.output
+    inputs: *check_in_inputs
+    output: {result: CheckInResult}
+    mandatory: true
+  - id: project_room_status
+    kind: pure_function
+    description: Project room occupancy from check-in.
+    source: {section: "tf 12 rmo RoomStatus"}
+    impl: extracted/main.py:project_room_status
+    input: &status_inputs {event: decide_check_in.output}
+    inputs: *status_inputs
+    output: {view: RoomStatus}
+    mandatory: true
+  - id: gate_check_out
+    kind: hitl_gate
+    description: Wait for checkout desk input.
+    source: {section: "tf 13 ui CheckOutDesk"}
+    signal: check_out
+    timeout: 7d
+    input: {status: project_room_status.output}
+    output: {command: CheckOutCommand}
+    mandatory: true
+  - id: decide_check_out
+    kind: pure_function
+    description: Check out a checked-in guest and calculate the stay total.
+    source: {section: "tf 14 cmd CheckOut"}
+    impl: extracted/main.py:decide_check_out
+    input: &check_out_inputs
+      command: gate_check_out.output
+      check_in: decide_check_in.output
+    inputs: *check_out_inputs
+    output: {result: CheckOutResult}
+    mandatory: true
+  - id: billing_processor
+    kind: pure_function
+    description: Translate checkout totals into a payment command.
+    source: {section: "tf 16 pcr BillingProcessor"}
+    impl: extracted/main.py:billing_processor
+    input: &billing_inputs {check_out: decide_check_out.output}
+    inputs: *billing_inputs
+    output: {command: TakePaymentCommand}
+    mandatory: true
+  - id: decide_take_payment
+    kind: pure_function
+    description: Record a positive payment or reject a non-positive amount.
+    source: {section: "tf 17 cmd TakePayment"}
+    impl: extracted/main.py:decide_take_payment
+    input: &payment_inputs {command: billing_processor.output}
+    inputs: *payment_inputs
+    output: {result: TakePaymentResult}
+    mandatory: true
+  - id: project_invoice
+    kind: pure_function
+    description: Project the paid stay into an invoice.
+    source: {section: "tf 19 rmo Invoice"}
+    impl: extracted/main.py:project_invoice
+    input: &invoice_inputs {event: decide_take_payment.output}
+    inputs: *invoice_inputs
+    output: {view: Invoice}
+    mandatory: true
+edges:
+  - {from: decide_search_rooms, to: project_room_list}
+  - {from: project_room_list, to: gate_book_room}
+  - {from: gate_book_room, to: decide_book_room}
+  - {from: decide_search_rooms, to: decide_book_room}
+  - {from: decide_book_room, to: project_booking_confirmation}
+  - {from: project_booking_confirmation, to: gate_check_in}
+  - {from: gate_check_in, to: decide_check_in}
+  - {from: decide_book_room, to: decide_check_in}
+  - {from: decide_check_in, to: project_room_status}
+  - {from: project_room_status, to: gate_check_out}
+  - {from: gate_check_out, to: decide_check_out}
+  - {from: decide_check_in, to: decide_check_out}
+  - {from: decide_check_out, to: billing_processor}
+  - {from: billing_processor, to: decide_take_payment}
+  - {from: decide_take_payment, to: project_invoice}
+entry_nodes: [decide_search_rooms]
+exit_nodes: [project_invoice]

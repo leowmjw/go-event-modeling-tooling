@@ -1,0 +1,11 @@
+cases:
+  - {name: search available rooms, node: decide_search_rooms}
+  - {name: book available room, node: decide_book_room}
+  - {name: reject unavailable room, node: decide_book_room}
+  - {name: check in guest, node: decide_check_in}
+  - {name: reject duplicate check in, node: decide_check_in}
+  - {name: check out a checked-in guest, node: decide_check_out}
+  - {name: reject checkout before check in, node: decide_check_out}
+  - {name: prepare payment from checkout totals, node: billing_processor}
+  - {name: payment on check out, node: decide_take_payment}
+  - {name: reject non-positive payment, node: decide_take_payment}

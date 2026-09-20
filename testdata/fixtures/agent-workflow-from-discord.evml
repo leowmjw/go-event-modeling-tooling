@@ -1,20 +1,136 @@
 eventmodeling
 
+// ── Conversation Agent bounded context ───────────────────────────────────────
+
 tf 01 ui DiscordScreen
-tf 02 cmd AskQuestion { question: "How many invoices were sent out yesterday?" }
-tf 03 evt QuestionAsked { question: "How many invoices were sent out yesterday?" }
-tf 04 pcr Agent_A ->> 03
-tf 05 cmd InvokeModel { question }
-tf 06 evt InvocationCompleted
-tf 07 rmo InvocationResult { callTool: findInvoices }
+tf 02 cmd AskQuestion { conversationId: "conv-1001", question: "How many invoices were sent out yesterday?", requestedAt: "2026-09-20T13:00:00Z", businessTimezone: "America/New_York" }
+tf 03 evt QuestionAsked { conversationId: "conv-1001", question: "How many invoices were sent out yesterday?", requestedAt: "2026-09-20T13:00:00Z", businessTimezone: "America/New_York" }
+tf 04 pcr SelectInvoiceTool ->> 03
+tf 05 cmd RequestInvoiceSearch { conversationId: "conv-1001", fromDate: "2026-09-19", toDate: "2026-09-19" }
+tf 06 evt Conversation.InvoiceSearchRequested { conversationId: "conv-1001", fromDate: "2026-09-19", toDate: "2026-09-19" }
 
-rf 08 evt External.InvoicesFound { count: 2, customers: ["X", "Y"] }
-tf 09 pcr Agent_A ->> 07 ->> 08
-tf 10 cmd InvokeModel { toolResult }
-tf 11 evt InvocationCompleted
-tf 12 rmo Answers [[Answers10]]
-
-data Answers10 {
-  2 invoices were sent out
-  yesterday to customers X and Y
+note 04 {
+  classification: llm_judge
+  decision: select one tool from [findInvoices]
+  output: { tool: string, fromDate: date, toDate: date }
+  The result must use only an allowed tool and must not invent arguments.
 }
+
+// ── Invoice Search bounded context ───────────────────────────────────────────
+
+rf 07 evt Conversation.InvoiceSearchRequested { conversationId: "conv-1001", fromDate: "2026-09-19", toDate: "2026-09-19" }
+tf 08 pcr InvoiceRepository ->> 07
+tf 09 cmd RecordInvoiceSearchResult { conversationId: "conv-1001", count: 2, customers: ["X", "Y"], failureReason: "" }
+tf 10 evt InvoiceSearch.InvoicesFound { conversationId: "conv-1001", count: 2, customers: ["X", "Y"] }
+tf 11 evt InvoiceSearch.InvoiceSearchFailed { conversationId: "conv-1001", reason: "repository_unavailable" } ->> 09
+tf 12 rmo InvoiceSearchResult { conversationId: "conv-1001", count: 2, customers: ["X", "Y"] } ->> 10
+
+note 08 {
+  externalSystem: InvoiceRepository
+  timeout: "30s"
+  retry: { max: 2, backoff: exponential }
+  Input: conversationId, fromDate, and toDate.
+  Success output: conversationId, count, customers, and empty failureReason.
+  Retry-exhausted output: conversationId, count 0, empty customers, and failureReason repository_unavailable.
+}
+
+// ── Conversation Agent: tool-result continuation ─────────────────────────────
+
+rf 13 evt InvoiceSearch.InvoicesFound { conversationId: "conv-1001", count: 2, customers: ["X", "Y"] }
+tf 14 pcr FormatInvoiceAnswer ->> 13
+tf 15 cmd RecordAnswer { conversationId: "conv-1001", answer: "2 invoices were sent out yesterday to customers X and Y." }
+tf 16 evt AnswerRecorded { conversationId: "conv-1001", answer: "2 invoices were sent out yesterday to customers X and Y." }
+tf 17 rmo Answers [[Answers17]]
+
+note 14 {
+  classification: pure_function
+  Format count and customer names from InvoicesFound.
+  Singular uses "invoice was"; plural uses "invoices were".
+  Preserve customer order from the event.
+}
+
+// ── Support Operations bounded context ───────────────────────────────────────
+
+rf 18 evt InvoiceSearch.InvoiceSearchFailed { conversationId: "conv-1001", reason: "repository_unavailable" }
+tf 19 rmo SupportReviewInbox [[SupportReviewInbox19]] ->> 18
+
+note 19 {
+  Support staff review this inbox from their support screen every morning.
+  The morning review is an operator cadence, not a workflow timer.
+}
+
+data Answers17 `json` {
+  {
+    "conversationId": "conv-1001",
+    "answer": "2 invoices were sent out yesterday to customers X and Y."
+  }
+}
+
+data SupportReviewInbox19 `json` {
+  {
+    "items": [
+      {
+        "conversationId": "conv-1001",
+        "reason": "repository_unavailable"
+      }
+    ]
+  }
+}
+
+// ── Conversation Agent: GWT scenarios ────────────────────────────────────────
+
+gwt 02 "accept a Discord invoice question"
+  given
+    rmo Answers { conversationId: "conv-1001", answers: [] }
+  when
+    cmd AskQuestion { conversationId: "conv-1001", question: "How many invoices were sent out yesterday?", requestedAt: "2026-09-20T13:00:00Z", businessTimezone: "America/New_York" }
+  then
+    evt QuestionAsked { conversationId: "conv-1001", question: "How many invoices were sent out yesterday?", requestedAt: "2026-09-20T13:00:00Z", businessTimezone: "America/New_York" }
+
+gwt 04 "select the bounded invoice-search tool"
+  given
+    evt QuestionAsked { conversationId: "conv-1001", question: "How many invoices were sent out yesterday?", requestedAt: "2026-09-20T13:00:00Z", businessTimezone: "America/New_York" }
+  when
+    pcr SelectInvoiceTool { conversationId: "conv-1001", question: "How many invoices were sent out yesterday?", requestedAt: "2026-09-20T13:00:00Z", businessTimezone: "America/New_York" }
+  then
+    cmd RequestInvoiceSearch { conversationId: "conv-1001", fromDate: "2026-09-19", toDate: "2026-09-19" }
+
+gwt 05 "request yesterday's invoices after selecting findInvoices"
+  given
+    evt QuestionAsked { conversationId: "conv-1001", question: "How many invoices were sent out yesterday?", requestedAt: "2026-09-20T13:00:00Z", businessTimezone: "America/New_York" }
+  when
+    cmd RequestInvoiceSearch { conversationId: "conv-1001", fromDate: "2026-09-19", toDate: "2026-09-19" }
+  then
+    evt Conversation.InvoiceSearchRequested { conversationId: "conv-1001", fromDate: "2026-09-19", toDate: "2026-09-19" }
+
+gwt 14 "format the invoice result deterministically"
+  given
+    evt InvoiceSearch.InvoicesFound { conversationId: "conv-1001", count: 2, customers: ["X", "Y"] }
+  when
+    pcr FormatInvoiceAnswer { conversationId: "conv-1001", count: 2, customers: ["X", "Y"] }
+  then
+    cmd RecordAnswer { conversationId: "conv-1001", answer: "2 invoices were sent out yesterday to customers X and Y." }
+
+gwt 15 "record the formatted invoice answer"
+  given
+    evt InvoiceSearch.InvoicesFound { conversationId: "conv-1001", count: 2, customers: ["X", "Y"] }
+  when
+    cmd RecordAnswer { conversationId: "conv-1001", answer: "2 invoices were sent out yesterday to customers X and Y." }
+  then
+    evt AnswerRecorded { conversationId: "conv-1001", answer: "2 invoices were sent out yesterday to customers X and Y." }
+
+gwt 09 "record invoices found by the repository"
+  given
+    evt Conversation.InvoiceSearchRequested { conversationId: "conv-1001", fromDate: "2026-09-19", toDate: "2026-09-19" }
+  when
+    cmd RecordInvoiceSearchResult { conversationId: "conv-1001", count: 2, customers: ["X", "Y"], failureReason: "" }
+  then
+    evt InvoiceSearch.InvoicesFound { conversationId: "conv-1001", count: 2, customers: ["X", "Y"] }
+
+gwt 09 "route repository failure to support after retries"
+  given
+    evt Conversation.InvoiceSearchRequested { conversationId: "conv-1001", fromDate: "2026-09-19", toDate: "2026-09-19" }
+  when
+    cmd RecordInvoiceSearchResult { conversationId: "conv-1001", count: 0, customers: [], failureReason: "repository_unavailable" }
+  then
+    evt InvoiceSearch.InvoiceSearchFailed { conversationId: "conv-1001", reason: "repository_unavailable" }

@@ -1,0 +1,531 @@
+{
+  "schema": "evml-model/v1",
+  "source": "testdata/fixtures/agent-workflow-from-discord.evml",
+  "sha256": "27099d2a7a588bafc82cca25644a9b02e7752d51d31108247b59fec23671c0a9",
+  "sections": [
+    {
+      "name": "Conversation Agent bounded context",
+      "line": 3
+    },
+    {
+      "name": "Invoice Search bounded context",
+      "line": 19
+    },
+    {
+      "name": "Conversation Agent: tool-result continuation",
+      "line": 37
+    },
+    {
+      "name": "Support Operations bounded context",
+      "line": 52
+    },
+    {
+      "name": "Conversation Agent: GWT scenarios",
+      "line": 80
+    }
+  ],
+  "entities": [],
+  "frames": [
+    {
+      "id": "01",
+      "kind": "tf",
+      "type": "ui",
+      "name": "DiscordScreen",
+      "namespace": "",
+      "line": 5,
+      "section": "Conversation Agent bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "02",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "AskQuestion",
+      "namespace": "",
+      "line": 6,
+      "section": "Conversation Agent bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ conversationId: \"conv-1001\", question: \"How many invoices were sent out yesterday?\", requestedAt: \"2026-09-20T13:00:00Z\", businessTimezone: \"America/New_York\" }"
+    },
+    {
+      "id": "03",
+      "kind": "tf",
+      "type": "evt",
+      "name": "QuestionAsked",
+      "namespace": "",
+      "line": 7,
+      "section": "Conversation Agent bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ conversationId: \"conv-1001\", question: \"How many invoices were sent out yesterday?\", requestedAt: \"2026-09-20T13:00:00Z\", businessTimezone: \"America/New_York\" }"
+    },
+    {
+      "id": "04",
+      "kind": "tf",
+      "type": "pcr",
+      "name": "SelectInvoiceTool",
+      "namespace": "",
+      "line": 8,
+      "section": "Conversation Agent bounded context",
+      "sources": [
+        "03"
+      ],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "05",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "RequestInvoiceSearch",
+      "namespace": "",
+      "line": 9,
+      "section": "Conversation Agent bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ conversationId: \"conv-1001\", fromDate: \"2026-09-19\", toDate: \"2026-09-19\" }"
+    },
+    {
+      "id": "06",
+      "kind": "tf",
+      "type": "evt",
+      "name": "Conversation.InvoiceSearchRequested",
+      "namespace": "Conversation",
+      "line": 10,
+      "section": "Conversation Agent bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ conversationId: \"conv-1001\", fromDate: \"2026-09-19\", toDate: \"2026-09-19\" }"
+    },
+    {
+      "id": "07",
+      "kind": "rf",
+      "type": "evt",
+      "name": "Conversation.InvoiceSearchRequested",
+      "namespace": "Conversation",
+      "line": 21,
+      "section": "Invoice Search bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ conversationId: \"conv-1001\", fromDate: \"2026-09-19\", toDate: \"2026-09-19\" }"
+    },
+    {
+      "id": "08",
+      "kind": "tf",
+      "type": "pcr",
+      "name": "InvoiceRepository",
+      "namespace": "",
+      "line": 22,
+      "section": "Invoice Search bounded context",
+      "sources": [
+        "07"
+      ],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "09",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "RecordInvoiceSearchResult",
+      "namespace": "",
+      "line": 23,
+      "section": "Invoice Search bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ conversationId: \"conv-1001\", count: 2, customers: [\"X\", \"Y\"], failureReason: \"\" }"
+    },
+    {
+      "id": "10",
+      "kind": "tf",
+      "type": "evt",
+      "name": "InvoiceSearch.InvoicesFound",
+      "namespace": "InvoiceSearch",
+      "line": 24,
+      "section": "Invoice Search bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ conversationId: \"conv-1001\", count: 2, customers: [\"X\", \"Y\"] }"
+    },
+    {
+      "id": "11",
+      "kind": "tf",
+      "type": "evt",
+      "name": "InvoiceSearch.InvoiceSearchFailed",
+      "namespace": "InvoiceSearch",
+      "line": 25,
+      "section": "Invoice Search bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ conversationId: \"conv-1001\", reason: \"repository_unavailable\" }"
+    },
+    {
+      "id": "12",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "InvoiceSearchResult",
+      "namespace": "",
+      "line": 26,
+      "section": "Invoice Search bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ conversationId: \"conv-1001\", count: 2, customers: [\"X\", \"Y\"] }"
+    },
+    {
+      "id": "13",
+      "kind": "rf",
+      "type": "evt",
+      "name": "InvoiceSearch.InvoicesFound",
+      "namespace": "InvoiceSearch",
+      "line": 39,
+      "section": "Conversation Agent: tool-result continuation",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ conversationId: \"conv-1001\", count: 2, customers: [\"X\", \"Y\"] }"
+    },
+    {
+      "id": "14",
+      "kind": "tf",
+      "type": "pcr",
+      "name": "FormatInvoiceAnswer",
+      "namespace": "",
+      "line": 40,
+      "section": "Conversation Agent: tool-result continuation",
+      "sources": [
+        "13"
+      ],
+      "dataRef": "",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "15",
+      "kind": "tf",
+      "type": "cmd",
+      "name": "RecordAnswer",
+      "namespace": "",
+      "line": 41,
+      "section": "Conversation Agent: tool-result continuation",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ conversationId: \"conv-1001\", answer: \"2 invoices were sent out yesterday to customers X and Y.\" }"
+    },
+    {
+      "id": "16",
+      "kind": "tf",
+      "type": "evt",
+      "name": "AnswerRecorded",
+      "namespace": "",
+      "line": 42,
+      "section": "Conversation Agent: tool-result continuation",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ conversationId: \"conv-1001\", answer: \"2 invoices were sent out yesterday to customers X and Y.\" }"
+    },
+    {
+      "id": "17",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "Answers",
+      "namespace": "",
+      "line": 43,
+      "section": "Conversation Agent: tool-result continuation",
+      "sources": [],
+      "dataRef": "Answers17",
+      "dataType": "",
+      "data": ""
+    },
+    {
+      "id": "18",
+      "kind": "rf",
+      "type": "evt",
+      "name": "InvoiceSearch.InvoiceSearchFailed",
+      "namespace": "InvoiceSearch",
+      "line": 54,
+      "section": "Support Operations bounded context",
+      "sources": [],
+      "dataRef": "",
+      "dataType": "",
+      "data": "{ conversationId: \"conv-1001\", reason: \"repository_unavailable\" }"
+    },
+    {
+      "id": "19",
+      "kind": "tf",
+      "type": "rmo",
+      "name": "SupportReviewInbox",
+      "namespace": "",
+      "line": 55,
+      "section": "Support Operations bounded context",
+      "sources": [
+        "18"
+      ],
+      "dataRef": "SupportReviewInbox19",
+      "dataType": "",
+      "data": ""
+    }
+  ],
+  "data": [
+    {
+      "name": "Answers17",
+      "dataType": "json",
+      "value": "{\n  {\n    \"conversationId\": \"conv-1001\",\n    \"answer\": \"2 invoices were sent out yesterday to customers X and Y.\"\n  }\n}",
+      "line": 62
+    },
+    {
+      "name": "SupportReviewInbox19",
+      "dataType": "json",
+      "value": "{\n  {\n    \"items\": [\n      {\n        \"conversationId\": \"conv-1001\",\n        \"reason\": \"repository_unavailable\"\n      }\n    ]\n  }\n}",
+      "line": 69
+    }
+  ],
+  "notes": [
+    {
+      "frame": "04",
+      "dataType": "",
+      "value": "{\n  classification: llm_judge\n  decision: select one tool from [findInvoices]\n  output: { tool: string, fromDate: date, toDate: date }\n  The result must use only an allowed tool and must not invent arguments.\n}",
+      "line": 12
+    },
+    {
+      "frame": "08",
+      "dataType": "",
+      "value": "{\n  externalSystem: InvoiceRepository\n  timeout: \"30s\"\n  retry: { max: 2, backoff: exponential }\n  Input: conversationId, fromDate, and toDate.\n  Success output: conversationId, count, customers, and empty failureReason.\n  Retry-exhausted output: conversationId, count 0, empty customers, and failureReason repository_unavailable.\n}",
+      "line": 28
+    },
+    {
+      "frame": "14",
+      "dataType": "",
+      "value": "{\n  classification: pure_function\n  Format count and customer names from InvoicesFound.\n  Singular uses \"invoice was\"; plural uses \"invoices were\".\n  Preserve customer order from the event.\n}",
+      "line": 45
+    },
+    {
+      "frame": "19",
+      "dataType": "",
+      "value": "{\n  Support staff review this inbox from their support screen every morning.\n  The morning review is an operator cadence, not a workflow timer.\n}",
+      "line": 57
+    }
+  ],
+  "hotspots": [],
+  "gwts": [
+    {
+      "frame": "02",
+      "label": "accept a Discord invoice question",
+      "line": 82,
+      "given": [
+        {
+          "type": "rmo",
+          "name": "Answers",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", answers: [] }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "AskQuestion",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", question: \"How many invoices were sent out yesterday?\", requestedAt: \"2026-09-20T13:00:00Z\", businessTimezone: \"America/New_York\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "QuestionAsked",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", question: \"How many invoices were sent out yesterday?\", requestedAt: \"2026-09-20T13:00:00Z\", businessTimezone: \"America/New_York\" }"
+        }
+      ]
+    },
+    {
+      "frame": "04",
+      "label": "select the bounded invoice-search tool",
+      "line": 90,
+      "given": [
+        {
+          "type": "evt",
+          "name": "QuestionAsked",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", question: \"How many invoices were sent out yesterday?\", requestedAt: \"2026-09-20T13:00:00Z\", businessTimezone: \"America/New_York\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "pcr",
+          "name": "SelectInvoiceTool",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", question: \"How many invoices were sent out yesterday?\", requestedAt: \"2026-09-20T13:00:00Z\", businessTimezone: \"America/New_York\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "cmd",
+          "name": "RequestInvoiceSearch",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", fromDate: \"2026-09-19\", toDate: \"2026-09-19\" }"
+        }
+      ]
+    },
+    {
+      "frame": "05",
+      "label": "request yesterday's invoices after selecting findInvoices",
+      "line": 98,
+      "given": [
+        {
+          "type": "evt",
+          "name": "QuestionAsked",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", question: \"How many invoices were sent out yesterday?\", requestedAt: \"2026-09-20T13:00:00Z\", businessTimezone: \"America/New_York\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "RequestInvoiceSearch",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", fromDate: \"2026-09-19\", toDate: \"2026-09-19\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "Conversation.InvoiceSearchRequested",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", fromDate: \"2026-09-19\", toDate: \"2026-09-19\" }"
+        }
+      ]
+    },
+    {
+      "frame": "14",
+      "label": "format the invoice result deterministically",
+      "line": 106,
+      "given": [
+        {
+          "type": "evt",
+          "name": "InvoiceSearch.InvoicesFound",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", count: 2, customers: [\"X\", \"Y\"] }"
+        }
+      ],
+      "when": [
+        {
+          "type": "pcr",
+          "name": "FormatInvoiceAnswer",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", count: 2, customers: [\"X\", \"Y\"] }"
+        }
+      ],
+      "then": [
+        {
+          "type": "cmd",
+          "name": "RecordAnswer",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", answer: \"2 invoices were sent out yesterday to customers X and Y.\" }"
+        }
+      ]
+    },
+    {
+      "frame": "15",
+      "label": "record the formatted invoice answer",
+      "line": 114,
+      "given": [
+        {
+          "type": "evt",
+          "name": "InvoiceSearch.InvoicesFound",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", count: 2, customers: [\"X\", \"Y\"] }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "RecordAnswer",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", answer: \"2 invoices were sent out yesterday to customers X and Y.\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "AnswerRecorded",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", answer: \"2 invoices were sent out yesterday to customers X and Y.\" }"
+        }
+      ]
+    },
+    {
+      "frame": "09",
+      "label": "record invoices found by the repository",
+      "line": 122,
+      "given": [
+        {
+          "type": "evt",
+          "name": "Conversation.InvoiceSearchRequested",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", fromDate: \"2026-09-19\", toDate: \"2026-09-19\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "RecordInvoiceSearchResult",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", count: 2, customers: [\"X\", \"Y\"], failureReason: \"\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "InvoiceSearch.InvoicesFound",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", count: 2, customers: [\"X\", \"Y\"] }"
+        }
+      ]
+    },
+    {
+      "frame": "09",
+      "label": "route repository failure to support after retries",
+      "line": 130,
+      "given": [
+        {
+          "type": "evt",
+          "name": "Conversation.InvoiceSearchRequested",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", fromDate: \"2026-09-19\", toDate: \"2026-09-19\" }"
+        }
+      ],
+      "when": [
+        {
+          "type": "cmd",
+          "name": "RecordInvoiceSearchResult",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", count: 0, customers: [], failureReason: \"repository_unavailable\" }"
+        }
+      ],
+      "then": [
+        {
+          "type": "evt",
+          "name": "InvoiceSearch.InvoiceSearchFailed",
+          "dataType": "",
+          "data": "{ conversationId: \"conv-1001\", reason: \"repository_unavailable\" }"
+        }
+      ]
+    }
+  ]
+}

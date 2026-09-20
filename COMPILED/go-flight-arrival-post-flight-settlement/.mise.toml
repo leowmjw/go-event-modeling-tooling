@@ -1,0 +1,35 @@
+[tools]
+go = "latest"
+overmind = "latest"
+[tasks.doctor]
+run = '''
+set -eu
+go version
+mise exec -- overmind --version
+tmux -V
+"$HOME/go/bin/temporal" --version
+go mod verify
+for file in Procfile go.mod go.sum model.json cmd/worker/main.go cmd/starter/main.go cmd/respond/main.go; do test -f "$file"; done
+'''
+[tasks.check]
+run = '''
+set -eu
+test -z "$(gofmt -l .)"
+go mod tidy -diff
+go test -race ./...
+go vet ./...
+'''
+[tasks.demo]
+run = "mise exec -- overmind start -f Procfile"
+[tasks."demo:stop"]
+run = "mise exec -- overmind quit"
+[tasks.start]
+run = "go run ./cmd/starter"
+[tasks.on-time]
+run = "go run ./cmd/starter --on-time"
+[tasks.respond]
+run = "go run ./cmd/respond"
+[tasks.dashboard]
+run = '"$HOME/go/bin/temporal" workflow query --workflow-id flight-HLT-421/marketing --type marketing_campaign_dashboard'
+[tasks.conversion]
+run = '"$HOME/go/bin/temporal" workflow query --workflow-id flight-HLT-421/marketing --type marketing_conversion_report'

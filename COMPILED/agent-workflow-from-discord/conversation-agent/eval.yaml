@@ -1,0 +1,4 @@
+pipeline: agent-workflow-from-discord-conversation-agent
+cases:
+- node: judge_select_invoice_tool
+  eval_set: evals/judge_select_invoice_tool.jsonl
