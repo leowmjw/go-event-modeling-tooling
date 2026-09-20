@@ -168,6 +168,41 @@ banner). Intake is `evml json` output (`COMPILED/<model>/model.json`);
 staleness/provenance is tracked by `scripts/evml_provenance.py`.
 `COMPILED/` is committed.
 
+## `.devin/skills/compile-evml-go-temporal`
+
+Combined compiler/emitter that first produces the authoritative rote IR above, then emits a
+**standalone Go + Temporal application** at `COMPILED/go-<model>/`. Use it for requests to
+compile an event model directly to runnable Go workflows, refresh Go output after IR changes,
+or demo a model on local Temporal. Generated apps are nested Go modules, so the root library
+remains zero-dependency; they may depend on the public Temporal Go SDK.
+
+Load-bearing rules:
+
+- `.evml` → validated `model.json` → `pipeline.yaml` → Go; never bypass or hand-diverge from
+  the IR. Provenance must be current before emission.
+- Every IR node, edge, binding, entry/exit, retry, timeout, mandatory flag, `gwt`, and referenced
+  `data` block needs a typed Go mapping and executable test. The generated README carries the
+  exact node-coverage table; unmapped/report-only nodes block emission.
+- One child workflow per bounded context; a parent coordinates cross-context facts. External I/O
+  is activity-only. Feedback edges use durable Signals/Updates, waiting read models use Queries,
+  and idempotency comes from workflow state/prior events—not caller booleans.
+- Workflow-reachable code must be deterministic and use only public Temporal SDK packages.
+  Version workflow types for incompatible behavior unless public-replayer coverage proves
+  compatibility with saved histories.
+- Generated tests use `go.temporal.io/sdk/testsuite`; prefer anonymous activities registered with
+  `RegisterActivityWithOptions`. Assert complete event payloads and exact data-block projections,
+  not only event names.
+- Generated apps use the latest stable Go (`go = "latest"` in local mise; current language version
+  in `go.mod`), mise-managed Overmind, and `$HOME/go/bin/temporal` (not assumed on `PATH`). They
+  include `mise run doctor`, `check`, `demo`, `demo:stop`, scenario, signal, and query tasks plus a
+  `Procfile` and demo README.
+- Completion requires `gofmt`, `go mod tidy -diff`, `go test -race ./...`, `go vet ./...`, current
+  provenance, and a bounded live Overmind demo.
+
+Reference implementation/demo:
+`COMPILED/go-bounded-context-order-fulfillment/` (parent + Sales/Billing/Fulfillment children,
+read-model projections, inventory-replenishment Signal/Query feedback, worker/starter commands).
+
 ---
 
 ## `cmd/evmlweb` — local web app (nested module, dependency exception)

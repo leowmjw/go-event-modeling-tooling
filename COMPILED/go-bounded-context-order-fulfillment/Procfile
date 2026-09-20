@@ -1,0 +1,2 @@
+temporal: sh -c 'mkdir -p .temporal && "$HOME/go/bin/temporal" server start-dev --db-filename .temporal/temporal.db --ui-port 8233'
+worker: sh -c 'until "$HOME/go/bin/temporal" operator namespace describe --namespace default >/dev/null 2>&1; do sleep 1; done; go run ./cmd/worker'

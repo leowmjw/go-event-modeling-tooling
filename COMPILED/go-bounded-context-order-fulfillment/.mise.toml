@@ -1,0 +1,89 @@
+[tools]
+go = "latest"
+overmind = "latest"
+
+[tasks.doctor]
+description = "Check all tools and files required by the local demo"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+fail=0
+check() {
+  label="$1"
+  shift
+  if "$@" >/dev/null 2>&1; then
+    printf 'ok   %s\n' "$label"
+  else
+    printf 'FAIL %s\n' "$label" >&2
+    fail=1
+  fi
+}
+check "Go $(go version 2>/dev/null || true)" go version
+check "Overmind (mise)" mise exec -- overmind --version
+check "tmux" tmux -V
+check "Temporal CLI ($HOME/go/bin/temporal)" "$HOME/go/bin/temporal" --version
+check "Go module integrity" go mod verify
+for file in Procfile go.mod go.sum model.json cmd/worker/main.go cmd/starter/main.go cmd/replenish/main.go; do
+  if [ -f "$file" ]; then
+    printf 'ok   %s\n' "$file"
+  else
+    printf 'FAIL missing %s\n' "$file" >&2
+    fail=1
+  fi
+done
+if [ "$fail" -ne 0 ]; then
+  echo "doctor found missing demo dependencies" >&2
+  exit 1
+fi
+echo "doctor: ready"
+'''
+
+[tasks.test]
+description = "Run Temporal testsuite tests with the race detector"
+run = "go test -race ./..."
+
+[tasks.vet]
+description = "Run Go static analysis"
+run = "go vet ./..."
+
+[tasks.check]
+description = "Format-check, test, and vet the standalone application"
+depends = ["doctor"]
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+unformatted="$(gofmt -l .)"
+if [ -n "$unformatted" ]; then
+  echo "gofmt required:" >&2
+  echo "$unformatted" >&2
+  exit 1
+fi
+go mod tidy -diff
+go test -race ./...
+go vet ./...
+'''
+
+[tasks.demo]
+description = "Start Temporal dev server and the order-fulfillment worker with Overmind"
+depends = ["doctor"]
+run = "mise exec -- overmind start -f Procfile"
+
+[tasks."demo:stop"]
+description = "Stop the Overmind demo processes"
+run = "mise exec -- overmind quit"
+
+[tasks.start]
+description = "Start the order-fulfillment parent workflow"
+run = "go run ./cmd/starter"
+
+[tasks.reject]
+description = "Run the empty-cart rejection scenario"
+run = "go run ./cmd/starter -workflow-id order-rejected -total 0"
+
+[tasks.replenish]
+description = "Signal inventory replenishment to a deferred fulfillment child"
+run = "go run ./cmd/replenish"
+
+[tasks.query]
+description = "Query the fulfillment ShipmentQueue read model"
+run = '"$HOME/go/bin/temporal" workflow query --workflow-id order-ord-100/fulfillment --type shipment_queue'
