@@ -1,6 +1,6 @@
 # Agent workflow from Discord — Go + Temporal
 
-Standalone Temporal application generated from `agent-workflow-from-discord` model intake sha256 `27099d2a7a588bafc82cca25644a9b02e7752d51d31108247b59fec23671c0a9`.
+Standalone Temporal application generated from `agent-workflow-from-discord` model intake sha256 `d3f8605e79eb6dee9e9efe9477e896eb95a57e9ad4a4115289f4294a514ca752`.
 
 ## Runtime contract
 

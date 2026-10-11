@@ -23,7 +23,7 @@ check "Overmind (mise)" mise exec -- overmind --version
 check "tmux" tmux -V
 check "Temporal CLI ($HOME/go/bin/temporal)" "$HOME/go/bin/temporal" --version
 check "Go module integrity" go mod verify
-for file in Procfile go.mod go.sum model.json cmd/worker/main.go cmd/starter/main.go cmd/replenish/main.go; do
+for file in Procfile go.mod go.sum model.json cmd/worker/main.go cmd/starter/main.go cmd/checkout/main.go cmd/result/main.go cmd/replenish/main.go; do
   if [ -f "$file" ]; then
     printf 'ok   %s\n' "$file"
   else
@@ -47,7 +47,7 @@ description = "Run Go static analysis"
 run = "go vet ./..."
 
 [tasks.check]
-description = "Format-check, test, and vet the standalone application"
+description = "Format-check, tidy-check, test, and vet the standalone application"
 depends = ["doctor"]
 run = '''
 #!/usr/bin/env bash
@@ -64,7 +64,7 @@ go vet ./...
 '''
 
 [tasks.demo]
-description = "Start Temporal dev server and the order-fulfillment worker with Overmind"
+description = "Start Temporal dev server and the worker with Overmind (PAYMENT_OUTCOME / INVENTORY_OUTCOME select demo adapters)"
 depends = ["doctor"]
 run = "mise exec -- overmind start -f Procfile"
 
@@ -73,17 +73,91 @@ description = "Stop the Overmind demo processes"
 run = "mise exec -- overmind quit"
 
 [tasks.start]
-description = "Start the order-fulfillment parent workflow"
-run = "go run ./cmd/starter"
+description = "Deliver CartPriced: start the parent workflow (WORKFLOW_ID, default checkout-c-100)"
+run = 'go run ./cmd/starter -workflow-id "${WORKFLOW_ID:-checkout-c-100}"'
 
-[tasks.reject]
-description = "Run the empty-cart rejection scenario"
-run = "go run ./cmd/starter -workflow-id order-rejected -total 0"
+[tasks.checkout]
+description = "CheckoutScreen: signal PlaceOrder to <WORKFLOW_ID>/sales"
+run = 'go run ./cmd/checkout -workflow-id "${WORKFLOW_ID:-checkout-c-100}"'
+
+[tasks.result]
+description = "Wait for and print the parent workflow result"
+run = 'go run ./cmd/result -workflow-id "${WORKFLOW_ID:-checkout-c-100}"'
 
 [tasks.replenish]
-description = "Signal inventory replenishment to a deferred fulfillment child"
-run = "go run ./cmd/replenish"
+description = "Signal InventoryReplenished (SKU=sku-1 by default) to <WORKFLOW_ID>/fulfillment"
+run = 'go run ./cmd/replenish -workflow-id "${WORKFLOW_ID:-checkout-c-100}" -sku "${SKU:-sku-1}"'
 
-[tasks.query]
-description = "Query the fulfillment ShipmentQueue read model"
-run = '"$HOME/go/bin/temporal" workflow query --workflow-id order-ord-100/fulfillment --type shipment_queue'
+[tasks."scenario:happy"]
+description = "Checkout, authorize, allocate (worker started with default outcomes)"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+id="${WORKFLOW_ID:-checkout-c-100}-happy-$(date +%s)"
+go run ./cmd/starter -workflow-id "$id"
+go run ./cmd/checkout -workflow-id "$id"
+go run ./cmd/result -workflow-id "$id"
+'''
+
+[tasks."scenario:reject"]
+description = "Empty cart: PlaceOrder is rejected and the run stops in Sales"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+id="${WORKFLOW_ID:-checkout-c-100}-reject-$(date +%s)"
+go run ./cmd/starter -workflow-id "$id" -empty-cart
+go run ./cmd/checkout -workflow-id "$id"
+go run ./cmd/result -workflow-id "$id"
+'''
+
+[tasks."scenario:decline"]
+description = "Payment declines and Sales cancels the order (start the demo with PAYMENT_OUTCOME=declined)"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+id="${WORKFLOW_ID:-checkout-c-100}-decline-$(date +%s)"
+go run ./cmd/starter -workflow-id "$id"
+go run ./cmd/checkout -workflow-id "$id"
+go run ./cmd/result -workflow-id "$id"
+'''
+
+[tasks."scenario:deferred"]
+description = "Allocation deferred, unrelated SKU ignored, missing SKU retries (start the demo with INVENTORY_OUTCOME=deferred)"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+temporal="$HOME/go/bin/temporal"
+id="${WORKFLOW_ID:-checkout-c-100}-deferred-$(date +%s)"
+go run ./cmd/starter -workflow-id "$id"
+go run ./cmd/checkout -workflow-id "$id"
+for _ in $(seq 1 30); do
+  if "$temporal" workflow query -w "$id/fulfillment" --name shipment_queue 2>/dev/null | grep -q awaiting_inventory; then
+    break
+  fi
+  sleep 1
+done
+"$temporal" workflow query -w "$id/fulfillment" --name shipment_queue
+go run ./cmd/replenish -workflow-id "$id" -sku sku-9
+go run ./cmd/replenish -workflow-id "$id" -sku sku-1
+go run ./cmd/result -workflow-id "$id"
+'''
+
+[tasks."query:cart-summary"]
+description = "Query Sales CartSummary"
+run = '"$HOME/go/bin/temporal" workflow query -w "${WORKFLOW_ID:-checkout-c-100}/sales" --name cart_summary'
+
+[tasks."query:order-status"]
+description = "Query Sales OrderStatus"
+run = '"$HOME/go/bin/temporal" workflow query -w "${WORKFLOW_ID:-checkout-c-100}/sales" --name order_status'
+
+[tasks."query:payment-status"]
+description = "Query Billing PaymentStatus"
+run = '"$HOME/go/bin/temporal" workflow query -w "${WORKFLOW_ID:-checkout-c-100}/billing" --name payment_status'
+
+[tasks."query:paid-orders"]
+description = "Query Fulfillment PaidOrdersToShip"
+run = '"$HOME/go/bin/temporal" workflow query -w "${WORKFLOW_ID:-checkout-c-100}/fulfillment" --name paid_orders_to_ship'
+
+[tasks."query:shipment-queue"]
+description = "Query Fulfillment ShipmentQueue"
+run = '"$HOME/go/bin/temporal" workflow query -w "${WORKFLOW_ID:-checkout-c-100}/fulfillment" --name shipment_queue'

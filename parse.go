@@ -165,9 +165,12 @@ func (p *parser) parseFrame(trimmed string) (*Frame, int, error) {
 	for {
 		rest = strings.TrimSpace(rest)
 		switch {
-		case rest == "":
+		case rest == "" || isTrailingComment(rest):
 			return frame, 1, nil
 		case strings.HasPrefix(rest, "->>"):
+			if frame.DataRefName != "" {
+				return nil, 0, p.errorf("source reference ->> must come before the [[%s]] data reference", frame.DataRefName)
+			}
 			rest = strings.TrimSpace(strings.TrimPrefix(rest, "->>"))
 			sourceID, remainder, found := nextToken(rest)
 			if !found {
@@ -176,6 +179,9 @@ func (p *parser) parseFrame(trimmed string) (*Frame, int, error) {
 			frame.SourceIDs = append(frame.SourceIDs, sourceID)
 			rest = remainder
 		case strings.HasPrefix(rest, "[["):
+			if frame.DataRefName != "" {
+				return nil, 0, p.errorf("frame may have at most one [[data reference]]")
+			}
 			end := strings.Index(rest, "]]")
 			if end < 0 {
 				return nil, 0, p.errorf("unterminated data reference")
@@ -338,12 +344,24 @@ func (p *parser) parsePayload(rest string, allowMultiline bool) (string, string,
 	}
 	switch rest[0] {
 	case '{':
-		data, consumed, err := collectBalanced(rest, p.lines[p.line+1:], allowMultiline, p.line+1)
-		return dataType, data, consumed, err
-	case '"', '\'':
-		data, _, err := parseQuoted(rest)
+		data, consumed, trailing, err := collectBalanced(rest, p.lines[p.line+1:], allowMultiline, p.line+1)
 		if err != nil {
+			return "", "", 0, err
+		}
+		if err := trailingPayloadError(trailing, p.line+consumed); err != nil {
+			return "", "", 0, err
+		}
+		return dataType, data, consumed, nil
+	case '"', '\'':
+		// Upstream EM_STRING is greedy ("(.*)"): the payload runs to the last
+		// matching quote on the line, so inner unescaped quotes are content.
+		last := strings.LastIndexByte(rest, rest[0])
+		if last == 0 {
 			return "", "", 0, p.errorf("invalid quoted payload")
+		}
+		data, trailing := rest[:last+1], rest[last+1:]
+		if err := trailingPayloadError(trailing, p.line+1); err != nil {
+			return "", "", 0, err
 		}
 		return dataType, data, 1, nil
 	default:
@@ -479,7 +497,26 @@ func parseQuoted(s string) (string, string, error) {
 	return "", "", fmt.Errorf("unterminated quoted string")
 }
 
-func collectBalanced(initial string, extra []string, allowMultiline bool, lineNumber int) (string, int, error) {
+// trailingPayloadError rejects anything but whitespace or a comment after a
+// payload's closing delimiter. The grammar places ->> and [[ref]] before the
+// payload, so text here would otherwise be silently dropped.
+func trailingPayloadError(trailing string, line int) error {
+	trailing = strings.TrimSpace(trailing)
+	if trailing == "" || isTrailingComment(trailing) {
+		return nil
+	}
+	msg := fmt.Sprintf("unexpected content %q after payload", trailing)
+	if strings.HasPrefix(trailing, "->>") || strings.HasPrefix(trailing, "[[") {
+		msg += "; ->> sources and [[data references]] must come before the payload"
+	}
+	return &ParseError{Line: line, Msg: msg}
+}
+
+func isTrailingComment(s string) bool {
+	return strings.HasPrefix(s, "//") || strings.HasPrefix(s, "%%")
+}
+
+func collectBalanced(initial string, extra []string, allowMultiline bool, lineNumber int) (string, int, string, error) {
 	var b strings.Builder
 	b.WriteString(initial)
 	depth := 0
@@ -513,15 +550,15 @@ func collectBalanced(initial string, extra []string, allowMultiline bool, lineNu
 			case ch == '}':
 				depth--
 				if started && depth == 0 {
-					return s[:i+1], consumedLines, nil
+					return s[:i+1], consumedLines, s[i+1:], nil
 				}
 				if depth < 0 {
-					return "", 0, &ParseError{Line: lineNumber, Msg: "unexpected closing brace"}
+					return "", 0, "", &ParseError{Line: lineNumber, Msg: "unexpected closing brace"}
 				}
 			}
 		}
 		if !allowMultiline || consumedLines > len(extra) {
-			return "", 0, &ParseError{Line: lineNumber, Msg: "unbalanced payload braces"}
+			return "", 0, "", &ParseError{Line: lineNumber, Msg: "unbalanced payload braces"}
 		}
 		b.WriteByte('\n')
 		b.WriteString(extra[consumedLines-1])

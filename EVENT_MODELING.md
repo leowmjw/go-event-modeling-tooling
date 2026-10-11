@@ -83,6 +83,19 @@ tf <id> <type> <Name> [->> <sourceId>]* [[[dataRef]]]? [payload]?
 - `[[dataRef]]` — reference to a `data` block by its `EM_EID` name.
 - `payload` — inline `{ ... }` block or quoted string (see §11).
 
+**Clause order is fixed** (matches the upstream Langium `EmTimeFrame` rule):
+all `->>` sources first, then at most one `[[dataRef]]`, then the payload.
+The parser rejects anything else with a line-numbered error — in particular
+`->>` after a payload (`tf 22 evt X { … } ->> 08`) or after `[[ref]]`. Only
+whitespace or a `//` / `%%` comment may follow the payload.
+
+```evml
+tf 02 rmo CartSummary ->> 21 [[CartSummary02]]          // ok
+tf 22 evt PaymentDeclined ->> 08 { reason: "x" }        // ok
+tf 22 evt PaymentDeclined { reason: "x" } ->> 08        // error
+tf 02 rmo CartSummary [[CartSummary02]] ->> 21          // error
+```
+
 ### Reset frame
 
 ```
@@ -324,7 +337,10 @@ more `─` U+2500 box-drawing dashes on each side of a name) is still ignored by
 the grammar, but tooling records it as a *section boundary*: `evml json` lists
 it under `sections` and tags every following frame with `section: "<Name>"`.
 The `compile-evml-rote-ir` skill uses these banners as bounded-context
-boundaries when splitting a model into per-context `pipeline.yaml` IR.
+boundaries when splitting a model into per-context `pipeline.yaml` IR:
+`// ── Billing bounded context ──` defines context `billing`, and a banner
+of the form `// ── Sales: billing failure recovery ──` assigns its frames
+to the already-defined `sales` context.
 
 > **Parser restriction:** comments are only valid at the *top level* — between
 > top-level declarations (`tf`, `rf`, `data`, `gwt`, etc.).  Do **not** place
@@ -369,9 +385,11 @@ hotspot.
 
 - Can contain nested `{ }` as long as braces are balanced.
 - Quoted strings inside (`"..."` or `'...'`) may contain unbalanced braces.
-- Single-line: `{ id: "p-1", qty: 1 }`
-- Multi-line: opening `{` may be on the same line as the frame declaration;
-  closing `}` on its own line.
+- **Frame payloads are single-line**: `{ id: "p-1", qty: 1 }` (upstream
+  `EmDataInline`). Use a `data` block plus `[[ref]]` for anything longer.
+- `data`, `note`, `hotspot` and `gwt` statement payloads may be multi-line:
+  opening `{` on the declaration line, closing `}` on its own line.
+- Nothing but whitespace or a comment may follow the closing `}`.
 
 ### Quoted string
 
@@ -379,7 +397,9 @@ hotspot.
 "text"  or  'text'
 ```
 
-Backslash escapes are honoured: `\"`, `\'`, `\\`.
+A quoted *frame payload* runs to the **last** matching quote on the line
+(upstream `EM_STRING` is greedy), so inner unescaped quotes are content:
+`tf 06 evt X " { "a": 1 } "`.
 
 ### Optional data type hint
 
@@ -407,10 +427,12 @@ Statement   ::= TimeFrame
              |  EntityDecl
 
 TimeFrame   ::= ('tf'|'timeframe') FrameId EntityType QualifiedName
-                SourceRef* DataRef? Payload?
+                SourceRef* DataRef? FramePayload?      // order is enforced
 
 ResetFrame  ::= ('rf'|'resetframe') FrameId EntityType QualifiedName
-                SourceRef* DataRef? Payload?
+                SourceRef* DataRef? FramePayload?
+
+FramePayload::= TypeHint? (InlineBlock | QuotedString)  // single line
 
 SourceRef   ::= '->>' FrameId
 

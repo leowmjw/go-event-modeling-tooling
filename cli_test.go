@@ -87,8 +87,8 @@ func TestRunJSONBoundedContextFixture(t *testing.T) {
 	if doc.Schema != "evml-model/v1" {
 		t.Fatalf("schema = %q", doc.Schema)
 	}
-	if len(doc.Sections) != 4 {
-		t.Fatalf("len(sections) = %d, want 4", len(doc.Sections))
+	if len(doc.Sections) != 5 {
+		t.Fatalf("len(sections) = %d, want 5", len(doc.Sections))
 	}
 	if doc.Sections[0].Name != "Sales bounded context" {
 		t.Fatalf("first section = %q", doc.Sections[0].Name)
@@ -128,6 +128,9 @@ func TestRunJSONBoundedContextFixture(t *testing.T) {
 	}
 	if f06.Kind != "rf" || f06.Namespace != "Sales" {
 		t.Fatalf("frame 06 kind=%q namespace=%q", f06.Kind, f06.Namespace)
+	}
+	if got := frames["13"].Sources; len(got) != 2 || got[0] != "12" || got[1] != "26" {
+		t.Fatalf("frame 13 sources = %v, want [12 26] (retry feedback edge)", got)
 	}
 	foundGWT := false
 	for _, g := range doc.GWTs {

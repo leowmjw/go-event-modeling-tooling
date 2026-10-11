@@ -1,54 +1,72 @@
 {
   "schema": "evml-rote-ir-provenance/v1",
   "source_model": "testdata/fixtures/bounded-context-order-fulfillment.evml",
-  "source_sha256": "b1de67ae47414330d9d67f4ad771f6a3f151585fbf67f8b1a5daf0d451add823",
+  "source_sha256": "fb5f913d12b2c2e453ba86e8026db5a7b3edde561a8065063bc8ede02837ac44",
   "model": "bounded-context-order-fulfillment",
   "context": "sales",
   "section_name": "Sales bounded context",
   "frames": [
     "01",
+    "21",
     "02",
     "03",
     "04",
+    "27",
     "05",
     "16",
     "17",
     "18",
     "19",
-    "20",
-    "21",
-    "24"
+    "24",
+    "30",
+    "31",
+    "32",
+    "33",
+    "34"
   ],
   "ir": "pipeline.yaml",
   "ir_schema_ref": "ROTE/rote/skills/rote-compile/references/ir-schema.md",
-  "compiled_at": "2026-09-20",
-  "pipeline_version": "0.2.0",
+  "compiled_at": "2026-10-03",
+  "pipeline_version": "1.0.0",
   "sections": {
-    "tf 01 ui CheckoutScreen": "61ff3e55c6744d27e785526d5c18dc21e8fcb9519b143811a4857d26b98d3592",
+    "tf 01 ui CheckoutScreen": "a88524a448cc5dc9bb9f34e18f9ee689b6377ac01c22685e7d3308c4446127d0",
+    "rf 21 evt Pricing.CartPriced": "050b3b0cb0bc5505eca79b5f2ab7b394fd783ef164d52ffcb524cfa0132f6f9e",
     "tf 02 rmo CartSummary": "54adc230e806f8a89aacb91e58438f67c97f901f859aa2456cb4b5d03c702be3",
-    "tf 03 cmd PlaceOrder": "85bb8bd9d3bb0f921afada7a11e4f7f7c4fdbc5caa9c60284b66709b2d6b53d7",
-    "tf 04 evt OrderPlaced": "1619e1dd6ed40c5ba88d111ba84058b9dfa938eb248ad9056f2eb273ed439a89",
-    "tf 05 rmo OrderStatus": "bc113fc6888d9e5441d4d9772da53a75c89b634e6557713ca9f3e10ff7f89d74",
+    "tf 03 cmd PlaceOrder": "773e5c30e13e609adb5f73272f04c96cb31f8b154d80b4a8323ceb94bd276da0",
+    "tf 04 evt OrderPlaced": "6131477664cc3f98d83683491915d7a2af863811203b83a594db7b82ff038ce5",
+    "tf 27 evt OrderPlacementRejected": "b915f508631b25c4e8fd44e0adfa1dcf0d9f2540f9ec5fa17f79e3854ac5ada8",
+    "tf 05 rmo OrderStatus": "82b3c57aadc3457668adb7929347eae30279349e9e7cd6927c1e6c608af7b8fe",
     "rf 16 evt Billing.PaymentDeclined": "a503877fc49de54e702a61704693a6ce9ee0cc0dd0ae5a27d77909bfea5e3bd8",
     "tf 17 pcr SalesRecoveryTranslator": "24208247ae787b3e07a4837d7bdaead9b6a17e3b937453526d0f9b8f4ebcf4ca",
-    "tf 18 cmd CancelOrder": "2be46a81be664ee3c44cdb0afc8330457df9d4f6b06bbd19e8d9977955013950",
-    "tf 19 evt OrderCancelled": "d9455e8cdf1dc4df690defd59b3dcd6bab5a5e8fea93b83dfbae4d85a72ff29d",
-    "tf 20 rmo CancelledOrderStatus": "220aec3c4dbb64a76ad53d6b0504e5cac4a1820a60817b44765f7ed7b6207008",
-    "rf 21 evt Pricing.CartPriced": "050b3b0cb0bc5505eca79b5f2ab7b394fd783ef164d52ffcb524cfa0132f6f9e",
-    "tf 24 evt OrderCancellationIgnored": "5db08303427bc7a930ffa17bc80059ee17ead9e3b86bd59f6bff8ea663cb393a"
+    "tf 18 cmd CancelOrder": "60b1e742fc2e5d1da742a562e51277fe927e933d29b60bb6e37c6800ef344093",
+    "tf 19 evt OrderCancelled": "cbffec7aca0087f623a694fbb73314570f0135e8e72ae21bc7c98a6520f4280f",
+    "tf 24 evt OrderCancellationIgnored": "ec6dac2310dc9ffd50174c652f1a1182b114929e1243c88ae98888c03feb518c",
+    "rf 30 evt Billing.PaymentAuthorized": "3003c2c68506cac94aca5141df1f66de263e125079a08bdd35f9853f990adf9e",
+    "tf 31 pcr SalesConfirmationTranslator": "3acaf16bf1f75dcaf0fe55b8b93014a4c948071364e1794fa80c5c1c189d2171",
+    "tf 32 cmd ConfirmOrder": "405b266235cb1e4b7fc2975b2ea99d2c61fafd23f5eee81a6dfc8f81f08af228",
+    "tf 33 evt OrderConfirmed": "85f4b4dd38142c16e191008f6ee7c4f1bcec2fc6a68206c7a062c12288a6e01e",
+    "tf 34 evt OrderConfirmationIgnored": "af097c2af4dd2f351aaf23d4f0299544acc397b3b0ebced504c75b905481a454"
   },
   "nodes": {
-    "decide_place_order": {
-      "section": "tf 03 cmd PlaceOrder",
-      "content_hash": "85bb8bd9d3bb0f921afada7a11e4f7f7c4fdbc5caa9c60284b66709b2d6b53d7"
-    },
     "project_cart_summary": {
       "section": "tf 02 rmo CartSummary",
       "content_hash": "54adc230e806f8a89aacb91e58438f67c97f901f859aa2456cb4b5d03c702be3"
     },
-    "project_order_status": {
-      "section": "tf 05 rmo OrderStatus",
-      "content_hash": "bc113fc6888d9e5441d4d9772da53a75c89b634e6557713ca9f3e10ff7f89d74"
+    "gate_place_order": {
+      "section": "tf 01 ui CheckoutScreen",
+      "content_hash": "a88524a448cc5dc9bb9f34e18f9ee689b6377ac01c22685e7d3308c4446127d0"
+    },
+    "decide_place_order": {
+      "section": "tf 03 cmd PlaceOrder",
+      "content_hash": "773e5c30e13e609adb5f73272f04c96cb31f8b154d80b4a8323ceb94bd276da0"
+    },
+    "translate_sales_confirmation": {
+      "section": "tf 31 pcr SalesConfirmationTranslator",
+      "content_hash": "3acaf16bf1f75dcaf0fe55b8b93014a4c948071364e1794fa80c5c1c189d2171"
+    },
+    "decide_confirm_order": {
+      "section": "tf 32 cmd ConfirmOrder",
+      "content_hash": "405b266235cb1e4b7fc2975b2ea99d2c61fafd23f5eee81a6dfc8f81f08af228"
     },
     "translate_sales_recovery": {
       "section": "tf 17 pcr SalesRecoveryTranslator",
@@ -56,11 +74,11 @@
     },
     "decide_cancel_order": {
       "section": "tf 18 cmd CancelOrder",
-      "content_hash": "2be46a81be664ee3c44cdb0afc8330457df9d4f6b06bbd19e8d9977955013950"
+      "content_hash": "60b1e742fc2e5d1da742a562e51277fe927e933d29b60bb6e37c6800ef344093"
     },
-    "project_cancelled_order_status": {
-      "section": "tf 20 rmo CancelledOrderStatus",
-      "content_hash": "220aec3c4dbb64a76ad53d6b0504e5cac4a1820a60817b44765f7ed7b6207008"
+    "project_order_status": {
+      "section": "tf 05 rmo OrderStatus",
+      "content_hash": "82b3c57aadc3457668adb7929347eae30279349e9e7cd6927c1e6c608af7b8fe"
     }
   }
 }

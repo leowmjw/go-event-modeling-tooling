@@ -1,96 +1,292 @@
 name: bounded-context-order-fulfillment-sales
-version: 0.2.0
-description: IR for sales context of bounded-context-order-fulfillment (checkout + billing failure recovery slices)
+version: 1.0.0
+description: >-
+  Sales context of bounded-context-order-fulfillment. Starts when the pricing
+  context prices a cart (rf 21), projects CartSummary for CheckoutScreen, waits
+  for the customer to submit PlaceOrder (HITL gate), decides OrderPlaced or
+  OrderPlacementRejected, then closes the order from the billing outcome:
+  ConfirmOrder on Billing.PaymentAuthorized (rf 30) or CancelOrder on
+  Billing.PaymentDeclined (rf 16). OrderStatus folds every order event.
+config:
+  on_failure: notify_owner
 input:
   type: SalesInput
   required:
-  - payload
+  - cart_priced
+  optional:
+  - payment_authorized
+  - payment_declined
+  - order_history
   input_schema:
     type: object
     title: SalesInput
-    description: Union entry — PlaceOrderCommand (ui), Pricing.CartPriced (rf 21), or Billing.PaymentDeclined (rf 16)
+    description: >-
+      Boundary facts of one checkout. cart_priced starts the workflow;
+      payment_authorized / payment_declined are delivered to the running
+      workflow later (one per order) and may be redelivered. order_history is
+      the event log this context has already recorded for the order — supplied
+      by the runtime's durable state, never by a caller; absent means none.
+    required:
+    - cart_priced
     properties:
-      payload:
+      cart_priced: { $ref: "#/$defs/CartPriced" }
+      payment_authorized: { $ref: "#/$defs/BillingPaymentAuthorized" }
+      payment_declined: { $ref: "#/$defs/BillingPaymentDeclined" }
+      order_history: { type: array, items: { $ref: "#/$defs/RecordedEvent" } }
+    $defs:
+      RecordedEvent:
         type: object
+        required: [event, orderId]
+        properties:
+          event: { type: string }
+          orderId: { type: string }
+      LineItem:
+        type: object
+        required: [sku, qty, unitPrice]
+        properties:
+          sku: { type: string }
+          qty: { type: integer }
+          unitPrice: { type: number }
+      CartPriced:
+        type: object
+        description: rf 21 Pricing.CartPriced
+        required: [cartId, customerId, items, total]
+        properties:
+          cartId: { type: string }
+          customerId: { type: string }
+          items: { type: array, items: { $ref: "#/$defs/LineItem" } }
+          total: { type: number }
+      CartSummaryView:
+        type: object
+        description: tf 02 rmo CartSummary (data CartSummary02)
+        required: [cartId, customerId, items, total]
+        properties:
+          cartId: { type: string }
+          customerId: { type: string }
+          items: { type: array, items: { $ref: "#/$defs/LineItem" } }
+          total: { type: number }
+      PlaceOrderCommand:
+        type: object
+        description: tf 03 cmd PlaceOrder — submitted from CheckoutScreen; orderId assigned by the screen
+        required: [orderId, cartId, customerId, paymentMethodId]
+        properties:
+          orderId: { type: string }
+          cartId: { type: string }
+          customerId: { type: string }
+          paymentMethodId: { type: string }
+      OrderPlaced:
+        type: object
+        description: tf 04 evt OrderPlaced (data OrderPlaced04)
+        required: [orderId, cartId, customerId, paymentMethodId, items, total]
+        properties:
+          orderId: { type: string }
+          cartId: { type: string }
+          customerId: { type: string }
+          paymentMethodId: { type: string }
+          items: { type: array, items: { $ref: "#/$defs/LineItem" } }
+          total: { type: number }
+      OrderPlacementRejected:
+        type: object
+        description: tf 27 evt OrderPlacementRejected
+        required: [orderId, cartId, reason]
+        properties:
+          orderId: { type: string }
+          cartId: { type: string }
+          reason: { enum: [empty_cart] }
+      PlaceOrderResult:
+        type: object
+        required: [event]
+        properties:
+          event: { enum: [OrderPlaced, OrderPlacementRejected] }
+          placed: { $ref: "#/$defs/OrderPlaced" }
+          rejected: { $ref: "#/$defs/OrderPlacementRejected" }
+      OrderStatusView:
+        type: object
+        description: tf 05 rmo OrderStatus (data OrderStatus05 + gwt 05)
+        required: [orderId, customerId, status]
+        properties:
+          orderId: { type: string }
+          customerId: { type: string }
+          status: { enum: [pending_payment, confirmed, cancelled] }
+      BillingPaymentAuthorized:
+        type: object
+        description: rf 30 Billing.PaymentAuthorized
+        required: [orderId, authorizationId]
+        properties:
+          orderId: { type: string }
+          authorizationId: { type: string }
+      ConfirmOrderCommand:
+        type: object
+        description: tf 32 cmd ConfirmOrder
+        required: [orderId, authorizationId]
+        properties:
+          orderId: { type: string }
+          authorizationId: { type: string }
+      OrderConfirmationResult:
+        type: object
+        required: [event, orderId]
+        properties:
+          event: { enum: [OrderConfirmed, OrderConfirmationIgnored] }
+          orderId: { type: string }
+          authorizationId: { type: string, description: OrderConfirmed only }
+          reason: { enum: [already_confirmed], description: OrderConfirmationIgnored only }
+      BillingPaymentDeclined:
+        type: object
+        description: rf 16 Billing.PaymentDeclined
+        required: [orderId, reason]
+        properties:
+          orderId: { type: string }
+          reason: { type: string }
+      CancelOrderCommand:
+        type: object
+        description: tf 18 cmd CancelOrder
+        required: [orderId, reason]
+        properties:
+          orderId: { type: string }
+          reason: { enum: [payment_declined] }
+      OrderCancellationResult:
+        type: object
+        required: [event, orderId, reason]
+        properties:
+          event: { enum: [OrderCancelled, OrderCancellationIgnored] }
+          orderId: { type: string }
+          reason: { enum: [payment_declined, already_cancelled] }
 nodes:
+- id: project_cart_summary
+  kind: pure_function
+  description: Fold rf 21 Pricing.CartPriced into rmo CartSummary — what CheckoutScreen shows.
+  source:
+    section: tf 02 rmo CartSummary
+  impl: extracted/sales.py:project_cart_summary
+  input:
+    event: CartPriced
+  inputs:
+    event: pipeline.input.cart_priced
+  output: CartSummaryView
+- id: gate_place_order
+  kind: hitl_gate
+  description: >-
+    CheckoutScreen (tf 01) reads CartSummary and the customer submits
+    PlaceOrder. No timeout — the model defines no abandonment outcome, so the
+    gate waits until the customer acts.
+  source:
+    section: tf 01 ui CheckoutScreen
+  input:
+    cart_summary: CartSummaryView
+  output: PlaceOrderCommand
+  signal: place_order
+  notify:
+    channel: ui
+    target: checkout_screen
 - id: decide_place_order
   kind: pure_function
-  description: cmd PlaceOrder -> OrderPlaced or OrderPlacementRejected (total <= 0)
+  description: >-
+    cmd PlaceOrder -> OrderPlaced (items and total from CartSummary) or
+    OrderPlacementRejected{empty_cart} when the priced cart has no items.
+    A command whose cartId/customerId does not match the cart is invalid input,
+    not a business rejection.
   source:
     section: tf 03 cmd PlaceOrder
   impl: extracted/sales.py:decide_place_order
   input:
     command: PlaceOrderCommand
+    cart: CartSummaryView
   inputs:
-    command: pipeline.input
+    command: gate_place_order.output
+    cart: project_cart_summary.output
   output: PlaceOrderResult
   mandatory: true
-- id: project_cart_summary
+- id: translate_sales_confirmation
   kind: pure_function
-  description: Fold Pricing.CartPriced (rf 21) into rmo CartSummary view
+  description: pcr SalesConfirmationTranslator — map rf 30 Billing.PaymentAuthorized to ConfirmOrderCommand.
   source:
-    section: tf 02 rmo CartSummary
-  impl: extracted/sales.py:project_cart_summary
+    section: tf 31 pcr SalesConfirmationTranslator
+  impl: extracted/sales.py:translate_sales_confirmation
   input:
-    event: Pricing_CartPriced
+    event: BillingPaymentAuthorized
   inputs:
-    event: pipeline.input
-  output: CartSummaryView
-- id: project_order_status
+    event: pipeline.input.payment_authorized
+  output: ConfirmOrderCommand
+- id: decide_confirm_order
   kind: pure_function
-  description: Fold OrderPlaced/OrderPlacementRejected into rmo OrderStatus view
+  description: >-
+    cmd ConfirmOrder -> OrderConfirmed, or OrderConfirmationIgnored{already_confirmed}
+    when the order history already holds OrderConfirmed.
   source:
-    section: tf 05 rmo OrderStatus
-  impl: extracted/sales.py:project_order_status
+    section: tf 32 cmd ConfirmOrder
+  impl: extracted/sales.py:decide_confirm_order
   input:
-    event: PlaceOrderResult
+    command: ConfirmOrderCommand
+    placed: PlaceOrderResult
+    history: list[RecordedEvent]
   inputs:
-    event: decide_place_order.output
-  output: OrderStatusView
+    command: translate_sales_confirmation.output
+    placed: decide_place_order.output
+    history: pipeline.input.order_history
+  output: OrderConfirmationResult
+  mandatory: true
 - id: translate_sales_recovery
   kind: pure_function
-  description: pcr SalesRecoveryTranslator — map Billing.PaymentDeclined (rf 16) to CancelOrderCommand
+  description: pcr SalesRecoveryTranslator — map rf 16 Billing.PaymentDeclined to CancelOrderCommand{payment_declined}.
   source:
     section: tf 17 pcr SalesRecoveryTranslator
   impl: extracted/sales.py:translate_sales_recovery
   input:
-    event: Billing_PaymentDeclined
+    event: BillingPaymentDeclined
   inputs:
-    event: pipeline.input
+    event: pipeline.input.payment_declined
   output: CancelOrderCommand
 - id: decide_cancel_order
   kind: pure_function
-  description: cmd CancelOrder -> OrderCancelled or OrderCancellationIgnored (idempotent on prior OrderCancelled)
+  description: >-
+    cmd CancelOrder -> OrderCancelled, or OrderCancellationIgnored{already_cancelled}
+    when the order history already holds OrderCancelled.
   source:
     section: tf 18 cmd CancelOrder
   impl: extracted/sales.py:decide_cancel_order
   input:
     command: CancelOrderCommand
+    placed: PlaceOrderResult
+    history: list[RecordedEvent]
   inputs:
     command: translate_sales_recovery.output
+    placed: decide_place_order.output
+    history: pipeline.input.order_history
   output: OrderCancellationResult
   mandatory: true
-- id: project_cancelled_order_status
+- id: project_order_status
   kind: pure_function
-  description: Fold OrderCancelled into rmo CancelledOrderStatus view
+  description: >-
+    Fold OrderPlaced, OrderConfirmed and OrderCancelled into rmo OrderStatus —
+    "what state is my order in?" (pending_payment / confirmed / cancelled).
+    Ignored events do not change the view; a rejected placement has no order.
   source:
-    section: tf 20 rmo CancelledOrderStatus
-  impl: extracted/sales.py:project_cancelled_order_status
+    section: tf 05 rmo OrderStatus
+  impl: extracted/sales.py:project_order_status
   input:
-    event: OrderCancellationResult
+    placed: PlaceOrderResult
+    confirmation: OrderConfirmationResult
+    cancellation: OrderCancellationResult
   inputs:
-    event: decide_cancel_order.output
-  output: CancelledOrderStatusView
+    placed: decide_place_order.output
+    confirmation: decide_confirm_order.output
+    cancellation: decide_cancel_order.output
+  output: OrderStatusView
 edges:
-- { from: decide_place_order, to: project_order_status }
+- { from: project_cart_summary, to: gate_place_order }
+- { from: gate_place_order, to: decide_place_order, on_signal: place_order }
+- { from: project_cart_summary, to: decide_place_order }
+- { from: decide_place_order, to: decide_confirm_order }
+- { from: translate_sales_confirmation, to: decide_confirm_order }
+- { from: decide_place_order, to: decide_cancel_order }
 - { from: translate_sales_recovery, to: decide_cancel_order }
-- { from: decide_cancel_order, to: project_cancelled_order_status }
+- { from: decide_place_order, to: project_order_status }
+- { from: decide_confirm_order, to: project_order_status }
+- { from: decide_cancel_order, to: project_order_status }
 entry_nodes:
-- decide_place_order
 - project_cart_summary
+- translate_sales_confirmation
 - translate_sales_recovery
 exit_nodes:
-- project_cart_summary
-- project_order_status
 - decide_place_order
-- project_cancelled_order_status
+- project_order_status

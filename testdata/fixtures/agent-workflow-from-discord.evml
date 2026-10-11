@@ -22,8 +22,8 @@ rf 07 evt Conversation.InvoiceSearchRequested { conversationId: "conv-1001", fro
 tf 08 pcr InvoiceRepository ->> 07
 tf 09 cmd RecordInvoiceSearchResult { conversationId: "conv-1001", count: 2, customers: ["X", "Y"], failureReason: "" }
 tf 10 evt InvoiceSearch.InvoicesFound { conversationId: "conv-1001", count: 2, customers: ["X", "Y"] }
-tf 11 evt InvoiceSearch.InvoiceSearchFailed { conversationId: "conv-1001", reason: "repository_unavailable" } ->> 09
-tf 12 rmo InvoiceSearchResult { conversationId: "conv-1001", count: 2, customers: ["X", "Y"] } ->> 10
+tf 11 evt InvoiceSearch.InvoiceSearchFailed ->> 09 { conversationId: "conv-1001", reason: "repository_unavailable" }
+tf 12 rmo InvoiceSearchResult ->> 10 { conversationId: "conv-1001", count: 2, customers: ["X", "Y"] }
 
 note 08 {
   externalSystem: InvoiceRepository
@@ -52,7 +52,7 @@ note 14 {
 // ── Support Operations bounded context ───────────────────────────────────────
 
 rf 18 evt InvoiceSearch.InvoiceSearchFailed { conversationId: "conv-1001", reason: "repository_unavailable" }
-tf 19 rmo SupportReviewInbox [[SupportReviewInbox19]] ->> 18
+tf 19 rmo SupportReviewInbox ->> 18 [[SupportReviewInbox19]]
 
 note 19 {
   Support staff review this inbox from their support screen every morning.

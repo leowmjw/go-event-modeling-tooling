@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -11,10 +10,23 @@ import (
 	"go.temporal.io/sdk/client"
 )
 
+// starter delivers rf 21 Pricing.CartPriced by starting the parent workflow.
+// It does not wait: Sales then waits at the CheckoutScreen gate (cmd/checkout).
 func main() {
-	workflowID := flag.String("workflow-id", "order-ord-100", "Temporal workflow ID")
-	total := flag.Float64("total", 125, "order total")
+	workflowID := flag.String("workflow-id", "checkout-c-100", "parent Temporal workflow ID")
+	emptyCart := flag.Bool("empty-cart", false, "price an empty cart (rejection scenario)")
 	flag.Parse()
+
+	cart := orderfulfillment.CartPriced{
+		CartID: "c-100", CustomerID: "cust-7", Total: 125,
+		Items: []orderfulfillment.LineItem{
+			{SKU: "sku-1", Qty: 1, UnitPrice: 75},
+			{SKU: "sku-2", Qty: 1, UnitPrice: 50},
+		},
+	}
+	if *emptyCart {
+		cart.Items, cart.Total = []orderfulfillment.LineItem{}, 0
+	}
 
 	c, err := client.Dial(client.Options{})
 	if err != nil {
@@ -22,31 +34,12 @@ func main() {
 	}
 	defer c.Close()
 
-	input := orderfulfillment.OrderFulfillmentInput{
-		Cart: orderfulfillment.CartPriced{
-			CartID: "c-100", CustomerID: "cust-7", Total: *total,
-			Items: []orderfulfillment.LineItem{
-				{SKU: "sku-1", Quantity: 1, UnitPrice: 75},
-				{SKU: "sku-2", Quantity: 1, UnitPrice: 50},
-			},
-		},
-		Command:         orderfulfillment.PlaceOrderCommand{CartID: "c-100", CustomerID: "cust-7", Total: *total},
-		PaymentMethodID: "pm-9",
-		WarehouseID:     "wh-1",
-	}
 	run, err := c.ExecuteWorkflow(context.Background(), client.StartWorkflowOptions{
 		ID: *workflowID, TaskQueue: orderfulfillment.TaskQueue,
-	}, orderfulfillment.OrderFulfillmentWorkflowName, input)
+	}, orderfulfillment.OrderFulfillmentWorkflowName, orderfulfillment.OrderFulfillmentInput{CartPriced: cart})
 	if err != nil {
 		log.Fatal(err)
 	}
-	var result orderfulfillment.OrderFulfillmentResult
-	if err := run.Get(context.Background(), &result); err != nil {
-		log.Fatal(err)
-	}
-	output, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(string(output))
+	fmt.Printf("started %s (run %s); Sales waits at %s%s for the checkout signal\n",
+		run.GetID(), run.GetRunID(), run.GetID(), orderfulfillment.SalesChildSuffix)
 }

@@ -1,7 +1,7 @@
 {
   "schema": "evml-model/v1",
   "source": "testdata/fixtures/agent-workflow-from-discord.evml",
-  "sha256": "27099d2a7a588bafc82cca25644a9b02e7752d51d31108247b59fec23671c0a9",
+  "sha256": "d3f8605e79eb6dee9e9efe9477e896eb95a57e9ad4a4115289f4294a514ca752",
   "sections": [
     {
       "name": "Conversation Agent bounded context",
@@ -168,7 +168,9 @@
       "namespace": "InvoiceSearch",
       "line": 25,
       "section": "Invoice Search bounded context",
-      "sources": [],
+      "sources": [
+        "09"
+      ],
       "dataRef": "",
       "dataType": "",
       "data": "{ conversationId: \"conv-1001\", reason: \"repository_unavailable\" }"
@@ -181,7 +183,9 @@
       "namespace": "",
       "line": 26,
       "section": "Invoice Search bounded context",
-      "sources": [],
+      "sources": [
+        "10"
+      ],
       "dataRef": "",
       "dataType": "",
       "data": "{ conversationId: \"conv-1001\", count: 2, customers: [\"X\", \"Y\"] }"

@@ -1,50 +1,193 @@
 name: bounded-context-order-fulfillment-fulfillment
-version: 0.2.0
-description: IR for fulfillment context of bounded-context-order-fulfillment
+version: 1.0.0
+description: >-
+  Fulfillment context of bounded-context-order-fulfillment. Folds Sales.OrderPlaced
+  (rf 28) and Billing.PaymentAuthorized (rf 11) into PaidOrdersToShip; the
+  translator issues AllocateShipment for a ready order; the warehouse (external
+  call) allocates or reports missing SKUs; the decision emits ShipmentAllocated
+  or ShipmentAllocationDeferred; ShipmentQueue shows the result. While deferred,
+  Warehouse.InventoryReplenished (rf 25) for a missing SKU makes AllocationRetrier
+  re-issue AllocateShipment.
+config:
+  on_failure: notify_owner
 input:
   type: FulfillmentInput
   required:
-  - payload
+  - order_placed
+  - payment_authorized
+  optional:
+  - inventory_replenished
   input_schema:
     type: object
     title: FulfillmentInput
-    description: Union entry — Billing.PaymentAuthorized (rf 11) or Warehouse.InventoryReplenished (rf 25)
+    description: >-
+      Boundary facts for one order. order_placed and payment_authorized start
+      the workflow; inventory_replenished facts are delivered to the running
+      workflow while an allocation is deferred (zero or more).
+    required:
+    - order_placed
+    - payment_authorized
     properties:
-      payload:
+      order_placed: { $ref: "#/$defs/SalesOrderPlaced" }
+      payment_authorized: { $ref: "#/$defs/BillingPaymentAuthorized" }
+      inventory_replenished: { $ref: "#/$defs/InventoryReplenished" }
+    $defs:
+      ShipmentItem:
         type: object
+        required: [sku, qty]
+        properties:
+          sku: { type: string }
+          qty: { type: integer }
+      SalesOrderPlaced:
+        type: object
+        description: rf 28 Sales.OrderPlaced
+        required: [orderId, items]
+        properties:
+          orderId: { type: string }
+          items: { type: array, items: { $ref: "#/$defs/ShipmentItem" } }
+      BillingPaymentAuthorized:
+        type: object
+        description: rf 11 Billing.PaymentAuthorized
+        required: [orderId, amount]
+        properties:
+          orderId: { type: string }
+          amount: { type: number }
+      PaidOrdersToShipView:
+        type: object
+        description: tf 29 rmo PaidOrdersToShip (data PaidOrdersToShip29 + gwt 29)
+        required: [orderId, items, status]
+        properties:
+          orderId: { type: string }
+          items: { type: array, items: { $ref: "#/$defs/ShipmentItem" } }
+          status: { enum: [awaiting_payment, ready_to_ship] }
+      AllocateShipmentCommand:
+        type: object
+        description: tf 13 cmd AllocateShipment
+        required: [orderId, items]
+        properties:
+          orderId: { type: string }
+          items: { type: array, items: { $ref: "#/$defs/ShipmentItem" } }
+      WarehouseAllocation:
+        type: object
+        description: note 13 inventory_result — allocated with shipmentId and warehouseId, or unavailable with missingSkus
+        required: [allocated]
+        properties:
+          allocated: { type: boolean }
+          shipmentId: { type: string, description: required when allocated }
+          warehouseId: { type: string, description: required when allocated }
+          missingSkus: { type: array, items: { type: string }, description: non-empty when unavailable }
+      ShipmentAllocated:
+        type: object
+        description: tf 14 evt ShipmentAllocated
+        required: [orderId, shipmentId, warehouseId]
+        properties:
+          orderId: { type: string }
+          shipmentId: { type: string }
+          warehouseId: { type: string }
+      ShipmentAllocationDeferred:
+        type: object
+        description: tf 23 evt ShipmentAllocationDeferred
+        required: [orderId, reason, missingSkus]
+        properties:
+          orderId: { type: string }
+          reason: { enum: [inventory_unavailable] }
+          missingSkus: { type: array, items: { type: string } }
+      ShipmentAllocationResult:
+        type: object
+        required: [event]
+        properties:
+          event: { enum: [ShipmentAllocated, ShipmentAllocationDeferred] }
+          allocated: { $ref: "#/$defs/ShipmentAllocated" }
+          deferred: { $ref: "#/$defs/ShipmentAllocationDeferred" }
+      ShipmentQueueView:
+        type: object
+        description: tf 15 rmo ShipmentQueue (data ShipmentQueue15 + gwt 15)
+        required: [orderId, status]
+        properties:
+          shipmentId: { type: string, description: queued_for_picking only }
+          orderId: { type: string }
+          warehouseId: { type: string, description: queued_for_picking only }
+          status: { enum: [queued_for_picking, awaiting_inventory] }
+          missingSkus: { type: array, items: { type: string }, description: awaiting_inventory only }
+      InventoryReplenished:
+        type: object
+        description: rf 25 Warehouse.InventoryReplenished
+        required: [warehouseId, sku]
+        properties:
+          warehouseId: { type: string }
+          sku: { type: string }
 nodes:
+- id: project_paid_orders_to_ship
+  kind: pure_function
+  description: >-
+    Fold rf 28 Sales.OrderPlaced and rf 11 Billing.PaymentAuthorized into rmo
+    PaidOrdersToShip — "which paid orders need a shipment, with which items?"
+    (canonical translation shape: external facts build a read model the
+    translator watches).
+  source:
+    section: tf 29 rmo PaidOrdersToShip
+  impl: extracted/fulfillment.py:project_paid_orders_to_ship
+  input:
+    order_placed: SalesOrderPlaced
+    payment_authorized: BillingPaymentAuthorized
+  inputs:
+    order_placed: pipeline.input.order_placed
+    payment_authorized: pipeline.input.payment_authorized
+  output: PaidOrdersToShipView
 - id: translate_fulfillment
   kind: pure_function
-  description: pcr FulfillmentTranslator — map Billing.PaymentAuthorized (rf 11) to AllocateShipmentCommand
+  description: pcr FulfillmentTranslator — issue AllocateShipmentCommand for a ready_to_ship order.
   source:
     section: tf 12 pcr FulfillmentTranslator
   impl: extracted/fulfillment.py:translate_fulfillment
   input:
-    event: Billing_PaymentAuthorized
+    view: PaidOrdersToShipView
   inputs:
-    event: pipeline.input
+    view: project_paid_orders_to_ship.output
   output: AllocateShipmentCommand
-- id: decide_allocate_shipment
-  kind: pure_function
-  description: cmd AllocateShipment -> ShipmentAllocated or ShipmentAllocationDeferred; inventory check injected
+- id: allocate_shipment_with_warehouse
+  kind: external_call
+  description: >-
+    Ask warehouse inventory (note 13 external_system) to allocate the items.
+    The warehouse picks the warehouse. Idempotency key is orderId plus the
+    allocation attempt number: Temporal retries of one attempt reuse it, a
+    replenishment-triggered re-issue gets a new one.
   source:
     section: tf 13 cmd AllocateShipment
-  impl: extracted/fulfillment.py:decide_allocate_shipment
+  impl: extracted/fulfillment.py:allocate_shipment_with_warehouse
   input:
     command: AllocateShipmentCommand
   inputs:
     command: translate_fulfillment.output
-  output: ShipmentAllocationResult
-  mandatory: true
+  output: WarehouseAllocation
   timeout: 30s
   retry:
     max: 3
     backoff: exponential
   constants:
     external_system: warehouse_inventory
+    idempotency_key: orderId plus allocation attempt number
+    inventory_result: allocated with shipmentId and warehouseId, or unavailable with missingSkus
+- id: decide_allocate_shipment
+  kind: pure_function
+  description: >-
+    cmd AllocateShipment -> ShipmentAllocated (shipmentId, warehouseId from the
+    warehouse) or ShipmentAllocationDeferred{inventory_unavailable, missingSkus}.
+    A warehouse result missing those fields is invalid input — never defaulted.
+  source:
+    section: tf 13 cmd AllocateShipment
+  impl: extracted/fulfillment.py:decide_allocate_shipment
+  input:
+    command: AllocateShipmentCommand
+    allocation: WarehouseAllocation
+  inputs:
+    command: translate_fulfillment.output
+    allocation: allocate_shipment_with_warehouse.output
+  output: ShipmentAllocationResult
+  mandatory: true
 - id: project_shipment_queue
   kind: pure_function
-  description: Fold ShipmentAllocated/ShipmentAllocationDeferred into rmo ShipmentQueue view
+  description: Fold ShipmentAllocated/ShipmentAllocationDeferred into rmo ShipmentQueue — "where is this order's shipment?"
   source:
     section: tf 15 rmo ShipmentQueue
   impl: extracted/fulfillment.py:project_shipment_queue
@@ -55,23 +198,37 @@ nodes:
   output: ShipmentQueueView
 - id: retry_allocation
   kind: pure_function
-  description: pcr AllocationRetrier — on Warehouse.InventoryReplenished (rf 25) re-issue AllocateShipmentCommand for the deferred order
+  description: >-
+    pcr AllocationRetrier — when rf 25 replenishes one of the deferred order's
+    missingSkus, re-issue AllocateShipmentCommand with the items from
+    PaidOrdersToShip; otherwise issue nothing (note 26). The re-issued command
+    feeds allocate_shipment_with_warehouse again (constants.feedback_to); that
+    edge is not drawn because it would make the graph cyclic — runtimes deliver
+    replenishment to the running workflow and loop.
   source:
     section: tf 26 pcr AllocationRetrier
   impl: extracted/fulfillment.py:retry_allocation
   input:
-    replenished: Warehouse_InventoryReplenished
-    deferred: ShipmentAllocationDeferred
+    replenished: InventoryReplenished
+    deferred: ShipmentAllocationResult
+    view: PaidOrdersToShipView
   inputs:
-    replenished: pipeline.input
+    replenished: pipeline.input.inventory_replenished
     deferred: decide_allocate_shipment.output
+    view: project_paid_orders_to_ship.output
   output: AllocateShipmentCommand
+  constants:
+    feedback_to: allocate_shipment_with_warehouse
 edges:
+- { from: project_paid_orders_to_ship, to: translate_fulfillment }
+- { from: translate_fulfillment, to: allocate_shipment_with_warehouse }
 - { from: translate_fulfillment, to: decide_allocate_shipment }
+- { from: allocate_shipment_with_warehouse, to: decide_allocate_shipment }
 - { from: decide_allocate_shipment, to: project_shipment_queue }
 - { from: decide_allocate_shipment, to: retry_allocation }
+- { from: project_paid_orders_to_ship, to: retry_allocation }
 entry_nodes:
-- translate_fulfillment
+- project_paid_orders_to_ship
 exit_nodes:
 - project_shipment_queue
 - retry_allocation

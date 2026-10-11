@@ -15,7 +15,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	inventory, err := inventoryFromEnv(os.Getenv("INVENTORY_OUTCOME"))
+	warehouse, err := warehouseFromEnv(os.Getenv("INVENTORY_OUTCOME"))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func main() {
 	defer c.Close()
 
 	w := worker.New(c, orderfulfillment.TaskQueue, worker.Options{})
-	if err := orderfulfillment.Register(w, &orderfulfillment.Activities{PaymentGateway: paymentGateway, Inventory: inventory}); err != nil {
+	if err := orderfulfillment.Register(w, &orderfulfillment.Activities{PaymentGateway: paymentGateway, Warehouse: warehouse}); err != nil {
 		log.Fatal(err)
 	}
 	if err := w.Run(worker.InterruptCh()); err != nil {
@@ -36,22 +36,24 @@ func main() {
 
 func paymentGatewayFromEnv(value string) (orderfulfillment.PaymentGateway, error) {
 	switch value {
-	case "", "authorized":
-		return orderfulfillment.StaticPaymentGateway{Response: orderfulfillment.PaymentGatewayResponse{Authorized: true, AuthorizationID: "auth-1"}}, nil
+	case "", "approved":
+		return &orderfulfillment.DemoPaymentGateway{Result: orderfulfillment.GatewayAuthorization{Approved: true, AuthorizationID: "auth-1"}}, nil
 	case "declined":
-		return orderfulfillment.StaticPaymentGateway{Response: orderfulfillment.PaymentGatewayResponse{DeclineReason: "issuer_declined"}}, nil
+		return &orderfulfillment.DemoPaymentGateway{Result: orderfulfillment.GatewayAuthorization{Reason: "insufficient_funds"}}, nil
 	default:
-		return nil, fmt.Errorf("PAYMENT_OUTCOME must be authorized or declined, got %q", value)
+		return nil, fmt.Errorf("PAYMENT_OUTCOME must be approved or declined, got %q", value)
 	}
 }
 
-func inventoryFromEnv(value string) (orderfulfillment.InventoryService, error) {
-	allocated := orderfulfillment.InventoryResponse{Available: true, ShipmentID: "sh-55"}
+func warehouseFromEnv(value string) (orderfulfillment.WarehouseInventory, error) {
+	warehouse := &orderfulfillment.DemoWarehouse{ShipmentID: "sh-55", WarehouseID: "wh-1"}
 	switch value {
 	case "", "allocated":
-		return orderfulfillment.StaticInventoryService{Response: allocated}, nil
+		return warehouse, nil
 	case "deferred":
-		return &orderfulfillment.SequencedInventoryService{Responses: []orderfulfillment.InventoryResponse{{}, allocated}}, nil
+		warehouse.UnavailableAttempts = 1
+		warehouse.MissingSKUs = []string{"sku-1"}
+		return warehouse, nil
 	default:
 		return nil, fmt.Errorf("INVENTORY_OUTCOME must be allocated or deferred, got %q", value)
 	}

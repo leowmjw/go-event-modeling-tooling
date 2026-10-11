@@ -200,8 +200,10 @@ Load-bearing rules:
   provenance, and a bounded live Overmind demo.
 
 Reference implementation/demo:
-`COMPILED/go-bounded-context-order-fulfillment/` (parent + Sales/Billing/Fulfillment children,
-read-model projections, inventory-replenishment Signal/Query feedback, worker/starter commands).
+`COMPILED/go-bounded-context-order-fulfillment/` (V2: parent + Sales/Billing/Fulfillment children,
+HITL gate as a `place_order` Signal, child→parent placement Signal, history-based idempotent
+confirm/cancel, gateway/warehouse activities with attempt-scoped idempotency keys,
+inventory-replenishment Signal/Query feedback, worker/starter/checkout/result/replenish commands).
 
 ---
 

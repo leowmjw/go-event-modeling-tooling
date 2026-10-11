@@ -260,6 +260,59 @@ tf 02 evt Bad ->> 01 { "a": { }
 	}
 }
 
+func TestParseFrameClauseOrder(t *testing.T) {
+	tests := []struct {
+		name    string
+		frame   string
+		wantErr string
+	}{
+		{name: "sources then ref then payload", frame: `tf 03 rmo View ->> 01 ->> 02 [[View03]] { a: 1 }`},
+		{name: "trailing comment", frame: `tf 03 rmo View ->> 01 { a: 1 } // why`},
+		{name: "source after payload", frame: `tf 03 evt Done { a: 1 } ->> 01`, wantErr: "must come before the payload"},
+		{name: "ref after payload", frame: `tf 03 rmo View { a: 1 } [[View03]]`, wantErr: "must come before the payload"},
+		{name: "source after quoted payload", frame: `tf 03 evt Done "x" ->> 01`, wantErr: "after payload"},
+		{name: "source after ref", frame: `tf 03 rmo View [[View03]] ->> 01`, wantErr: "must come before the [[View03]]"},
+		{name: "two refs", frame: `tf 03 rmo View [[View03]] [[View03]]`, wantErr: "at most one"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			model, err := Parse("eventmodeling\ntf 01 evt A\ntf 02 evt B\n" + tc.frame + "\ndata View03 {\n  a: 1\n}\n")
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Parse() error = %v", err)
+				}
+				if got := len(model.Frames[2].SourceIDs); got == 0 {
+					t.Fatalf("sources were dropped: %+v", model.Frames[2])
+				}
+				return
+			}
+			pe, ok := errors.AsType[*ParseError](err)
+			if !ok {
+				t.Fatalf("expected *ParseError, got %T (%v)", err, err)
+			}
+			if pe.Line != 4 || !strings.Contains(pe.Msg, tc.wantErr) {
+				t.Fatalf("ParseError = %v, want line 4 containing %q", pe, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestParseRejectsContentAfterMultilinePayload(t *testing.T) {
+	_, err := Parse(`eventmodeling
+tf 01 cmd Start
+data Done02 {
+  a: 1
+} ->> 01
+`)
+	pe, ok := errors.AsType[*ParseError](err)
+	if !ok {
+		t.Fatalf("expected *ParseError, got %T (%v)", err, err)
+	}
+	if pe.Line != 5 {
+		t.Fatalf("ParseError line = %d, want 5 (the closing brace line)", pe.Line)
+	}
+}
+
 func TestValidateConnections(t *testing.T) {
 	model, err := Parse(`eventmodeling
 tf 01 ui UI

@@ -1,49 +1,128 @@
 name: bounded-context-order-fulfillment-billing
-version: 0.2.0
-description: IR for billing context of bounded-context-order-fulfillment
+version: 0.3.0
+description: >-
+  Billing context of bounded-context-order-fulfillment. On Sales.OrderPlaced
+  (rf 06), translate to AuthorizePayment, ask the payment gateway (external
+  call, idempotent on orderId), decide PaymentAuthorized or PaymentDeclined from
+  the gateway result, and project PaymentStatus.
+config:
+  on_failure: notify_owner
 input:
-  type: Sales_OrderPlaced
+  type: SalesOrderPlaced
   required:
-  - payload
+  - orderId
+  - paymentMethodId
+  - total
   input_schema:
     type: object
-    title: Sales_OrderPlaced
+    title: SalesOrderPlaced
+    description: rf 06 Sales.OrderPlaced
+    required: [orderId, paymentMethodId, total]
     properties:
-      payload:
+      orderId: { type: string }
+      paymentMethodId: { type: string }
+      total: { type: number }
+    $defs:
+      AuthorizePaymentCommand:
         type: object
+        description: tf 08 cmd AuthorizePayment
+        required: [orderId, amount, paymentMethodId]
+        properties:
+          orderId: { type: string }
+          amount: { type: number }
+          paymentMethodId: { type: string }
+      GatewayAuthorization:
+        type: object
+        description: note 08 gateway_result — approved with authorizationId, or declined with reason
+        required: [approved]
+        properties:
+          approved: { type: boolean }
+          authorizationId: { type: string, description: required when approved }
+          reason: { type: string, description: required when declined }
+      PaymentAuthorized:
+        type: object
+        description: tf 09 evt PaymentAuthorized
+        required: [orderId, authorizationId, amount]
+        properties:
+          orderId: { type: string }
+          authorizationId: { type: string }
+          amount: { type: number }
+      PaymentDeclined:
+        type: object
+        description: tf 22 evt PaymentDeclined
+        required: [orderId, reason]
+        properties:
+          orderId: { type: string }
+          reason: { type: string }
+      PaymentAuthorizationResult:
+        type: object
+        required: [event]
+        properties:
+          event: { enum: [PaymentAuthorized, PaymentDeclined] }
+          authorized: { $ref: "#/$defs/PaymentAuthorized" }
+          declined: { $ref: "#/$defs/PaymentDeclined" }
+      PaymentStatusView:
+        type: object
+        description: tf 10 rmo PaymentStatus (frame payload + gwt 10)
+        required: [orderId, status]
+        properties:
+          orderId: { type: string }
+          status: { enum: [authorized, declined] }
+          reason: { type: string, description: declined only }
 nodes:
 - id: translate_billing
   kind: pure_function
-  description: pcr BillingTranslator — map Sales.OrderPlaced (rf 06) to AuthorizePaymentCommand
+  description: pcr BillingTranslator — map rf 06 Sales.OrderPlaced to AuthorizePaymentCommand (amount = total).
   source:
     section: tf 07 pcr BillingTranslator
   impl: extracted/billing.py:translate_billing
   input:
-    event: Sales_OrderPlaced
+    event: SalesOrderPlaced
   inputs:
     event: pipeline.input
   output: AuthorizePaymentCommand
-- id: decide_authorize_payment
-  kind: pure_function
-  description: cmd AuthorizePayment -> PaymentAuthorized or PaymentDeclined; issuer decision injected as issuer_result
+- id: authorize_payment_with_gateway
+  kind: external_call
+  description: >-
+    Ask the payment gateway (note 08 external_system) to authorize the charge.
+    Idempotency key is orderId, so a retried attempt after a lost response
+    cannot charge twice. Returns the raw gateway decision only.
   source:
     section: tf 08 cmd AuthorizePayment
-  impl: extracted/billing.py:decide_authorize_payment
+  impl: extracted/billing.py:authorize_payment_with_gateway
   input:
     command: AuthorizePaymentCommand
   inputs:
     command: translate_billing.output
-  output: PaymentAuthorizationResult
-  mandatory: true
+  output: GatewayAuthorization
   timeout: 10s
   retry:
     max: 3
     backoff: exponential
   constants:
     external_system: payment_gateway
+    idempotency_key: orderId
+    gateway_result: approved with authorizationId, or declined with reason
+- id: decide_authorize_payment
+  kind: pure_function
+  description: >-
+    cmd AuthorizePayment -> PaymentAuthorized (authorizationId from the gateway)
+    or PaymentDeclined (reason from the gateway). A gateway result missing
+    those fields is invalid input — never defaulted.
+  source:
+    section: tf 08 cmd AuthorizePayment
+  impl: extracted/billing.py:decide_authorize_payment
+  input:
+    command: AuthorizePaymentCommand
+    gateway: GatewayAuthorization
+  inputs:
+    command: translate_billing.output
+    gateway: authorize_payment_with_gateway.output
+  output: PaymentAuthorizationResult
+  mandatory: true
 - id: project_payment_status
   kind: pure_function
-  description: Fold PaymentAuthorized/PaymentDeclined into rmo PaymentStatus view
+  description: Fold PaymentAuthorized/PaymentDeclined into rmo PaymentStatus — "was this order's payment authorized?"
   source:
     section: tf 10 rmo PaymentStatus
   impl: extracted/billing.py:project_payment_status
@@ -53,10 +132,12 @@ nodes:
     event: decide_authorize_payment.output
   output: PaymentStatusView
 edges:
+- { from: translate_billing, to: authorize_payment_with_gateway }
 - { from: translate_billing, to: decide_authorize_payment }
+- { from: authorize_payment_with_gateway, to: decide_authorize_payment }
 - { from: decide_authorize_payment, to: project_payment_status }
 entry_nodes:
 - translate_billing
 exit_nodes:
-- project_payment_status
 - decide_authorize_payment
+- project_payment_status

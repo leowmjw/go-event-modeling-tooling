@@ -4,178 +4,124 @@ Standalone Go + Temporal implementation generated from `bounded-context-order-fu
 
 ## Architecture
 
-- `OrderFulfillmentWorkflowV1` — parent process workflow.
-- `SalesWorkflowV1` — place/reject an order and project `CartSummary`/`OrderStatus`.
-- `BillingWorkflowV1` — authorize payment and project `PaymentStatus`.
-- `FulfillmentWorkflowV1` — allocate shipment, project/query `ShipmentQueue`, and wait durably for inventory replenishment after deferral.
-- `SalesRecoveryWorkflowV1` — cancel an order idempotently from prior domain events and project `CancelledOrderStatus`.
-- Task queue: `bounded-context-order-fulfillment-v1`.
+- `OrderFulfillmentWorkflowV2` — parent; coordinates the cross-context facts (`rf 06`/`rf 28` from `OrderPlaced`, `rf 11`/`rf 30` from `PaymentAuthorized`, `rf 16` from `PaymentDeclined`).
+- `SalesWorkflowV2` (`<id>/sales`) — projects `CartSummary`, waits at the CheckoutScreen gate for `PlaceOrder`, decides placement, then closes the order from the billing outcome (`ConfirmOrder` / `CancelOrder`) and projects `OrderStatus`.
+- `BillingWorkflowV2` (`<id>/billing`) — authorizes payment through the gateway activity and projects `PaymentStatus`.
+- `FulfillmentWorkflowV2` (`<id>/fulfillment`) — projects `PaidOrdersToShip`, allocates through the warehouse activity, projects `ShipmentQueue`, and on deferral waits durably for `InventoryReplenished` of a missing SKU.
+- Task queue: `bounded-context-order-fulfillment-v2`. V2 is a new workflow type set because every context's input/output changed incompatibly with V1; drain V1 runs on a V1 worker.
 
-The parent starts child workflows with stable IDs derived from the parent workflow ID. Cross-context facts are typed child inputs. Payment and inventory I/O are activities; workflows contain deterministic orchestration, decisions, and projections only.
+Flow: the starter delivers `CartPriced` and returns. Sales waits for the `place_order` signal (sent by `cmd/checkout`), then reports the placement to the parent with `SignalExternalWorkflow`. On `OrderPlaced` the parent runs Billing, sends the outcome to Sales on `billing_outcome` with `SignalChildWorkflow`, and on authorization starts Fulfillment. A rejected placement ends the run inside Sales.
+
+| Signal | Target | Payload | IR mapping |
+|---|---|---|---|
+| `place_order` | `<id>/sales` | `PlaceOrderCommand` | `gate_place_order` (hitl_gate, signal `place_order`) |
+| `order_placement` | parent | `PlaceOrderResult` | cross-context link: `decide_place_order` exit |
+| `billing_outcome` | `<id>/sales` | `BillingOutcome` | `pipeline.input.payment_authorized` / `payment_declined` |
+| `inventory_replenished` | `<id>/fulfillment` | `InventoryReplenished` | `pipeline.input.inventory_replenished` + `feedback_to` loop |
+
+| Query | Workflow | Returns |
+|---|---|---|
+| `cart_summary` | sales | `CartSummaryView` |
+| `order_status` | sales | `*OrderStatusView` (null before placement / when rejected) |
+| `payment_status` | billing | `*PaymentStatusView` |
+| `paid_orders_to_ship` | fulfillment | `PaidOrdersToShipView` |
+| `shipment_queue` | fulfillment | `*ShipmentQueueView` |
 
 ## IR coverage
 
-| Context | IR node | Go mapping | Runtime shape |
-|---|---|---|---|
-| sales | `decide_place_order` | `DecidePlaceOrder` | deterministic decision |
-| sales | `project_cart_summary` | `ProjectCartSummary` | returned projection |
-| sales | `project_order_status` | `ProjectOrderStatus` | returned projection |
-| sales | `translate_sales_recovery` | `TranslateSalesRecovery` | deterministic translator |
-| sales | `decide_cancel_order` | `DecideCancelOrder` | prior-event decision |
-| sales | `project_cancelled_order_status` | `CancelledOrderStatusView` construction | returned projection |
-| billing | `translate_billing` | `TranslateBilling` | deterministic translator |
-| billing | `decide_authorize_payment` | `AuthorizePayment` + `DecidePayment` | activity boundary + decision |
-| billing | `project_payment_status` | `PaymentStatusView` construction | returned projection |
-| fulfillment | `translate_fulfillment` | `TranslateFulfillment` | deterministic translator |
-| fulfillment | `decide_allocate_shipment` | `CheckInventory` + `DecideShipment` | activity boundary + decision |
-| fulfillment | `project_shipment_queue` | `ShipmentQueueView` | returned and queryable projection |
-| fulfillment | `retry_allocation` | `inventory_replenished` signal loop | durable feedback edge |
+| Context | IR node | Kind | Go mapping | Runtime shape |
+|---|---|---|---|---|
+| sales | `project_cart_summary` | pure_function | `ProjectCartSummary` | workflow projection + `cart_summary` query |
+| sales | `gate_place_order` | hitl_gate | `place_order` signal channel in `SalesWorkflow` | durable wait, no timeout; invalid commands are logged and the gate keeps waiting |
+| sales | `decide_place_order` | pure_function | `DecidePlaceOrder` | deterministic decision; result signalled to parent |
+| sales | `translate_sales_confirmation` | pure_function | `TranslateSalesConfirmation` | deterministic translator |
+| sales | `decide_confirm_order` | pure_function | `DecideConfirmOrder` | decision over workflow-recorded `History` |
+| sales | `translate_sales_recovery` | pure_function | `TranslateSalesRecovery` | deterministic translator |
+| sales | `decide_cancel_order` | pure_function | `DecideCancelOrder` | decision over workflow-recorded `History` |
+| sales | `project_order_status` | pure_function | `ProjectOrderStatus` | workflow projection + `order_status` query |
+| billing | `translate_billing` | pure_function | `TranslateBilling` | deterministic translator |
+| billing | `authorize_payment_with_gateway` | external_call | `Activities.AuthorizePaymentWithGateway` | activity, 10s, 4 attempts, key `orderId` |
+| billing | `decide_authorize_payment` | pure_function | `DecideAuthorizePayment` | deterministic decision |
+| billing | `project_payment_status` | pure_function | `ProjectPaymentStatus` | projection + `payment_status` query |
+| fulfillment | `project_paid_orders_to_ship` | pure_function | `ProjectPaidOrdersToShip` | projection + `paid_orders_to_ship` query |
+| fulfillment | `translate_fulfillment` | pure_function | `TranslateFulfillment` | deterministic translator |
+| fulfillment | `allocate_shipment_with_warehouse` | external_call | `Activities.AllocateShipmentWithWarehouse` | activity, 30s, 4 attempts, key `<orderId>/allocation-<n>` |
+| fulfillment | `decide_allocate_shipment` | pure_function | `DecideAllocateShipment` | deterministic decision |
+| fulfillment | `project_shipment_queue` | pure_function | `ProjectShipmentQueue` | projection + `shipment_queue` query |
+| fulfillment | `retry_allocation` | pure_function | `RetryAllocation` in the `inventory_replenished` loop | durable Signal feedback edge (`feedback_to: allocate_shipment_with_warehouse`) |
 
-All 13 IR nodes are represented. No IR node, edge, exit projection, retry, or gwt is report-only.
+All 18 IR nodes are mapped; none is report-only. Every IR edge is a data dependency in the workflow code; the gate edge uses the `place_order` signal. Mandatory decision nodes always run before their context completes. Exit nodes are the typed child results (`SalesResult.Placement`/`OrderStatus`, `BillingResult.Payment`/`PaymentStatus`, `FulfillmentResult.ShipmentQueue`).
+
+Idempotency comes from workflow state, never from callers: Sales records every decided event in `History` and the confirm/cancel decisions read it, so a duplicate `billing_outcome` produces `OrderConfirmationIgnored` / `OrderCancellationIgnored`.
 
 ## External activity contracts
 
 `Activities` injects:
 
-- `PaymentGateway.Authorize` → `PaymentGatewayResponse`
-- `InventoryService.Allocate` → `InventoryResponse`
+- `PaymentGateway.Authorize(ctx, AuthorizePaymentCommand, idempotencyKey)` → `GatewayAuthorization` — approved with `authorizationId`, or declined with `reason` (note 08).
+- `WarehouseInventory.Allocate(ctx, AllocateShipmentCommand, idempotencyKey)` → `WarehouseAllocation` — allocated with `shipmentId` and `warehouseId`, or unavailable with `missingSkus` (note 13).
 
-Payment uses a 10-second start-to-close timeout and inventory uses 30 seconds. Both use four total attempts (`retry.max: 3` plus the initial attempt), one-second initial backoff, exponential coefficient 2, and a one-minute cap.
+An incomplete result fails the activity as non-retryable (`InvalidGatewayResult` / `InvalidWarehouseResult`); nothing is defaulted. Transport errors retry with one-second initial backoff, coefficient 2, and four total attempts (`retry.max: 3` plus the first). Activity retries reuse the same idempotency key; a replenishment-triggered re-issue uses the next attempt number.
 
 The demo worker supports:
 
-- `PAYMENT_OUTCOME=authorized|declined`
-- `INVENTORY_OUTCOME=allocated|deferred`
+- `PAYMENT_OUTCOME=approved|declined` (declined reason `insufficient_funds`)
+- `INVENTORY_OUTCOME=allocated|deferred` (deferred reports `sku-1` missing on each order's first attempt key)
 
-`INVENTORY_OUTCOME=deferred` returns deferred on the first allocation and allocated after a matching replenishment signal. Invalid values fail worker startup rather than silently choosing behavior.
+Both demo adapters replay the stored answer for a repeated idempotency key. Invalid values fail worker startup.
 
 ## Demo prerequisites
 
-The demo assumes these commands are available:
+`mise` installs the latest stable Go and Overmind from the local `.mise.toml`; the Temporal CLI is expected at `$HOME/go/bin/temporal`; Overmind needs `tmux`. `mise run doctor` verifies all of these plus module integrity and the demo files. Overmind runs the `Procfile`: a local Temporal dev server on `localhost:7233` (UI `http://localhost:8233`, state in ignored `.temporal/`) and the worker.
 
-```sh
-mise --version
-overmind --version
-temporal --version
-```
-
-`mise` installs the latest stable Go release (currently 1.27) and Overmind from the local `.mise.toml`; Temporal CLI is expected at `$HOME/go/bin/temporal`. `mise run doctor` verifies Go, mise-managed Overmind, tmux, Temporal CLI, module integrity, and required demo files. Overmind runs the `Procfile`: a persistent local Temporal development server on `localhost:7233` with UI at `http://localhost:8233`, plus the worker. Local state is stored under ignored `.temporal/`.
-
-## Demo: successful order
-
-From this directory:
+## Demo
 
 ```sh
 mise install
-mise run doctor
 mise run check
-mise run demo
+mise run demo            # keep running; Ctrl-C or `mise run demo:stop` in another terminal
 ```
 
-Keep that terminal running. In another terminal:
+In another terminal, step through one order (default workflow ID `checkout-c-100`; override with `WORKFLOW_ID=...`):
 
 ```sh
-mise run start -- -workflow-id order-success
+mise run start                 # CartPriced → Sales waits at the CheckoutScreen gate
+mise run query:cart-summary    # CartSummary the customer sees
+mise run checkout              # PlaceOrder {orderId: ord-100, paymentMethodId: pm-9}
+mise run result                # final JSON: OrderPlaced, OrderConfirmed, PaymentAuthorized, ShipmentAllocated
+mise run query:order-status    # {"status":"confirmed", ...}
 ```
 
-The result contains `OrderPlaced`, `PaymentAuthorized`, `ShipmentAllocated`, and all projected read models. Inspect parent and child histories in the Temporal UI.
+Each scenario task uses a fresh workflow ID and prints the final JSON:
 
-Stop services when finished:
+| Task | Worker started with | Outcome |
+|---|---|---|
+| `mise run scenario:happy` | defaults | placed → authorized → confirmed → allocated |
+| `mise run scenario:reject` | defaults | `OrderPlacementRejected{empty_cart}`; billing/fulfillment never start |
+| `mise run scenario:decline` | `PAYMENT_OUTCOME=declined mise run demo` | `PaymentDeclined` → `OrderCancelled`, status `cancelled`, no fulfillment |
+| `mise run scenario:deferred` | `INVENTORY_OUTCOME=deferred mise run demo` | `ShipmentAllocationDeferred{missingSkus:[sku-1]}`; `sku-9` replenishment ignored; `sku-1` replenishment re-allocates (attempts 2) |
 
-```sh
-mise run demo:stop
-```
-
-## Demo: rejected empty cart
-
-With the demo running:
-
-```sh
-mise run reject
-```
-
-The sales child returns `OrderPlacementRejected`; billing and fulfillment are never started.
-
-## Demo: declined payment and cancellation
-
-Start the stack with a declined gateway:
-
-```sh
-PAYMENT_OUTCOME=declined mise run demo
-```
-
-Then run:
-
-```sh
-mise run start -- -workflow-id order-declined
-```
-
-The result contains `PaymentDeclined`, `OrderCancelled`, and `CancelledOrderStatus`. Stop the stack before switching worker outcomes.
-
-## Demo: deferred shipment and replenishment
-
-Start a worker whose first inventory allocation defers:
-
-```sh
-INVENTORY_OUTCOME=deferred mise run demo
-```
-
-Start the order in a second terminal; it waits durably in fulfillment:
-
-```sh
-mise run start -- -workflow-id order-deferred
-```
-
-While it waits, query the child read model:
-
-```sh
-temporal workflow query \
-  --workflow-id order-deferred/fulfillment \
-  --type shipment_queue
-```
-
-Expected status: `deferred:inventory_unavailable`.
-
-Send the modeled `Warehouse.InventoryReplenished` fact from a third terminal:
-
-```sh
-go run ./cmd/replenish \
-  -workflow-id order-deferred \
-  -warehouse-id wh-1 \
-  -sku sku-1
-```
-
-The child retries allocation, projects `queued_for_picking`, completes, and releases the parent. The blocked starter then prints the final JSON result.
-
-The convenience tasks target the default `order-ord-100` workflow:
-
-```sh
-mise run query
-mise run replenish
-```
+Stop the stack before switching worker outcomes. Other tasks: `mise run replenish` (`SKU=...`), `query:payment-status`, `query:paid-orders`, `query:shipment-queue`.
 
 ## Development checks
 
 ```sh
-mise run doctor
-mise run test
-mise run vet
-mise run check
+mise run check   # gofmt, go mod tidy -diff, go test -race ./..., go vet ./...
 ```
 
-`mise run check` requires clean `gofmt`, clean `go mod tidy -diff`, and passing race tests and vet. Temporal testsuite tests need no server. External activities are replaced with anonymous functions registered through `RegisterActivityWithOptions`; closure counters assert exact calls without interface mocks.
+Tests need no server (`go.temporal.io/sdk/testsuite`); activities are anonymous functions registered with `RegisterActivityWithOptions` that record every request.
 
-Coverage includes all eight gwts, every read-model projection, invalid boundary values, parent authorized/rejected/declined paths, deferred shipment plus live query and replenishment, full parent feedback handling, and retry after a transient payment failure.
+- `decisions_test.go` — all 21 gwts and all 5 `data` blocks, asserting complete payloads, plus invalid-input and incomplete-result cases.
+- `workflows_test.go` — gate ignores an invalid command; duplicate authorized/declined outcomes are ignored from history; malformed outcome ignored; empty-cart rejection; billing approve/decline with exact request and idempotency key; gateway retry succeeding on attempt 4 and failing after 4 with the same key; incomplete gateway result not retried; fulfillment immediate allocation; deferral with unrelated then matching SKU and attempt-scoped keys; warehouse retry exhaustion with the same key; parent happy / decline / reject / deferred paths with child queries and signals by child workflow ID; demo adapter idempotency.
+- `cmd/worker/main_test.go` — environment adapter selection.
 
 ## Source artifacts
 
-- Intake snapshot: `model.json` (sha256/source metadata included).
-- Runtime-neutral IR, provenance, and compile reports remain authoritative in `../bounded-context-order-fulfillment/{sales,billing,fulfillment}/`; they are not duplicated here to avoid drift.
-- Pipeline versions: sales `0.2.0`, billing `0.2.0`, fulfillment `0.2.0`.
-- Go SDK: `go.temporal.io/sdk v1.48.0` (released 2026-08-18).
+- Intake snapshot: `model.json` (source sha256 `fb5f913d12b2c2e453ba86e8026db5a7b3edde561a8065063bc8ede02837ac44`).
+- Runtime-neutral IR, provenance, and compile reports remain authoritative in `../bounded-context-order-fulfillment/{sales,billing,fulfillment}/`.
+- Pipeline versions: sales `1.0.0`, billing `0.3.0`, fulfillment `1.0.0`.
+- Go SDK: `go.temporal.io/sdk v1.48.0`.
 
 ## Temporal parity and determinism
 
-This implementation preserves public-SDK activity timeout/retry semantics, mandatory execution, typed exit results, read-model projections, deterministic workflow code, and external I/O isolation. The fulfillment feedback edge is represented by a durable Signal and Query on the stateful fulfillment child instead of an invalid cyclic DAG edge. The parent/child topology is intentional for the model's bounded contexts.
-
-Workflow code uses only Temporal workflow APIs for orchestration. It performs no filesystem, network, database, wall-clock, random, native goroutine, or native-channel operations. No HITL, fan-out, LLM, MCP, or agent-loop nodes occur in this model.
+Workflow code uses only Temporal workflow APIs (`Selector`, signal channels, child workflows, activities, query handlers). It performs no filesystem, network, wall-clock, random, native goroutine, or native-channel operations. The HITL gate has no timeout because the model defines no abandonment event. The fulfillment feedback edge is a durable Signal loop on the stateful child instead of a cyclic DAG edge. Each replenishment signal adds history; a long-lived deferral with heavy signal traffic would need Continue-As-New, which this model does not require.
